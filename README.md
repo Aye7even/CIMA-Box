@@ -49,17 +49,24 @@ The app itself speaks English, Español, Português, Français, Deutsch, Italian
 
 ![Settings: app language, API keys, hotkeys, updates and service status](docs/settings.png)
 
-## What you need
+## Before you start
 
-- **Windows 10 or 11.**
-- **An [ElevenLabs](https://elevenlabs.io) account and API key.** CIMA Box uses your own account,
-  so you pay ElevenLabs directly for what you use. Higher plans unlock better audio quality.
-- **A virtual audio cable** so games and apps can hear the new voice, for example the free
-  [VB-Audio Virtual Cable](https://vb-audio.com/Cable/).
-- Optional, for natural translation: a [Claude](https://console.anthropic.com) or
-  [Gemini](https://aistudio.google.com) API key (a fraction of a cent per sentence), or
-  [DeepL](https://www.deepl.com/pro-api).
-- For VR captions: SteamVR.
+Get these ready and setup takes about five minutes. The setup screen inside CIMA Box walks you through where each one goes.
+
+**Must have**
+
+- **Windows 10 or 11**
+- **An ElevenLabs API key**: this is where every voice and caption comes from. Make a free account at [elevenlabs.io](https://elevenlabs.io), open your profile, go to **API keys** and create one. Without it, CIMA Box can't do anything.
+
+**Highly recommended**
+
+- **A DeepL API key**: fast, reliable translations, and the backup CIMA Box falls back on whenever the AI is slow or busy. The free plan covers a lot of chatting each month. Sign up for the free **DeepL API** plan (not the regular DeepL app) at [deepl.com/pro-api](https://www.deepl.com/pro-api) and copy your key from your account page. DeepL may ask for a card to confirm you're a real person, but the free plan doesn't charge it.
+- **A Gemini or Claude API key**: translations that sound like a real person talking, with slang and dialects (Mexican Spanish, Kansai Japanese and many more). You only need one of them:
+  - **Gemini** (free to start): sign in to [Google AI Studio](https://aistudio.google.com) and click **Get API key**.
+  - **Claude** (pay as you go, a few cents per evening of chatting): create a key at [console.anthropic.com](https://console.anthropic.com).
+- **VB-CABLE**, *if you want others to hear the voice in a game, Discord or a call*. Those apps only listen to microphones, and VB-CABLE adds a free "virtual microphone" for CIMA Box to speak into. Download it from [vb-audio.com/Cable](https://vb-audio.com/Cable/), install it, and restart your PC. Then pick **CABLE Input** in CIMA Box and **CABLE Output** as your microphone in the game or app. Just trying it out on your own headphones? You can skip this.
+
+All keys go in **Settings > Accounts** (the gear at the top right) and stay on your own PC.
 
 ## Getting started
 
