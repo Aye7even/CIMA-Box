@@ -43,7 +43,8 @@ struct Settings {
     bool passthrough = false;          // voice changer off: send your own mic to the output instead
     bool chatbox = false;              // My voice and Text: show what you say in VRChat's chatbox
     bool textTranslate = true;         // Text page: translate what you type (else read it as typed)
-    bool textSpeak = true;             // Text page: say it with the voice (else only the chatbox and the feed)
+    bool textSpeak = true;
+    bool setupDone = false;            // went through (or skipped) the setup walkthrough             // Text page: say it with the voice (else only the chatbox and the feed)
     int chatboxShow = 0;               // ChatboxShow
     int translateService = 0;          // TranslateService, shared by both pages
     std::string deeplKey;
@@ -89,6 +90,19 @@ struct ChatLine {
     int speaker = -1;      // "Voice 1/2"
 };
 
+// One entry of the small usage line at the bottom of the window.
+enum UsageLevel { kUsageOk = 0, kUsageLow, kUsageOut, kUsageUnknown };
+struct UsageItem {
+    std::string name;    // "ElevenLabs"
+    std::string text;    // "12.4k credits left"
+    std::string detail;  // the tooltip
+    int level = kUsageOk;
+};
+
+// The setup walkthrough. What the person picked, so later steps can follow from it.
+enum SetupUse { kUseVoice = 1, kUseText = 2, kUseRead = 4 };
+enum SetupRoute { kRouteNone = -1, kRouteMe = 0, kRouteApps = 1, kRouteOwn = 2 };
+
 struct UiModel {
     Settings cfg;  // edited in place by the interface
 
@@ -130,6 +144,11 @@ struct UiModel {
     std::string changesSince;                // versions newer than this
     std::vector<ChatLine> chat;              // Text page, oldest first
     std::vector<ServiceStatus> services;     // ElevenLabs, Claude, Gemini, DeepL status pages
+    std::vector<UsageItem> usage;            // what's left, for the services in use
+    std::string logPath;                     // cimabox.log
+    int setupStep = -1;                      // the walkthrough's screen, -1 = not showing
+    int setupUse = 0;                        // SetupUse bits
+    int setupRoute = kRouteNone;
 
     // interface-only state
     std::string voiceFilter;
@@ -148,5 +167,7 @@ struct UiActions {
     bool checkUpdates = false, installUpdate = false, openSettingsFolder = false;
     int setSettingsPlace = -1;  // SettingsPlace picked in Settings > About
     std::string sendText;       // Text page: say this
+    std::string testSound;      // setup: say this once, nowhere but the output
+    bool openLog = false;
     std::string openUrl;        // a status page
 };

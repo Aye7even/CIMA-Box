@@ -30,6 +30,8 @@ another language, and it can go in the VRChat chatbox too. What other people say
 shows up translated in the same window, so you can follow the whole conversation without switching
 tabs. Handy when you can't or don't want to talk out loud.
 
+![The Text page: type to talk, with the whole conversation translated](docs/text.png)
+
 **Listen**: live captions of what other people say, translated into your language. It can listen to
 just one program (your game, Discord...), everything on your speakers, or a microphone, and tells
 apart who is speaking. Keep the captions in a small window on top of your game.
@@ -45,7 +47,7 @@ SteamVR menu without taking the headset off.
 The app itself speaks English, Español, Português, Français, Deutsch, Italiano, Русский, 日本語,
 한국어 and 简体中文 (Settings, the gear at the top right).
 
-![Settings: app language, API keys, hotkeys and updates](docs/settings.png)
+![Settings: app language, API keys, hotkeys, updates and service status](docs/settings.png)
 
 ## What you need
 
@@ -90,9 +92,15 @@ Every button and setting is explained in **`CIMA Box - Read Me.txt`**, which com
 - **Windows SmartScreen** may warn the first time you run it ("Windows protected your PC"). Click
   **More info** > **Run anyway**.
 - Keep CIMA Box in a folder you can write to (not Program Files) so it can update itself.
+- **First time?** A short setup walks you through everything, starting with your language. Run it
+  again from Settings > About.
+- **What's left** of your ElevenLabs credits (and DeepL characters, or what Claude or Gemini cost
+  this session) shows quietly at the bottom of the window.
 - **Something stopped working?** Settings > Service status shows whether ElevenLabs, Claude or
   DeepL are having problems right now, and a small note appears at the top of the window when a
-  service you use is. Then it's on their side: wait a bit and try again.
+  service you use is. Then it's on their side: wait a bit and try again. Settings > About > Open
+  log file shows what went wrong (it never contains your keys), so you can send it to whoever helps
+  you.
 - What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits

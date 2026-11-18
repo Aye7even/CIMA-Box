@@ -22,6 +22,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <ctime>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -38,7 +39,9 @@
 #include "emotion.h"
 #include "listen.h"
 #include "micmatch.h"
+#include "applog.h"
 #include "servicestatus.h"
+#include "usage.h"
 #include "voiceout.h"
 #include "osc.h"
 #include "vroverlay.h"
@@ -239,6 +242,8 @@ static void loadSettings(Settings& s) {
             s.chatboxShow = j.value("voice_chatbox_show", s.chatboxShow);
             s.textTranslate = j.value("text_translate", s.textTranslate);
             s.textSpeak = j.value("text_speak", s.textSpeak);
+            // People who used CIMA Box before the walkthrough existed don't need it.
+            s.setupDone = j.value("setup_done", !s.apiKey.empty());
             s.vs.setCloneStrength = j.value("set_clone_strength", s.vs.setCloneStrength);
             s.vs.cloneStrength = j.value("clone_strength", s.vs.cloneStrength);
             s.emotionStrength = j.value("emotion_strength", s.emotionStrength);
@@ -329,7 +334,7 @@ static std::string settingsJson(const Settings& s) {
         {"emotion", s.emotion}, {"emotion_strength", s.emotionStrength},
         {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough},
         {"voice_chatbox", s.chatbox}, {"voice_chatbox_show", s.chatboxShow},
-        {"text_translate", s.textTranslate}, {"text_speak", s.textSpeak},
+        {"text_translate", s.textTranslate}, {"text_speak", s.textSpeak}, {"setup_done", s.setupDone},
         {"set_clone_strength", s.vs.setCloneStrength}, {"clone_strength", s.vs.cloneStrength},
         {"dialects", s.variety}, {"custom_dialects", s.customVariety}, {"voice_for_language", s.voiceFor},
         {"my_gender", s.myGender}, {"talking_to", s.talkingTo}, {"talking_to_key", s.talkKey},
@@ -411,6 +416,7 @@ struct Phrase {
     std::vector<int16_t> pcm;   // 16 kHz: speech-to-text, and the voice changer at Standard quality
     std::vector<int16_t> full;  // the same at kDeviceRate: the voice changer at High and Best
     std::string text;           // typed on the Text page instead (no audio)
+    bool test = false;          // the setup's test sound: only played, nowhere else
 };
 
 struct Sink {  // one playback device fed by a ring buffer
@@ -475,6 +481,7 @@ static App g;
 static Listener gListen;  // the Listen page's own pipeline; runs next to the voice changer
 static VrOverlay gVr;     // captions inside the headset (idle unless switched on)
 static StatusWatcher gStatus;  // ElevenLabs, Claude, Gemini, DeepL status pages
+static UsageWatcher gUsage;    // ElevenLabs credits and DeepL characters left
 static const auto gStart = std::chrono::steady_clock::now();
 static double nowSeconds() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - gStart).count(); }
 
@@ -736,6 +743,7 @@ static void workerLoop() {
     while (g.running) {
         std::vector<int16_t> pcm, full;
         std::string typedText;
+        bool testJob = false;
         Settings s;
         bool haveJob = false, professional = false;
         {
@@ -748,12 +756,19 @@ static void workerLoop() {
                 pcm = std::move(g.jobs.front().pcm);
                 full = std::move(g.jobs.front().full);
                 typedText = std::move(g.jobs.front().text);
+                testJob = g.jobs.front().test;
                 g.jobs.pop_front();
                 haveJob = true;
             }
             for (const Voice& v : g.voices) professional = professional || (v.id == s.voiceId && v.category == "professional");
         }
         if (!typedText.empty()) s.engine = s.textTranslate ? kTranslate : kRespeak;  // the Text page's own choice
+        if (testJob) {  // the setup's test: just the voice, as written
+            s.engine = kRespeak;
+            s.chatbox = false;
+            s.emotion = false;
+            s.textSpeak = true;
+        }
         g.cancel = false;
         if (!g.running) break;  // quitting: don't start anything that shutdown could no longer cancel
         api.apiKey = captionApi.apiKey = s.apiKey;
@@ -964,7 +979,11 @@ static void workerLoop() {
                 g.chatText = text;
             }
         }
-        {
+        if (testJob) {
+            std::lock_guard<std::mutex> lk(g.mtx);
+            if (ok) g.lastError.clear();
+            else if (err != "cancelled") g.lastError = err;
+        } else {
             std::lock_guard<std::mutex> lk(g.mtx);
             if (!heard.empty()) g.heardText = heard;
             g.sentText = spoken;
@@ -1089,12 +1108,115 @@ static void setupLogo(GLFWwindow* win, UiModel& ui, float scale) {
     ui.logoSize = float(pick->size);
 }
 
+// ---------------------------------------------------------------- log, usage line
+
+static std::string windowsVersion() {
+#ifdef _WIN32
+    struct OsInfo { ULONG size, major, minor, build, platform; WCHAR sp[128]; } v{};
+    v.size = sizeof(v);
+    using Fn = LONG(WINAPI*)(OsInfo*);
+    if (HMODULE nt = GetModuleHandleW(L"ntdll.dll"))
+        if (auto fn = reinterpret_cast<Fn>(reinterpret_cast<void*>(GetProcAddress(nt, "RtlGetVersion"))); fn && fn(&v) == 0)
+            return "Windows " + std::string(v.build >= 22000 ? "11" : std::to_string(v.major)) + " (build " + std::to_string(v.build) + ")";
+    return "Windows";
+#else
+    return "not Windows";
+#endif
+}
+
+static void openPath(const fs::path& what) {  // a web page, or a file in its usual program
+#ifdef _WIN32
+    ShellExecuteW(nullptr, L"open", what.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+    (void)what;
+#endif
+}
+
+static void startLog() {
+    std::error_code ec;
+    fs::create_directories(settingsDir(), ec);
+    logOpen(settingsDir() / "cimabox.log");
+}
+
+// 12,400 -> "12.4k", 1,250,000 -> "1.25M"
+static std::string shortCount(long long n) {
+    char b[32];
+    if (n < 0) n = 0;
+    if (n >= 1000000) std::snprintf(b, sizeof(b), n >= 10000000 ? "%.0fM" : "%.2gM", double(n) / 1e6);
+    else if (n >= 1000) std::snprintf(b, sizeof(b), n >= 100000 ? "%.0fk" : "%.3gk", double(n) / 1e3);
+    else std::snprintf(b, sizeof(b), "%lld", n);
+    return b;
+}
+
+static std::string withCommas(long long n) {
+    std::string d = std::to_string(n < 0 ? 0 : n), out;
+    for (size_t i = 0; i < d.size(); ++i) {
+        if (i > 0 && (d.size() - i) % 3 == 0) out += ',';
+        out += d[i];
+    }
+    return out;
+}
+
+static UsageItem quotaItem(const char* name, const Quota& q, const char* unitsLeft, const char* unitsWord) {
+    UsageItem it;
+    it.name = name;
+    if (!q.known) {
+        it.level = kUsageUnknown;
+        it.text = q.problem.empty() ? T("checking") : T("not available");
+        it.detail = q.problem.empty() ? T("Checking how much is left.") : T(q.problem);
+        return it;
+    }
+    const long long left = q.limit - q.used;
+    char b[200];
+    std::snprintf(b, sizeof(b), TF(unitsLeft), shortCount(left).c_str());
+    it.text = b;
+    it.level = left <= 0 ? kUsageOut : (q.limit > 0 && left * 10 < q.limit) ? kUsageLow : kUsageOk;
+    std::snprintf(b, sizeof(b), TF("Used %s of %s %s."), withCommas(q.used).c_str(), withCommas(q.limit).c_str(), T(unitsWord));
+    it.detail = b;
+    if (q.resetsAt > 0) {
+        const std::time_t t = std::time_t(q.resetsAt);
+        std::tm tm{};
+#ifdef _WIN32
+        localtime_s(&tm, &t);
+#else
+        localtime_r(&t, &tm);
+#endif
+        char day[32];
+        std::strftime(day, sizeof(day), "%Y-%m-%d", &tm);
+        std::snprintf(b, sizeof(b), TF("Starts over on %s."), day);
+        it.detail += std::string(" ") + b;
+    }
+    if (!q.problem.empty()) it.detail += std::string(" ") + T("(Couldn't check just now; this is the last known amount.)");
+    return it;
+}
+
+static UsageItem aiItem(bool claude, const std::string& model) {
+    const AiSpend sp = aiSpend(claude, model);
+    UsageItem it;
+    it.name = claude ? "Claude" : "Gemini";
+    it.level = kUsageOk;
+    char b[200];
+    if (sp.dollars < 0) std::snprintf(b, sizeof(b), TF("%s tokens this session"), shortCount(sp.tokensIn + sp.tokensOut).c_str());
+    else if (sp.tokensIn + sp.tokensOut == 0) std::snprintf(b, sizeof(b), "%s", T("$0 this session"));
+    else if (sp.dollars < 0.01) std::snprintf(b, sizeof(b), "%s", T("under $0.01 this session"));
+    else std::snprintf(b, sizeof(b), TF("$%.2f this session"), sp.dollars);
+    it.text = b;
+    std::snprintf(b, sizeof(b), TF("Counted by CIMA Box since it started: %s tokens in, %s out. %s can't report what's left on a key."),
+                  withCommas(sp.tokensIn).c_str(), withCommas(sp.tokensOut).c_str(), it.name.c_str());
+    it.detail = b;
+    return it;
+}
+
 // ---------------------------------------------------------------- main
 
 int main() {
     UiModel ui;  // the UI thread's copy of everything; ui.cfg is published to g.cfg every frame
     loadSettings(ui.cfg);
     setUiLanguage(ui.cfg.uiLanguage);
+    startLog();
+    logLine(std::string("CIMA Box ") + CIMA_FULL_VERSION + " started on " + windowsVersion() + ". Settings: " +
+            (gPlace == kPlaceDocuments ? "Documents" : gPlace == kPlaceProgram ? "with the program" : "settings folder") + ".");
+    ui.logPath = (settingsDir() / "cimabox.log").u8string();
     ui.settingsPath = settingsFile().u8string();
     ui.settingsPlace = gPlace;
     // After an update: show what changed since the version this person last used.
@@ -1103,6 +1225,7 @@ int main() {
         ui.changesSince = ui.cfg.lastSeenVersion.empty() ? "2.5.99" : ui.cfg.lastSeenVersion;  // from before 2.6: just this one
     }
     ui.cfg.lastSeenVersion = CIMA_FULL_VERSION;
+    if (!ui.cfg.setupDone) ui.setupStep = 0;  // a new person: language first, then the walkthrough
     double lastAutosave = 0;
     Updater updater(CIMA_FULL_VERSION);
     Updater::removeOldVersion();  // what the last update replaced
@@ -1136,6 +1259,7 @@ int main() {
     });
     gListen.start();
     gStatus.start();
+    gUsage.start();
     gVr.setThumbnail(kLogos[0].rgba, kLogos[0].size);  // the SteamVR menu tab's icon
     gVr.start();
     if (!ui.cfg.apiKey.empty()) refreshCatalog(ui.cfg.apiKey);
@@ -1191,6 +1315,12 @@ int main() {
     std::string voiceKey, voiceKeyVoice;  // language/dialect the voice was last used with
     uint64_t vrSentConvo = ~0ull, vrVersion = 0;  // what the headset panel was last given
     uint64_t chatConvo = ~0ull;                   // what the Text page was last given
+    std::string usageEleven, usageDeepl, usageClaude, usageGemini;  // keys the usage line was set up for
+    uint64_t usageConvo = 0;
+    bool wasBusy = false;
+    double lastUsageLine = 0;
+    int lastUpdateStage = -1;
+    std::string lastCatalogMsg;
     std::string lastErrorSeen, lastListenErrorSeen;  // a new problem: look at the status pages again
     bool vrSentShowMe = true;
     unsigned previewTex = 0;
@@ -1481,6 +1611,17 @@ int main() {
             moveSettings(ui.cfg, act.setSettingsPlace, ui.settingsError);
             ui.settingsPlace = gPlace;
             ui.settingsPath = settingsFile().u8string();
+            startLog();
+            ui.logPath = (settingsDir() / "cimabox.log").u8string();
+            if (!ui.settingsError.empty()) logLine("Moving settings: " + ui.settingsError);
+        }
+        if (!act.testSound.empty()) {  // the setup's "Play a test"
+            Phrase t;
+            t.text = act.testSound;
+            t.test = true;
+            std::lock_guard<std::mutex> lk(g.mtx);
+            g.jobs.push_back(std::move(t));
+            g.jobCv.notify_one();
         }
         if (!act.sendText.empty()) {  // typed on the Text page: same pipeline, without the microphone
             Phrase typed;
@@ -1493,16 +1634,48 @@ int main() {
         ui.services = gStatus.state();
         if (ui.lastError != lastErrorSeen || ui.listen.error != lastListenErrorSeen) {
             if ((!ui.lastError.empty() && ui.lastError != "cancelled") || !ui.listen.error.empty()) gStatus.checkSoon();
+            if (!ui.lastError.empty() && ui.lastError != lastErrorSeen && ui.lastError != "cancelled") logLine("My voice: " + ui.lastError);
+            if (!ui.listen.error.empty() && ui.listen.error != lastListenErrorSeen) logLine("Listen: " + ui.listen.error);
+            if (ui.lastError.empty() && ui.listen.error.empty()) gUsage.refreshSoon();
             lastErrorSeen = ui.lastError;
             lastListenErrorSeen = ui.listen.error;
         }
-        if (!act.openUrl.empty()) {
-#ifdef _WIN32
-            const int n = MultiByteToWideChar(CP_UTF8, 0, act.openUrl.c_str(), -1, nullptr, 0);
-            std::wstring w(size_t(std::max(n, 1)), L'\0');
-            MultiByteToWideChar(CP_UTF8, 0, act.openUrl.c_str(), -1, &w[0], n);
-            ShellExecuteW(nullptr, L"open", w.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-#endif
+        if (!act.openUrl.empty()) openPath(fs::u8path(act.openUrl));
+        if (act.openLog) {
+            logLine("Log opened from Settings.");  // makes sure the file exists
+            openPath(fs::u8path(ui.logPath));
+        }
+
+        // ---- what's left: ElevenLabs and DeepL from their accounts, Claude and Gemini counted here
+        if (ui.cfg.apiKey != usageEleven || ui.cfg.deeplKey != usageDeepl || ui.cfg.claudeKey != usageClaude ||
+            ui.cfg.geminiKey != usageGemini) {
+            usageEleven = ui.cfg.apiKey;
+            usageDeepl = ui.cfg.deeplKey;
+            usageClaude = ui.cfg.claudeKey;
+            usageGemini = ui.cfg.geminiKey;
+            for (const std::string* k : {&usageEleven, &usageDeepl, &usageClaude, &usageGemini}) logSecret(*k);
+            gUsage.setKeys(usageEleven, usageDeepl);
+        }
+        if ((wasBusy && !ui.busy) || convoNow != usageConvo) gUsage.refreshSoon();  // something was just used
+        wasBusy = ui.busy;
+        usageConvo = convoNow;
+        if (nowSeconds() - lastUsageLine > 1.0) {
+            lastUsageLine = nowSeconds();
+            ui.usage.clear();
+            if (!ui.cfg.apiKey.empty()) ui.usage.push_back(quotaItem("ElevenLabs", gUsage.eleven(), "%s credits left", "credits"));
+            const int sv = ui.cfg.translateService;
+            if (sv == kDeepL && !ui.cfg.deeplKey.empty()) ui.usage.push_back(quotaItem("DeepL", gUsage.deepl(), "%s characters left", "characters"));
+            if (sv == kClaude && !ui.cfg.claudeKey.empty()) ui.usage.push_back(aiItem(true, ui.cfg.claudeModel));
+            if (sv == kGemini && !ui.cfg.geminiKey.empty()) ui.usage.push_back(aiItem(false, ui.cfg.geminiModel));
+        }
+        if (ui.update.stage != lastUpdateStage) {
+            lastUpdateStage = ui.update.stage;
+            if (ui.update.stage == kUpdateFailed || ui.update.stage == kUpdateAvailable || ui.update.stage == kUpdateReady)
+                logLine("Update: " + ui.update.message);
+        }
+        if (ui.catalogMsg != lastCatalogMsg) {
+            lastCatalogMsg = ui.catalogMsg;
+            if (!ui.catalogMsg.empty()) logLine("Voices: " + ui.catalogMsg);
         }
         if (act.openSettingsFolder) {
 #ifdef _WIN32
@@ -1550,6 +1723,8 @@ int main() {
     gVr.stop();
     gListen.stop();
     gStatus.stop();
+    gUsage.stop();
+    logLine("Closed.");
     if (g.capOn) ma_device_uninit(&g.capDev);
     openSink(g.out, "", false);
     openSink(g.mon, "", false);

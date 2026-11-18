@@ -1,5 +1,7 @@
 #include "translate.h"
 
+#include <atomic>
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -213,10 +215,31 @@ bool myMemory(Http& http, const std::string& text, const Language& from, const L
     return true;
 }
 
+}  // namespace
+
 std::string deeplHost(const std::string& key) {
     const bool free = key.size() > 3 && key.compare(key.size() - 3, 3, ":fx") == 0;
     return free ? "https://api-free.deepl.com" : "https://api.deepl.com";
 }
+
+namespace {
+std::atomic<long long> gTokens[2][2];  // [claude, gemini][in, out] used in this run
+void countTokens(int which, long long in, long long out) {
+    if (in > 0) gTokens[which][0] += in;
+    if (out > 0) gTokens[which][1] += out;
+}
+long long tokenField(const json& j, const char* key) {
+    return j.is_object() && j.contains(key) && j[key].is_number() ? j[key].get<long long>() : 0;
+}
+}  // namespace
+
+void aiTokens(int service, long long& in, long long& out) {
+    const int w = service == kClaude ? 0 : 1;
+    in = gTokens[w][0];
+    out = gTokens[w][1];
+}
+
+namespace {
 
 bool deeplOnce(Http& http, const std::string& key, const std::string& text, const Language* from, const std::string& target,
                std::string& out, std::string& err, bool& languageRefused) {
@@ -362,6 +385,8 @@ bool claude(Http& http, const TranslateSetup& st, const std::string& instruction
             err = httpProblem("Claude", status, msg);
             return false;
         }
+        if (j.is_object() && j.contains("usage"))
+            countTokens(0, tokenField(j["usage"], "input_tokens"), tokenField(j["usage"], "output_tokens"));
         std::string text2;
         if (j.is_object() && j.contains("content") && j["content"].is_array())
             for (const json& block : j["content"])
@@ -412,6 +437,10 @@ bool gemini(Http& http, const TranslateSetup& st, const std::string& instruction
             }
             err = httpProblem("Gemini", status, msg);
             return false;
+        }
+        if (j.is_object() && j.contains("usageMetadata")) {  // thinking is billed as output too
+            const json& u = j["usageMetadata"];
+            countTokens(1, tokenField(u, "promptTokenCount"), tokenField(u, "candidatesTokenCount") + tokenField(u, "thoughtsTokenCount"));
         }
         std::string text2;
         if (j.is_object() && j.contains("candidates") && j["candidates"].is_array() && !j["candidates"].empty()) {

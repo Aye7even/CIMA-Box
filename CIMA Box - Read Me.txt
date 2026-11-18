@@ -1,4 +1,4 @@
-CIMA Box 2.7.0
+CIMA Box 2.7.1
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -21,6 +21,9 @@ Settings: the app's language, your API keys and hotkeys.
 
 GETTING STARTED
 ---------------
+
+The first time you open CIMA Box, a short setup asks for your language and then walks you
+through the steps below one screen at a time (Settings > About > Run setup again to see it again).
 
 1. Put CIMABox.exe anywhere you like (Desktop, Documents...) and run it. Your settings save by
    themselves, so you can move or update the program any time without losing them.
@@ -344,8 +347,23 @@ TIPS
   The voice itself is fine.
 
 
+WHAT'S LEFT (BOTTOM RIGHT)
+--------------------------
+
+A small line at the bottom of every page shows what's left for the services you use:
+  ElevenLabs ... credits left this month, read from your account. If it says "not available",
+                 the key was made without permission to read the account (allow User: Read).
+  DeepL ........ characters left this month.
+  Claude, Gemini  They can't report what's left on a key, so this shows what CIMA Box spent
+                 in this session (counted from their answers, at list price).
+It turns amber when less than a tenth is left and red when it's used up. Hover for details.
+
+
 PROBLEMS
 --------
+
+Settings > About > Open log file opens cimabox.log: what went wrong and when. It never contains
+your API keys, so it's safe to send to whoever is helping you.
 
 If something stops working, first look at Settings > Service status. It shows what the status
 pages of ElevenLabs, Claude and DeepL say (Gemini has no readable page, so it just links to it),

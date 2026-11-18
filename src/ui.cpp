@@ -869,6 +869,49 @@ void serviceRows(UiModel& m, UiActions& act) {
     }
 }
 
+// ---------------------------------------------------------------- what's left (bottom of every page)
+
+// One quiet line at the bottom right: "ElevenLabs 12.4k credits left   DeepL 380k characters left".
+// Amber when running low, red when it's used up. Hover for the numbers.
+void usageLine(const UiModel& m, float height) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.86f);
+    const float gapW = em() * 1.5f, nameGap = em() * 0.4f;
+    float total = 0.f;
+    for (const UsageItem& u : m.usage)
+        total += ImGui::CalcTextSize(u.name.c_str()).x + nameGap + ImGui::CalcTextSize(u.text.c_str()).x + gapW;
+    total -= gapW;
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float right = at.x + ImGui::GetContentRegionAvail().x;
+    float x = std::max(at.x, right - total);
+    const float y = std::floor(at.y + (height - ImGui::GetFontSize()) * 0.5f + em() * 0.1f);
+    for (size_t i = 0; i < m.usage.size(); ++i) {
+        const UsageItem& u = m.usage[i];
+        const ImVec2 ns = ImGui::CalcTextSize(u.name.c_str()), vs = ImGui::CalcTextSize(u.text.c_str());
+        const float w = ns.x + nameGap + vs.x;
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        ImGui::PushID(int(i));
+        ImGui::InvisibleButton("##usage", ImVec2(w, ns.y));
+        const bool hot = ImGui::IsItemHovered();
+        ImGui::PopID();
+        const ImVec4 vc = u.level == kUsageOut ? kDanger : u.level == kUsageLow ? kSignal : u.level == kUsageUnknown ? kMuted
+                          : hot ? kText : ImVec4(kText.x, kText.y, kText.z, 0.72f);
+        dl->AddText(ImVec2(x, y), col(kMuted), u.name.c_str());
+        dl->AddText(ImVec2(x + ns.x + nameGap, y), col(vc), u.text.c_str());
+        if (hot && !u.detail.empty()) {
+            ImGui::PopFont();
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(em() * 24.f);
+            ImGui::TextUnformatted(u.detail.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+            ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.86f);
+        }
+        x += w + gapW;
+    }
+    ImGui::PopFont();
+}
+
 // ---------------------------------------------------------------- header and status strip
 
 void header(UiModel& m, UiActions& act) {
@@ -1512,6 +1555,16 @@ void changesWindow(UiModel& m) {
 
 // ---------------------------------------------------------------- Settings (the gear)
 
+// Two buttons side by side, or one above the other when their names don't fit (long languages).
+void buttonPair(const char* left, const char* right, bool& leftClicked, bool& rightClicked) {
+    const float sp = ImGui::GetStyle().ItemSpacing.x, half = (ImGui::GetContentRegionAvail().x - sp) * 0.5f;
+    const float need = std::max(ImGui::CalcTextSize(T(left)).x, ImGui::CalcTextSize(T(right)).x) + ImGui::GetStyle().FramePadding.x * 2 + em() * 0.4f;
+    const bool side = need <= half;
+    if (button(left, false, side ? half : -FLT_MIN)) leftClicked = true;
+    if (side) ImGui::SameLine();
+    if (button(right, false, side ? half : -FLT_MIN)) rightClicked = true;
+}
+
 void apiKeyField(const char* label, const char* id, std::string& key, bool show, const char* where) {
     fieldLabel(label);
     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -1544,7 +1597,12 @@ void settingsPage(UiModel& m, UiActions& act) {
     char b[320];
     std::snprintf(b, sizeof(b), TF("CIMA Box %s"), CIMA_VERSION);
     ImGui::TextUnformatted(b);
-    if (button("Version history")) m.showChanges = 2;
+    {
+        bool a = false, b = false;
+        buttonPair("Version history", "Run setup again", a, b);
+        if (a) m.showChanges = 2;
+        if (b) m.setupStep = 0;
+    }
     fieldLabel("Save settings in");
     static const char* const kPlaces[] = {"Settings folder", "Documents", "With the program"};
     int place = m.settingsPlace;
@@ -1554,8 +1612,9 @@ void settingsPage(UiModel& m, UiActions& act) {
                                             : "Your own settings folder, out of the way. Updates and moving the program never touch it.");
     note(m.settingsPath);
     if (!m.settingsError.empty()) note(T(m.settingsError), kDanger);
-    if (button("Open settings folder")) act.openSettingsFolder = true;
-    note("Settings save by themselves. The file holds your API keys: don't share it.");
+    buttonPair("Open settings folder", "Open log file", act.openSettingsFolder, act.openLog);
+    note("Settings save by themselves. The file holds your API keys: don't share it. The log file has no keys "
+         "in it: send it to whoever helps you when something goes wrong.");
     ImGui::EndChild();
 
     ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));
@@ -1741,8 +1800,8 @@ void conversationPanel(UiModel& m, UiActions& act, ImVec2 size) {
     }
     bool pending = false;
     for (const Caption& c : m.captions) pending = pending || c.pending;
-    if (m.listen.hearing) ImGui::TextColored(kSignal, TF("Hearing speech%s"), dots().c_str());
-    else if (pending) ImGui::TextColored(kBusy, TF("Translating%s"), dots().c_str());
+    if (l.on && m.listen.hearing) ImGui::TextColored(kSignal, TF("Hearing speech%s"), dots().c_str());
+    else if (l.on && pending) ImGui::TextColored(kBusy, TF("Translating%s"), dots().c_str());
     if (m.busy || m.queued > 0) ImGui::TextColored(kMuted, TF("Sending%s"), dots().c_str());
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.f) ImGui::SetScrollHereY(1.0f);  // follow, unless scrolled up
     ImGui::EndChild();
@@ -1819,6 +1878,449 @@ void voicePage(UiModel& m, UiActions& act) {
     statusStrip(m, act, stripH);
 }
 
+// ---------------------------------------------------------------- setup walkthrough
+// Language first (before a single other word), then one question per screen.
+
+enum SetupScreen { kStepLanguage = 0, kStepWelcome, kStepKey, kStepUse, kStepVoice, kStepRoute, kStepRead, kStepDone, kStepCount };
+
+bool setupShows(const UiModel& m, int step) {
+    const bool speaks = (m.setupUse & (kUseVoice | kUseText)) != 0;
+    if (step == kStepVoice || step == kStepRoute) return speaks;
+    if (step == kStepRead) return (m.setupUse & kUseRead) != 0;
+    return true;
+}
+
+int setupNext(const UiModel& m, int step, int dir) {
+    for (int s = step + dir; s >= 0 && s < kStepCount; s += dir)
+        if (setupShows(m, s)) return s;
+    return step;
+}
+
+enum SetupIcon { kIconMic, kIconKeys, kIconBubbles, kIconHeadphones, kIconGame, kIconSliders };
+
+// Small line drawings for the choice cards.
+void setupIcon(ImDrawList* dl, int icon, ImVec2 c, float s, ImU32 color) {
+    const float t = std::max(1.5f, s * 0.085f);
+    switch (icon) {
+    case kIconMic:
+        dl->AddRect(ImVec2(c.x - s * 0.17f, c.y - s * 0.46f), ImVec2(c.x + s * 0.17f, c.y + s * 0.08f), color, s * 0.17f, 0, t);
+        dl->PathArcTo(ImVec2(c.x, c.y - s * 0.06f), s * 0.3f, 0.f, 3.14159f, 16);
+        dl->PathStroke(color, 0, t);
+        dl->AddLine(ImVec2(c.x, c.y + s * 0.24f), ImVec2(c.x, c.y + s * 0.42f), color, t);
+        dl->AddLine(ImVec2(c.x - s * 0.16f, c.y + s * 0.42f), ImVec2(c.x + s * 0.16f, c.y + s * 0.42f), color, t);
+        break;
+    case kIconKeys: {
+        dl->AddRect(ImVec2(c.x - s * 0.46f, c.y - s * 0.28f), ImVec2(c.x + s * 0.46f, c.y + s * 0.28f), color, s * 0.08f, 0, t);
+        for (int r = 0; r < 2; ++r)
+            for (int k = 0; k < 5; ++k)
+                dl->AddCircleFilled(ImVec2(c.x - s * 0.3f + k * s * 0.15f, c.y - s * 0.1f + r * s * 0.15f), t * 0.7f, color, 8);
+        dl->AddLine(ImVec2(c.x - s * 0.2f, c.y + s * 0.16f), ImVec2(c.x + s * 0.2f, c.y + s * 0.16f), color, t);
+        break;
+    }
+    case kIconBubbles:
+        dl->AddRect(ImVec2(c.x - s * 0.46f, c.y - s * 0.4f), ImVec2(c.x + s * 0.18f, c.y - s * 0.02f), color, s * 0.1f, 0, t);
+        dl->AddRect(ImVec2(c.x - s * 0.14f, c.y + s * 0.06f), ImVec2(c.x + s * 0.46f, c.y + s * 0.4f), color, s * 0.1f, 0, t);
+        dl->AddLine(ImVec2(c.x - s * 0.33f, c.y - s * 0.21f), ImVec2(c.x + s * 0.05f, c.y - s * 0.21f), color, t);
+        dl->AddLine(ImVec2(c.x - s * 0.01f, c.y + s * 0.23f), ImVec2(c.x + s * 0.33f, c.y + s * 0.23f), color, t);
+        break;
+    case kIconHeadphones:
+        dl->PathArcTo(ImVec2(c.x, c.y + s * 0.05f), s * 0.38f, 3.14159f, 6.28318f, 20);
+        dl->PathStroke(color, 0, t);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.44f, c.y + s * 0.02f), ImVec2(c.x - s * 0.24f, c.y + s * 0.4f), color, s * 0.06f);
+        dl->AddRectFilled(ImVec2(c.x + s * 0.24f, c.y + s * 0.02f), ImVec2(c.x + s * 0.44f, c.y + s * 0.4f), color, s * 0.06f);
+        break;
+    case kIconGame:
+        dl->AddRect(ImVec2(c.x - s * 0.46f, c.y - s * 0.24f), ImVec2(c.x + s * 0.46f, c.y + s * 0.26f), color, s * 0.24f, 0, t);
+        dl->AddLine(ImVec2(c.x - s * 0.3f, c.y), ImVec2(c.x - s * 0.1f, c.y), color, t);
+        dl->AddLine(ImVec2(c.x - s * 0.2f, c.y - s * 0.1f), ImVec2(c.x - s * 0.2f, c.y + s * 0.1f), color, t);
+        dl->AddCircleFilled(ImVec2(c.x + s * 0.18f, c.y - s * 0.03f), t * 0.9f, color, 10);
+        dl->AddCircleFilled(ImVec2(c.x + s * 0.29f, c.y + s * 0.07f), t * 0.9f, color, 10);
+        break;
+    default:  // sliders
+        for (int i = 0; i < 3; ++i) {
+            const float y = c.y - s * 0.3f + i * s * 0.3f, kx = c.x + (i == 1 ? s * 0.18f : -s * 0.14f);
+            dl->AddLine(ImVec2(c.x - s * 0.44f, y), ImVec2(c.x + s * 0.44f, y), color, t);
+            dl->AddCircleFilled(ImVec2(kx, y), s * 0.09f, color, 12);
+        }
+    }
+}
+
+// A big selectable card: icon, title, one line under it. Returns true when clicked.
+bool setupCard(const char* id, int icon, const char* title, const char* desc, bool selected, bool multi) {
+    const float w = ImGui::GetContentRegionAvail().x, pad = em() * 1.0f, iconBox = em() * 2.6f;
+    const float textW = w - pad * 3 - iconBox - em() * 1.6f;
+    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.08f);
+    const ImVec2 ts = ImGui::CalcTextSize(T(title), nullptr, false, textW);
+    ImGui::PopFont();
+    const ImVec2 ds = ImGui::CalcTextSize(T(desc), nullptr, false, textW);
+    const float h = std::max(iconBox + pad * 1.2f, ts.y + ds.y + pad * 2.f + em() * 0.15f);
+    const ImVec2 a = ImGui::GetCursorScreenPos(), b(a.x + w, a.y + h);
+    const bool clicked = ImGui::InvisibleButton(id, ImVec2(w, h));
+    const bool hot = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = em() * 0.55f;
+    dl->AddRectFilled(a, b, col(selected ? ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.10f) : hot ? kFieldHover : kPanel), r);
+    dl->AddRect(a, b, col(selected ? kSignal : hot ? kFieldActive : kLine), r, 0, selected ? 2.f : 1.f);
+    const ImVec2 ic(a.x + pad + iconBox * 0.5f, a.y + h * 0.5f);
+    dl->AddCircleFilled(ic, iconBox * 0.5f, col(selected ? ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.18f) : kField), 32);
+    setupIcon(dl, icon, ic, iconBox * 0.52f, col(selected ? kSignal : kText));
+    const float tx = a.x + pad * 2 + iconBox, ty = a.y + (h - ts.y - ds.y - em() * 0.15f) * 0.5f;
+    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.08f);
+    dl->AddText(nullptr, 0.f, ImVec2(tx, ty), col(kText), T(title), nullptr, textW);
+    ImGui::PopFont();
+    dl->AddText(nullptr, 0.f, ImVec2(tx, ty + ts.y + em() * 0.15f), col(kMuted), T(desc), nullptr, textW);
+    // The tick (multi) or dot (single) on the right.
+    const ImVec2 mc(b.x - pad - em() * 0.55f, a.y + h * 0.5f);
+    const float mr = em() * 0.55f;
+    if (multi) {
+        dl->AddRect(ImVec2(mc.x - mr, mc.y - mr), ImVec2(mc.x + mr, mc.y + mr), col(selected ? kSignal : kLine), em() * 0.2f, 0, 1.5f);
+        if (selected) {
+            dl->AddRectFilled(ImVec2(mc.x - mr, mc.y - mr), ImVec2(mc.x + mr, mc.y + mr), col(kSignal), em() * 0.2f);
+            dl->AddLine(ImVec2(mc.x - mr * 0.5f, mc.y), ImVec2(mc.x - mr * 0.1f, mc.y + mr * 0.42f), col(kOnSignal), 2.f);
+            dl->AddLine(ImVec2(mc.x - mr * 0.1f, mc.y + mr * 0.42f), ImVec2(mc.x + mr * 0.55f, mc.y - mr * 0.42f), col(kOnSignal), 2.f);
+        }
+    } else {
+        dl->AddCircle(mc, mr, col(selected ? kSignal : kLine), 24, 1.5f);
+        if (selected) dl->AddCircleFilled(mc, mr * 0.5f, col(kSignal), 24);
+    }
+    gap(0.45f);
+    return clicked;
+}
+
+void setupTitle(const char* title, const char* sub) {
+    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.85f);
+    ImGui::PushTextWrapPos(0.f);
+    ImGui::TextUnformatted(T(title));
+    ImGui::PopTextWrapPos();
+    ImGui::PopFont();
+    if (sub && *sub) {
+        gap(0.2f);
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.08f);
+        ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+        ImGui::PushTextWrapPos(0.f);
+        ImGui::TextUnformatted(T(sub));
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+    }
+    gap(1.0f);
+}
+
+// A step in a short list: a small amber number, then the text. (These really are in order.)
+void setupStepLine(int n, const char* text) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float r = em() * 0.62f;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddCircleFilled(ImVec2(p.x + r, p.y + ImGui::GetTextLineHeight() * 0.5f), r, col(ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.16f)), 20);
+    char num[4];
+    std::snprintf(num, sizeof(num), "%d", n);
+    const ImVec2 ns = ImGui::CalcTextSize(num);
+    dl->AddText(ImVec2(p.x + r - ns.x * 0.5f, p.y), col(kSignal), num);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + r * 2 + em() * 0.6f, p.y));
+    ImGui::PushTextWrapPos(0.f);
+    ImGui::TextUnformatted(T(text));
+    ImGui::PopTextWrapPos();
+    gap(0.25f);
+}
+
+bool hasCable(const UiModel& m, std::string* name) {
+    for (const std::string& d : m.outputDevices)
+        if (d.find("CABLE Input") != std::string::npos || d.find("VB-Audio") != std::string::npos) {
+            if (name) *name = d;
+            return true;
+        }
+    return false;
+}
+
+void setupLanguage(UiModel& m) {
+    setupTitle("Choose your language", "You can change it any time in Settings.");
+    const std::vector<UiLanguage>& langs = uiLanguages();
+    const float gapX = em() * 0.7f, w = std::floor((ImGui::GetContentRegionAvail().x - gapX) * 0.5f), h = em() * 2.7f;
+    for (size_t i = 0; i < langs.size(); ++i) {
+        const bool sel = m.cfg.uiLanguage == langs[i].code;
+        if (i % 2) ImGui::SameLine(0, gapX);
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        ImGui::PushID(int(i));
+        if (ImGui::InvisibleButton("##lang", ImVec2(w, h))) {
+            m.cfg.uiLanguage = langs[i].code;
+            setUiLanguage(langs[i].code);
+        }
+        const bool hot = ImGui::IsItemHovered();
+        ImGui::PopID();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float r = em() * 0.5f;
+        dl->AddRectFilled(a, ImVec2(a.x + w, a.y + h), col(sel ? kSignal : hot ? kFieldHover : kPanel), r);
+        if (!sel) dl->AddRect(a, ImVec2(a.x + w, a.y + h), col(hot ? kFieldActive : kLine), r);
+        ImGui::PushFont(sel ? gSemibold : nullptr, ImGui::GetStyle().FontSizeBase * 1.1f);
+        const ImVec2 ts = ImGui::CalcTextSize(langs[i].name.c_str());
+        dl->AddText(ImVec2(a.x + em() * 1.0f, a.y + (h - ts.y) * 0.5f), col(sel ? kOnSignal : kText), langs[i].name.c_str());
+        ImGui::PopFont();
+        if (i % 2 == 0 && i + 1 == langs.size()) ImGui::NewLine();
+        if (i % 2 == 1 || i + 1 == langs.size()) gap(0.15f);
+    }
+}
+
+void setupWelcome() {
+    setupTitle("Welcome to CIMA Box", "Let's get you set up. It takes about two minutes, and you can change everything later.");
+    setupStepLine(1, "Connect your ElevenLabs account, where the voices come from.");
+    setupStepLine(2, "Choose what you want to do: talk, type, or read what others say.");
+    setupStepLine(3, "Choose where the voice goes, then play a test.");
+}
+
+void setupKey(UiModel& m, UiActions& act) {
+    setupTitle("Connect ElevenLabs", "Every voice comes from ElevenLabs. CIMA Box needs an API key: a password made just for apps.");
+    setupStepLine(1, "Go to elevenlabs.io and sign in (or make a free account).");
+    setupStepLine(2, "Open your profile, then API keys, and create a key.");
+    setupStepLine(3, "Copy the key and paste it here.");
+    gap(0.5f);
+    fieldLabel("ElevenLabs API key");
+    const float checkW = em() * 7.f;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - checkW - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::InputTextWithHint("##setupkey", T("Paste it here"), &m.cfg.apiKey, m.showKey ? 0 : ImGuiInputTextFlags_Password);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(m.loading || m.cfg.apiKey.empty());
+    if (button(m.loading ? "Checking" : "Check key", true, checkW)) act.loadCatalog = true;
+    ImGui::EndDisabled();
+    toggleRow("Show key", &m.showKey);
+    gap(0.2f);
+    if (m.loading) {
+        note(std::string(T("Checking")) + dots(), kBusy);
+    } else if (!m.voices.empty()) {
+        char b[160];
+        std::snprintf(b, sizeof(b), TF("Connected. %d voices found."), int(m.voices.size()));
+        note(b, kVoices[2]);
+    } else if (!m.catalogMsg.empty()) {
+        note(T(m.catalogMsg), kDanger);
+    }
+    gap(0.3f);
+    note("The key stays on this PC. If you make a key with limited access, allow User (read) too, so CIMA Box can "
+         "show how many credits are left.");
+}
+
+void setupUseStep(UiModel& m) {
+    setupTitle("What do you want to do?", "Pick one or more. Every page stays available either way.");
+    struct Opt { int bit, icon; const char* title; const char* desc; };
+    static const Opt kOpts[] = {
+        {kUseVoice, kIconMic, "Change my voice", "Talk into your mic and others hear a different voice, or your words in another language."},
+        {kUseText, kIconKeys, "Type and be heard", "Type instead of talking. A voice says it for you, translated if you like."},
+        {kUseRead, kIconBubbles, "Read what others say", "Live captions of what people say in a game or call, translated into your language."},
+    };
+    for (const Opt& o : kOpts) {
+        ImGui::PushID(o.bit);
+        if (setupCard("##use", o.icon, o.title, o.desc, (m.setupUse & o.bit) != 0, true)) m.setupUse ^= o.bit;
+        ImGui::PopID();
+    }
+}
+
+void setupVoice(UiModel& m, UiActions& act) {
+    setupTitle("Pick a voice", "Any voice in your ElevenLabs library, including clones of your own voice.");
+    fieldLabel("Voice");
+    voiceCombo(m);
+    if (m.voices.empty()) note("No voices yet: go back and check your ElevenLabs key.", kDanger);
+    if (m.setupUse & kUseVoice) {
+        gap(0.6f);
+        fieldLabel("Your microphone");
+        if (deviceCombo("##setupmic", m.inputDevices, m.cfg.inDevice)) act.reopenInput = true;
+        meter(m.levelDb, m.meterDb, m.cfg.thresholdDb, m.recording, false);
+        note("Say something: the bar should move.");
+    }
+}
+
+void setupRouteStep(UiModel& m, UiActions& act) {
+    Settings& c = m.cfg;
+    setupTitle("Where should the voice go?", "Pick what fits. You can change it later under Output on My voice.");
+    struct Opt { int route, icon; const char* title; const char* desc; };
+    static const Opt kOpts[] = {
+        {kRouteMe, kIconHeadphones, "Just me", "Play it on my headphones or speakers. Good for trying it out."},
+        {kRouteApps, kIconGame, "Into a game, Discord or a call", "Other people hear it as if it were your microphone."},
+        {kRouteOwn, kIconSliders, "I have my own setup", "A virtual cable or mixer I already use. I'll pick the output myself."},
+    };
+    for (const Opt& o : kOpts) {
+        ImGui::PushID(o.route);
+        if (setupCard("##route", o.icon, o.title, o.desc, m.setupRoute == o.route, false) && m.setupRoute != o.route) {
+            m.setupRoute = o.route;
+            std::string cable;
+            if (o.route == kRouteMe) { c.outDevice.clear(); c.monitor = false; act.reopenOutput = act.reopenMonitor = true; }
+            if (o.route == kRouteApps && hasCable(m, &cable)) {
+                c.outDevice = cable;
+                c.monitor = true;
+                c.monDevice.clear();
+                act.reopenOutput = act.reopenMonitor = true;
+            }
+        }
+        ImGui::PopID();
+    }
+    if (m.setupRoute == kRouteNone) return;
+    gap(0.4f);
+    std::string cable;
+    if (m.setupRoute == kRouteApps && !hasCable(m, &cable)) {
+        heading("You need a virtual microphone", 1.1f);
+        note("Games and Discord only take sound from a microphone. VB-CABLE is a free program that adds a pretend one: "
+             "CIMA Box plays the voice into it, and the game hears it as you.", kText);
+        gap(0.3f);
+        const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        if (button("Get VB-CABLE (free)", true, half)) act.openUrl = "https://vb-audio.com/Cable/";
+        ImGui::SameLine();
+        if (button("Look again", false, half)) act.rescanDevices = true;
+        note("Install it (restart your PC if it asks), then press Look again. Can't install it? Pick Just me for now; "
+             "you can switch later.");
+    } else if (m.setupRoute == kRouteApps) {
+        note("VB-CABLE is installed and picked.", kVoices[2]);
+        gap(0.1f);
+        setupStepLine(1, "Open your game, Discord or call app.");
+        setupStepLine(2, "In its voice or audio settings, set the microphone (input device) to CABLE Output.");
+        setupStepLine(3, "Leave CIMA Box running while you play.");
+        if (toggleRow("Hear it yourself too", &c.monitor)) act.reopenMonitor = true;
+    } else {
+        fieldLabel(m.setupRoute == kRouteMe ? "Play it on" : "Send the voice to");
+        if (deviceCombo("##setupout", m.outputDevices, c.outDevice)) act.reopenOutput = true;
+        if (m.setupRoute == kRouteOwn) {
+            note("Pick the input end of your cable or mixer, then choose its output end as the microphone in your game or app.");
+            if (toggleRow("Hear it yourself too", &c.monitor)) act.reopenMonitor = true;
+        }
+    }
+    gap(0.6f);
+    ImGui::BeginDisabled(c.voiceId.empty() || m.busy);
+    if (button(m.busy ? "Playing" : "Play a test", false, em() * 9.f)) act.testSound = T("Hi! This is how my new voice sounds.");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (!m.lastError.empty()) ImGui::TextColored(kDanger, "%s", T(m.lastError));
+    else ImGui::TextColored(kMuted, "%s", T(m.setupRoute == kRouteApps && !hasCable(m, nullptr) ? "It plays on your speakers for now."
+                                          : m.setupRoute == kRouteApps && !c.monitor ? "Turn on Hear it yourself too to hear the test."
+                                                                                     : "You should hear the voice."));
+}
+
+void setupRead(UiModel& m, UiActions& act) {
+    ListenSettings& l = m.cfg.listen;
+    setupTitle("Read what others say", "CIMA Box listens to a game or app and shows what people say, translated.");
+    fieldLabel("Listen to");
+    static const char* const kSources[] = {"One program", "Everything I hear", "A microphone"};
+    segmented("##setupsource", kSources, 3, &l.source);
+    if (l.source == kSrcApp) {
+        appCombo(m, act);
+        note("Only that program is captioned, like your game or Discord.");
+    } else if (l.source == kSrcSpeakers) {
+        deviceCombo("##setupspk", m.outputDevices, l.speakers);
+        note("Everything playing on these speakers or headphones.");
+    } else {
+        deviceCombo("##setupin", m.inputDevices, l.input);
+    }
+    gap(0.5f);
+    fieldLabel("Translate into");
+    languageCombo("##setupto", l.toLang, false);
+    note("Uses the free translator to start. A DeepL, Claude or Gemini key in Settings gives better translations.");
+}
+
+// A page name in amber and what to do there.
+void setupPageRow(const char* page, const char* what) {
+    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.05f);
+    ImGui::TextColored(kSignal, "%s", T(page));
+    ImGui::PopFont();
+    ImGui::PushTextWrapPos(0.f);
+    ImGui::TextUnformatted(T(what));
+    ImGui::PopTextWrapPos();
+    gap(0.6f);
+}
+
+void setupDone(UiModel& m) {
+    setupTitle("You're all set", "Here's where everything is.");
+    if (m.setupUse & kUseVoice) setupPageRow("My voice", "Flip the switch at the top right, then talk.");
+    if (m.setupUse & kUseText) setupPageRow("Text", "Type at the bottom and press Enter. What others say shows up there too.");
+    if (m.setupUse & kUseRead) setupPageRow("Listen", "Flip the switch at the top right, and captions appear as people talk.");
+    gap(0.3f);
+    note("Settings (the gear, top right) has your keys, hotkeys and the app's language, and can run this setup again.");
+}
+
+void finishSetup(UiModel& m) {
+    m.cfg.setupDone = true;
+    m.setupStep = -1;
+    if (m.setupUse & kUseVoice) m.cfg.page = kPageVoice;
+    else if (m.setupUse & kUseText) m.cfg.page = kPageText;
+    else if (m.setupUse & kUseRead) m.cfg.page = kPageListen;
+}
+
+void setupView(UiModel& m, UiActions& act) {
+    const ImVec2 full = ImGui::GetContentRegionAvail(), origin = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const int step = std::max(0, std::min(m.setupStep, int(kStepCount) - 1));
+
+    // Top: the logo and name, and Skip on the right.
+    const float topH = em() * 2.4f;
+    float x = origin.x;
+    if (m.logoTexture != 0 && m.logoSize > 0) {
+        const float side = std::floor(topH * 0.8f);
+        dl->AddImageRounded(ImTextureRef(ImTextureID(m.logoTexture)), ImVec2(x, origin.y + (topH - side) * 0.5f),
+                            ImVec2(x + side, origin.y + (topH + side) * 0.5f), ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, side * 0.22f);
+        x += side + em() * 0.5f;
+    }
+    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.2f);
+    dl->AddText(ImVec2(x, origin.y + (topH - ImGui::GetFontSize()) * 0.5f), col(kText), "CIMA Box");
+    ImGui::PopFont();
+    if (step > kStepLanguage) {
+        const char* skip = T("Skip setup");
+        const ImVec2 ss = ImGui::CalcTextSize(skip);
+        ImGui::SetCursorScreenPos(ImVec2(origin.x + full.x - ss.x, origin.y + (topH - ss.y) * 0.5f));
+        ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+        if (ImGui::Selectable(skip, false, 0, ss)) finishSetup(m);
+        ImGui::PopStyleColor();
+        if (m.setupStep < 0) return;
+    }
+
+    // The column in the middle.
+    const float colW = std::min(full.x, em() * 34.f), colX = origin.x + std::floor((full.x - colW) * 0.5f);
+    const float navH = ImGui::GetFrameHeight() + em() * 1.2f;
+    float y = origin.y + topH + em() * 1.4f;
+
+    // Progress: one short bar per screen this person will see.
+    int shownCount = 0, shownIndex = 0;
+    for (int s = 0; s < kStepCount; ++s)
+        if (setupShows(m, s)) {
+            if (s == step) shownIndex = shownCount;
+            ++shownCount;
+        }
+    const float segGap = em() * 0.35f, segW = (colW - segGap * (shownCount - 1)) / shownCount, segH = std::max(3.f, em() * 0.22f);
+    for (int i = 0; i < shownCount; ++i) {
+        const float sx = colX + i * (segW + segGap);
+        dl->AddRectFilled(ImVec2(sx, y), ImVec2(sx + segW, y + segH), col(i <= shownIndex ? kSignal : kLine), segH * 0.5f);
+    }
+    y += segH + em() * 1.6f;
+
+    ImGui::SetCursorScreenPos(ImVec2(colX, y));
+    ImGui::BeginChild("setupbody", ImVec2(colW, origin.y + full.y - navH - y), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+    switch (step) {
+    case kStepLanguage: setupLanguage(m); break;
+    case kStepWelcome: setupWelcome(); break;
+    case kStepKey: setupKey(m, act); break;
+    case kStepUse: setupUseStep(m); break;
+    case kStepVoice: setupVoice(m, act); break;
+    case kStepRoute: setupRouteStep(m, act); break;
+    case kStepRead: setupRead(m, act); break;
+    default: setupDone(m); break;
+    }
+    ImGui::EndChild();
+
+    // Back and Next at the bottom of the column.
+    const float bw = em() * 8.5f, by = origin.y + full.y - ImGui::GetFrameHeight() - em() * 0.4f;
+    dl->AddLine(ImVec2(colX, by - em() * 0.7f), ImVec2(colX + colW, by - em() * 0.7f), col(kLine));
+    if (step > kStepLanguage) {
+        ImGui::SetCursorScreenPos(ImVec2(colX, by));
+        if (button("Back", false, bw)) m.setupStep = setupNext(m, step, -1);
+    }
+    const char* next = step == kStepDone ? "Start" : step == kStepLanguage ? "Continue" : "Next";
+    bool canGo = true;
+    if (step == kStepKey && m.cfg.apiKey.empty()) next = "Skip for now";
+    if (step == kStepUse) canGo = m.setupUse != 0;
+    if (step == kStepRoute) canGo = m.setupRoute != kRouteNone;
+    ImGui::SetCursorScreenPos(ImVec2(colX + colW - bw, by));
+    ImGui::BeginDisabled(!canGo);
+    if (button(next, true, bw)) {
+        if (step == kStepKey && !m.cfg.apiKey.empty() && m.voices.empty() && !m.loading) act.loadCatalog = true;
+        if (step == kStepDone) finishSetup(m);
+        else m.setupStep = setupNext(m, step, 1);
+    }
+    ImGui::EndDisabled();
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------- public
@@ -1890,13 +2392,23 @@ UiActions uiDraw(UiModel& m) {
 
     if (m.captionsOnly) {
         captionsOnlyView(m, act);
+    } else if (m.setupStep >= 0) {
+        setupView(m, act);
     } else {
         header(m, act);
+        const bool footer = !m.usage.empty();
+        const float footH = footer ? std::floor(em() * 1.6f) : 0.f;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::BeginChild("page", ImVec2(0, ImGui::GetContentRegionAvail().y - footH), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar();
         if (m.cfg.page == kPageListen) listenPage(m, act);
         else if (m.cfg.page == kPageText) textPage(m, act);
         else if (m.cfg.page == kPageVR) vrPage(m, act);
         else if (m.cfg.page == kPageSettings) settingsPage(m, act);
         else voicePage(m, act);
+        ImGui::EndChild();
+        if (footer) usageLine(m, footH);
     }
 
     changesWindow(m);

@@ -64,6 +64,11 @@ const std::vector<Language>& languages();
 const Language* findLanguage(const std::string& code);
 
 // Use one Translator per thread.
+// DeepL's server for this key (free keys end in ":fx").
+std::string deeplHost(const std::string& key);
+// Tokens Claude (kClaude) or Gemini (kGemini) used so far in this run of the program.
+void aiTokens(int service, long long& in, long long& out);
+
 class Translator {
 public:
     Http http;

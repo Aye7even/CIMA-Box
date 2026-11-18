@@ -48,7 +48,7 @@ def balanced(text, start):
             if depth==0: return text[start+1:i]
         i+=1
     return ''
-calls = ['T','TF','fieldLabel','note','heading','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
+calls = ['setupTitle','setupStepLine','setupCard','setupPageRow','T','TF','fieldLabel','note','heading','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
 found=[]
 def scan_file(name, which):
     text=open(src+name).read()
@@ -61,7 +61,7 @@ def scan_file(name, which):
         end=text.index('};', m.end()); 
         for s in literals(text[m.end():end]): found.append(s)
 scan_file('ui.cpp', calls)
-scan_file('main.cpp', ['T','TF'])
+scan_file('main.cpp', ['T','TF','quotaItem'])
 # dialect names, overlay/listen statuses
 txt=open(src+'translate.cpp').read()
 for m in re.finditer(r'\{"[a-z]+", "[A-Za-z0-9-]+", "([^"]+)",', txt): found.append(m.group(1))
@@ -82,11 +82,19 @@ def keep(s):
     if s in ('%s','%.2f','%.0f','%d','%.0f dB','%d ms','%.1fx','%.2f s','%s%s %.2f s',', ','.'): return False
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
-drop={'textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','SteamVR: ','Waiting for ',' to start.',
+drop={'ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','SteamVR: ','Waiting for ',' to start.',
       'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
           'Working','Some problems','Outage','Maintenance','See its page','All Systems Operational','Problems reported',
-          'Open the status page to check',"Couldn't read the status page",'Checking',
+          'Open the status page to check',"This key isn't allowed to read usage (it needs User: Read access).",
+          'The DeepL key was refused.','Couldn\'t check','Hi! This is how my new voice sounds.',
+          'Change my voice','Talk into your mic and others hear a different voice, or your words in another language.',
+          'Type and be heard','Type instead of talking. A voice says it for you, translated if you like.',
+          'Read what others say','Live captions of what people say in a game or call, translated into your language.',
+          'Just me','Play it on my headphones or speakers. Good for trying it out.',
+          'Into a game, Discord or a call','Other people hear it as if it were your microphone.',
+          'I have my own setup',"A virtual cable or mixer I already use. I'll pick the output myself.",
+          'Start','Continue','Next','Back','Skip for now','Checking','Pick a voice','Voice','My voice','Text','Listen',"Couldn't read the status page",'Checking',
           'Recording','Converting','Level','Auto','Voice','Search voices','the default speakers','the default input',"Couldn't save there, so your settings stayed where they were.","ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall."]
 uniq=[]
 for s in found:

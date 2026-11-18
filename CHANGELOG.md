@@ -6,6 +6,11 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 2.7.1
+- A new setup walkthrough the first time you open CIMA Box: first choose your language, then connect ElevenLabs, pick what you want to do, pick a voice and where it should go, and play a test. It helps with VB-CABLE for games and Discord, and works without it too. Run it again any time from Settings > About.
+- What's left, at the bottom of every page: your ElevenLabs credits and DeepL characters, straight from your accounts, and what Claude or Gemini cost in this session. Turns amber when you're running low and red when it's used up. Hover for the details.
+- A log file (cimabox.log, in your settings folder) records errors and what happened, without any API keys. Settings > About > Open log file. Send it to whoever helps you when something goes wrong.
+
 ## 2.7.0
 - New Text page: type instead of talking. The voice reads what you type, as typed or translated, with the same voices, languages, dialects and translation services as My voice, and it can show in the VRChat chatbox. Turn off "Say it out loud" to only send it to the chatbox.
 - The Text page also shows the whole conversation: what other people say (from Listen), translated, next to what you said or typed, so you don't have to switch tabs.
