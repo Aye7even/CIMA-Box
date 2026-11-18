@@ -1,0 +1,343 @@
+CIMA Box 2.5
+============
+
+CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
+say (for example in VRChat) into your language.
+
+It has three pages, switched at the top of the window:
+
+  My voice   Your microphone goes to ElevenLabs and comes back as a different voice, which is
+             played on any output device (for example a virtual cable that Discord or VRChat
+             uses as its microphone). It can also re-speak or translate what you say.
+  Listen     Captions of what other people say, translated into your language.
+  VR         Shows those captions (and your own words, if you like) on a small floating panel
+             inside your headset, in any SteamVR game.
+
+The switch at the top right turns the page you're on on or off. The gear next to it opens
+Settings: the app's language, your API keys and hotkeys.
+
+
+GETTING STARTED
+---------------
+
+1. Put CIMABox.exe in its own folder and run it. Settings are saved in a file called
+   cimabox.json in that folder.
+2. Click the gear (top right) to open Settings, paste your ElevenLabs API key under Accounts and
+   click "Load voices and models". (Until you do, the bottom of the window shows these steps.)
+   Want the menus in another language? Pick it under App language in the same place.
+3. Under Voice, pick a voice.
+4. Under Input, pick your microphone. Under Output, pick where the new voice goes.
+5. To use the voice in Discord, VRChat, OBS or a game: install a virtual cable (for example
+   VB-Audio Virtual Cable), choose "CABLE Input" under "Send the new voice to", and choose
+   "CABLE Output" as the microphone in the other program.
+6. Turn the switch at the top right on and talk.
+
+Don't share cimabox.json with anyone. It holds your API keys.
+
+
+MY VOICE PAGE
+-------------
+
+The page goes left to right in the order the sound travels: Input, then Voice, then Output.
+
+Input
+  Microphone ............... The mic you talk into.
+  Start talking by ......... Voice activation: records whenever you talk.
+                             Push to talk: records only while you hold a key.
+  Opens above .............. (Voice activation) How loud you must be to start recording. Put
+                             the marker on the level meter just to the right of where it sits
+                             when you're silent.
+  Pause that ends a phrase . How long a pause sends what you said. Shorter = less delay, but
+                             it may cut you off between words.
+  Key ...................... (Push to talk) Click it, then press the key you want to use.
+  Longest phrase ........... If you talk without pausing, it is sent after this many seconds.
+
+Voice
+  Mode
+    Changer ................ Changes your voice and keeps your timing, emotion and accent.
+                             Fastest and most natural. Best choice for most uses.
+    Re-speak ............... Writes down what you said, then the voice reads it out in its own
+                             delivery. Use it to hide your accent or delivery.
+    Translate .............. Like Re-speak, but translated into another language first.
+  Voice .................... The ElevenLabs voice to use. Type in the box to search.
+  A voice for each language  (Translate) Picking another language (or dialect) brings back the
+                             voice you last used with it.
+  Model .................... The ElevenLabs model. v4 Turbo and Flash are the fastest. Only v3
+                             and v4 speak all 91 languages and follow emotion tags.
+  I speak .................. (Translate) Your language, or "Detect automatically".
+  Translate to ............. (Translate) The language the voice speaks. Type to search.
+  Dialect .................. (Translate) Which way of speaking it: for Spanish Mexico, Spain,
+                             Argentina, Puerto Rico, Colombia, Dominican Republic...; for Arabic
+                             Kuwait, Saudi Arabia, Gulf, Iraq, Egypt, Levant, Morocco...; Brazil
+                             or Portugal; Quebec; Swiss German; Kansai; Hinglish; and more.
+                             "Other (type it)" takes anything, like ar-KW or "Rioplatense".
+                             Needs Claude or Gemini (DeepL and Free use the standard language).
+                             The words come out in the dialect; the ACCENT comes from the voice,
+                             so for the real thing pick a voice from that region.
+  Translation service ...... Free (MyMemory: no sign-up, about 5,000 characters a day),
+                             DeepL (better wording, needs a DeepL API key; the free DeepL plan
+                             gives 500,000 characters a month), Claude or Gemini (see below).
+                             Free and DeepL sound like a textbook. Claude and Gemini say it the
+                             way a native speaker actually talks, slang and casual speech
+                             included, which is what makes it believable in a conversation.
+    Claude / Gemini key .... Your key from console.anthropic.com (Claude) or
+                             aistudio.google.com (Gemini). Costs a tiny fraction of a cent per
+                             phrase.
+    DeepL API key (backup) . Optional. Used for a phrase when the AI is too slow or fails.
+    How you talk ........... Polite (like with someone you just met), Casual (friends, the
+                             default) or Very casual (close friends: more slang, swearing kept).
+    Sound like... .......... Optional, for example "a guy in his 20s from Seoul". Region and age
+                             change the slang a lot.
+    Match how they talk to me  Also gives the AI the last few lines other people said (from the
+                             Listen page), so you answer the way they talk to you and use their
+                             words. Needs Listen on.
+    Time limit ............. If the AI hasn't answered by then (2 seconds by default), that phrase
+                             uses DeepL (if you added a key) or Free instead. The bottom strip
+                             shows which service did each phrase.
+    AI model ............... Leave as is unless you want a bigger, slower model.
+  Gender (Claude / Gemini) . Many languages change words for who speaks and who listens
+                             (Spanish cansado / cansada, Arabic enta / enti).
+    I am ................... Not set, A man, A woman or Nonbinary.
+    Talking to ............. Auto, Don't know, A guy, A girl or A group. Auto guesses from the
+                             voice of the last person the Listen page heard (so Listen must be
+                             on). It's only a guess: voice changers and avatar voices fool it.
+                             Switch it fast with a hotkey (Settings > Hotkeys) or, in VR, from
+                             the CIMA Box tab in the SteamVR menu.
+  Carry my emotion ......... (Re-speak and Translate) Listens to HOW you said things: stressed
+                             words, drawn-out words, pauses, laughs, questions, and whether you
+                             sounded excited, flat, quiet or were whispering or shouting. It
+                             passes that on to the voice. Adds no delay. Works fully with v3
+                             and v4; other models only get the punctuation.
+    Subtle / Strong ........ Strong picks up smaller changes in your voice.
+    Relearn my usual voice . It compares you to your normal voice, learned from your first few
+                             phrases. Press this after changing mics, or if it guesses wrong.
+  Fine-tune the voice ...... Click to unfold these. The defaults suit most voices.
+  Stability ................ Higher = steadier, calmer delivery. Lower = more emotional and
+                             varied (and less predictable). 0.4 to 0.6 sounds most natural.
+  Similarity ............... How closely it sticks to the original voice. Very high values can
+                             bring out artifacts; around 0.75 is a good start.
+  Style .................... Exaggerates the voice's style. Keep it at 0 for natural speech.
+  Speed .................... How fast the voice talks.
+  Speaker boost ............ Makes it sound more like the original voice. Try it off if the
+                             voice sounds harsh or processed.
+  Remove background noise .. (Changer) Cleans up your mic before conversion. Useful with a noisy
+                             room or headset mic; adds a little delay.
+  Set clone strength ....... (Only with your own Professional Voice Clone on a v4 model) Higher
+                             follows your training recordings more closely; lower smooths the
+                             voice. Off = the value saved on the ElevenLabs website.
+  Voice and model IDs ...... For pasting an ID by hand. Not needed normally.
+
+Output
+  Send the new voice to .... Where the new voice plays (usually the virtual cable).
+    Volume ................. How loud the new voice is there (100% = as it comes, up to 200%).
+                             Your passed-through mic isn't affected.
+  Hear it yourself too ..... Also plays it on your headphones so you can hear what others hear.
+    Volume ................. How loud it is in your headphones.
+  Audio quality
+    Standard ............... Lowest delay, slightly duller sound. Any ElevenLabs plan.
+    High ................... Same quality as the ElevenLabs website. Needs Creator or above.
+    Best ................... Highest quality. Needs Pro or above.
+                             If your plan doesn't allow a quality, it switches down by itself
+                             and tells you.
+  Pass my mic through when off  When the switch at the top right is off, your real voice goes
+                             to the output instead of silence. Discord or VRChat can then stay
+                             on the virtual cable all the time.
+  Match my mic ............. Makes the new voice sound like it came through your actual mic
+                             (same tone and loudness), so switching between your real voice and
+                             the new one, or between two mics, isn't noticeable. It needs a few
+                             seconds of you talking to learn. If your mic sounds dull, lower
+                             Amount or turn it off.
+    Amount ................. How strongly it matches.
+    Relearn my mic ......... Starts learning your mic again.
+  Show in VRChat chatbox ... Shows your words above your avatar. Choose What I said, Spoken as
+                             (the translation) or Both. Turn on OSC in VRChat first (Action Menu
+                             > Options > OSC > Enabled). In Changer mode this also transcribes
+                             each phrase, which ElevenLabs bills.
+  Rescan devices ........... Refreshes the device lists after plugging something in.
+
+Bottom strip
+  Shows what it heard ("You said"), what the voice was told to say ("Spoken as"), how the
+  phrase sounded (with Carry my emotion on), and how long each step took.
+  Stop speaking ............ Cancels everything that is playing or waiting.
+
+
+LISTEN PAGE
+-----------
+
+Captions of what other people say, translated. It starts switched off every time, because it
+uses your ElevenLabs credits for as long as it runs and people are talking.
+
+Listen to
+  App ...................... Only one program's sound, for example VRChat.exe (Windows 11 or an
+                             up-to-date Windows 10). It waits for the program to start and
+                             reconnects if it restarts. Your own changed voice isn't captioned.
+  Speakers ................. Everything playing on one playback device.
+  Input .................... A recording device, such as a virtual cable or a second mic.
+  Opens above .............. Put the marker above the game's background sound and below the
+                             voices. Loud music above the marker gets transcribed too.
+  Captions appear .......... Sooner: fastest, but half sentences translate worse.
+                             Balanced: splits at natural pauses.
+                             Fuller: waits for whole sentences, best wording.
+
+Translation
+  They speak ............... The other people's language, or "Detect automatically".
+  Translate into ........... Your language. Type to search.
+  Translation service ...... Same as on My voice. Use DeepL here: the free service runs out
+                             after a few minutes of steady captions.
+  Tell speakers apart ...... Splits a caption into "Voice 1", "Voice 2" lines when several people
+                             talk. The numbers only apply inside that one caption.
+  Show the original words .. Shows what was said under the translation.
+  Skip speech in my language  Hides people who already speak your language.
+  Translation service ...... Same choices as on My voice. Claude or Gemini understand slang
+                             much better. Here they always translate faithfully.
+  Send to VRChat chatbox ... Shows the newest caption above your avatar (people near you can read
+                             it too). Needs OSC on in VRChat.
+  Caption size ............. Text size of the captions.
+
+Captions
+  Captions only ............ Shrinks the window to just the captions and keeps it on top of the
+                             game. To see it inside VR, pin that window with an overlay app such
+                             as XSOverlay or OVR Toolkit, or just use the VR page instead.
+  Show controls ............ Goes back to the full window.
+  Clear .................... Empties the caption list.
+
+
+VR PAGE
+-------
+
+Puts the captions on a small, see-through panel inside your headset, over any SteamVR game
+(VRChat included). It is off until you flip the switch at the top right. It waits for SteamVR to
+be running and lets go when SteamVR closes. Captions come from the Listen page, so turn Listen on
+too.
+
+It is built to be light: the panel is only redrawn when the words or the look change, it is
+hidden completely when there is nothing to show, and the main window draws nothing while it is
+minimized.
+
+Placement
+  Where .................... Head: moves with you and is always in view (the default).
+                             Left hand / Right hand: on the back of your hand, look at your
+                             wrist to read it.
+                             Fixed: stays in one spot in the room, like a screen.
+  Put it in front of me .... (Fixed) Places the panel where you are looking right now.
+  Distance / Height /
+  Sideways ................. (Head and Fixed) Where the panel sits, in metres.
+  Size ..................... How wide the panel is.
+
+Show
+  What I say ............... Also shows your own words (in a different colour).
+  Original words ........... Shows what was actually said under each translation.
+  Hide after ............... Fades the panel out after this many quiet seconds (or never).
+  Show who I'm talking to .. A small note at the top of the panel ("Talking to: a girl").
+
+In VR
+  CIMA Box tab in the SteamVR menu
+                             Press the system button on your controller: the SteamVR menu gets a
+                             CIMA Box tab with big buttons (Auto, Don't know, A guy, A girl,
+                             A group). Point and click with the laser to switch who you're
+                             talking to without taking the headset off.
+
+Look
+  The preview at the top shows exactly what you'll see in the headset.
+  Text size, Lines ......... How big the text is and how many lines are kept.
+  Panel .................... How dark the panel behind the text is. 0 = just floating text.
+  Overall opacity .......... How see-through everything is.
+  Glow ..................... A soft glow around the panel edge.
+  Text / Accent / My lines . Colours. Click a square to pick.
+  Default look ............. Puts the look back to how it started.
+
+openvr_api.dll must stay next to CIMABox.exe for VR to work.
+
+
+SETTINGS (THE GEAR)
+-------------------
+
+Click the gear at the top right; click it again (or any page name) to go back.
+
+App language
+  The language of the menus: English, Español, Português (Brasil), Français, Deutsch, Italiano,
+  Русский, 日本語, 한국어 or 简体中文. Changes right away. Translations, captions and voices have
+  their own language settings.
+
+  Adding another language: in the "lang" folder next to CIMABox.exe there is
+  _template.json.txt with every text. Copy it to a new name ending in .json (for example tr.json),
+  put your language's code and name at the top (for example "tr" and "Türkçe"), write the
+  translations between the quotes and restart CIMA Box. Anything you leave empty stays English.
+  Arabic, Hebrew, Persian and Hindi can't be used for the menus (the text would show unjoined).
+
+About
+  Save settings now ........ Saves now. Settings also save when you close the app.
+
+Accounts
+  ElevenLabs API key ....... Needed for everything. From the API keys page on elevenlabs.io.
+  Load voices and models ... Fetches your voices and models from ElevenLabs.
+  Claude / Gemini API key .. For natural translation with slang and dialects.
+  DeepL API key ............ Textbook translation, and the backup when the AI is slow.
+  Show keys ................ Shows the keys instead of dots.
+
+Hotkeys
+  Push to talk ............. The key to hold while talking (when Input is set to push to talk).
+  Next "Talking to" ........ Each press goes to the next choice: Auto, Don't know, A guy,
+                             A girl, A group. Works while a game has focus.
+  Clear .................... Removes a hotkey.
+  I am / Talking to ........ The same choices as on the My voice page.
+
+Updates
+  CIMA Box updates itself. When a new version is out, an amber "Update to ..." button appears at
+  the top of the window; it opens Settings, where "Update and restart" installs it. It downloads
+  the new version, checks that it really comes from the author (a digital signature) and restarts.
+  Your settings and keys stay.
+  Check when CIMA Box starts  Looks for a new version a few seconds after starting.
+  Check for updates ........ Looks now.
+  Keep CIMA Box in a normal folder (Desktop, Documents...), not in Program Files, so it can
+  replace itself.
+
+
+TIPS
+----
+
+- Lowest delay: Changer mode, Standard quality, a short "Pause that ends a phrase". For
+  Re-speak/Translate, use v4 Turbo or Flash.
+- Most natural sound: Changer mode, Stability around 0.5, Style 0, a voice described as
+  conversational, or a clone of yourself made from casual talking.
+- Two mics (for example a VR headset and a desk mic): turn on Match my mic, and keep the same
+  distance and noise removal on both.
+- To sound like a native speaker when translating: Claude or Gemini, Casual, a "Sound like..."
+  with a region and age, and Listen on with "Match how they talk to me".
+- To pass as a local: Claude or Gemini, the right Dialect, "I am" set, and a voice (or clone)
+  from that region.
+- Emotion tags like [excited] and capitals for stressed words only work on v3 and v4 models.
+- Some languages (Arabic, Persian, Hebrew, Hindi and similar) may look odd in the text lines.
+  The voice itself is fine.
+
+
+PROBLEMS
+--------
+
+"Add your ElevenLabs API key first" .... Paste your key under Account.
+Nothing happens when I talk ............ Check the switch at the top right is on, the right mic
+                                         is picked, and the level meter moves past the marker.
+The other app doesn't hear the voice ... That app's microphone must be the other end of the
+                                         virtual cable ("CABLE Output").
+It cuts off my last word ............... Make "Pause that ends a phrase" a bit longer.
+"Free translation limit reached" ....... Switch to DeepL, Claude or Gemini, or wait until
+                                         tomorrow.
+"(Claude too slow)" in the bottom strip  That phrase was done by DeepL or Free instead. Raise
+                                         the Time limit a little if it happens a lot.
+VR page says "Waiting for SteamVR" ..... Start SteamVR. It connects by itself.
+No CIMA Box tab in the SteamVR menu .... Turn on "CIMA Box tab in the SteamVR menu" on the VR
+                                         page, and switch VR on at the top right.
+"(...; standard Arabic)" in the strip .. That phrase went through DeepL or Free, which don't
+                                         know dialects. Raise the Time limit a little.
+"Couldn't replace the program" ......... Move the CIMA Box folder somewhere you can write to (for
+                                         example Documents), then update again.
+"The update's signature doesn't match"   The download wasn't the real update, so it was not
+                                         installed. Try again later.
+"Talking to" Auto guesses wrong ........ Set it by hand (hotkey or SteamVR tab). Voice changers
+                                         and avatar voices fool the guess.
+Nothing shows in the headset ........... Turn Listen on too, check the panel isn't behind you
+                                         (Head is easiest), and that openvr_api.dll is next to
+                                         CIMABox.exe.
+The chatbox shows nothing .............. Turn on OSC in VRChat.
+App capture fails on Listen ............ Needs Windows 11 or an up-to-date Windows 10. Use
+                                         Speakers instead.

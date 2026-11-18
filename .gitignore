@@ -1,0 +1,9 @@
+# Build output
+build/
+out/
+
+# Secrets: never commit these
+update_private_key.pem
+*.pem
+cimabox.json
+voicechanger.json
