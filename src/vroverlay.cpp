@@ -74,7 +74,7 @@ struct VrOverlay::Impl {
     std::atomic<bool> running{false};
 
     // thread-only
-    bool dllOk = false, inited = false, waitForExit = false;
+    bool inited = false, waitForExit = false;
     vr::VROverlayHandle_t handle = vr::k_ulOverlayHandleInvalid;
     vr::VROverlayHandle_t dash = vr::k_ulOverlayHandleInvalid, dashThumb = vr::k_ulOverlayHandleInvalid;
     VrTalking shownTalking;
@@ -176,11 +176,6 @@ struct VrOverlay::Impl {
     }
 
     bool tryInit() {
-        if (!dllOk) {
-            // Loaded on demand (the program starts fine without it).
-            dllOk = LoadLibraryA("openvr_api.dll") != nullptr;
-            if (!dllOk) { setStatus("openvr_api.dll is missing next to CIMABox.exe", false); return false; }
-        }
         const bool steamVrRunning = findAppPid("vrserver.exe") != 0;
         if (waitForExit) {  // SteamVR asked us to quit: wait until it is really gone before trying again
             if (steamVrRunning) return false;

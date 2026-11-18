@@ -541,5 +541,21 @@
 "Start": "시작",
 "Continue": "계속",
 "Next": "다음",
-"Skip for now": "지금은 건너뛰기"
+"Skip for now": "지금은 건너뛰기",
+"Talking and listening were switched off.": "말하기와 듣기가 꺼졌어요.",
+"Change limit": "한도 변경",
+"This session so far: %s credits and $%.2f.": "이번 세션: %s 크레딧, $%.2f.",
+"This session so far: $%.2f. (ElevenLabs credits can't be counted: the key can't read usage.)": "이번 세션: $%.2f. (키가 사용량을 읽을 수 없어 ElevenLabs 크레딧은 셀 수 없어요.)",
+"ElevenLabs credits per session": "세션당 ElevenLabs 크레딧",
+"Claude or Gemini per session (US$)": "세션당 Claude 또는 Gemini (US$)",
+"When a limit is reached, My voice and Listen switch off until you press OK.": "한도에 닿으면 OK를 누를 때까지 내 목소리와 듣기가 꺼져요.",
+"When a limit is reached, a notice appears at the top. Nothing stops.": "한도에 닿으면 위에 알림이 떠요. 멈추는 건 없어요.",
+"Spending limit": "사용 한도",
+"OK": "OK",
+"Warn me about spending": "사용량 알림",
+"Stop talking and listening at the limit": "한도에서 말하기와 듣기 멈추기",
+"This session: %s credits.": "이번 세션: %s 크레딧.",
+"This session has used %s ElevenLabs credits, your limit.": "이번 세션에서 ElevenLabs 크레딧 %s을(를) 써서 한도에 닿았어요.",
+"This session has spent $%.2f on translations, your limit.": "이번 세션에서 번역에 $%.2f를 써서 한도에 닿았어요.",
+"Stopped at your spending limit. Press OK on the notice at the top to keep going.": "사용 한도에서 멈췄어요. 계속하려면 위 알림에서 OK를 누르세요."
 }

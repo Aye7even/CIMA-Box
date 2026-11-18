@@ -912,6 +912,41 @@ void usageLine(const UiModel& m, float height) {
     ImGui::PopFont();
 }
 
+// ---------------------------------------------------------------- spending limit notice
+
+// A thin amber bar under the header, on every page, until it's acknowledged.
+void spendBanner(UiModel& m, UiActions& act) {
+    const float w = ImGui::GetContentRegionAvail().x, h = ImGui::GetFrameHeight() + em() * 0.7f;
+    const ImVec2 a = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = ImGui::GetStyle().FrameRounding;
+    const ImVec4 c = m.spendStopped ? kDanger : kSignal;
+    dl->AddRectFilled(a, ImVec2(a.x + w, a.y + h), col(ImVec4(c.x, c.y, c.z, 0.12f)), r);
+    dl->AddRect(a, ImVec2(a.x + w, a.y + h), col(ImVec4(c.x, c.y, c.z, 0.7f)), r);
+    std::string text = m.spendAlert;
+    if (m.spendStopped) text += std::string(" ") + T("Talking and listening were switched off.");
+    const float okW = em() * 5.f, setW = ImGui::CalcTextSize(T("Change limit")).x + em() * 1.6f;
+    const float textW = w - okW - setW - em() * 2.4f;
+    ImGui::PushClipRect(a, ImVec2(a.x + em() + textW, a.y + h), true);
+    dl->AddText(ImVec2(a.x + em() * 0.9f, a.y + (h - ImGui::GetTextLineHeight()) * 0.5f), col(kText), text.c_str());
+    ImGui::PopClipRect();
+    if (ImGui::CalcTextSize(text.c_str()).x > textW) {  // cut off: the whole of it on hover
+        ImGui::SetCursorScreenPos(ImVec2(a.x, a.y));
+        ImGui::InvisibleButton("##spendtext", ImVec2(textW, h));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", text.c_str());
+    }
+    const float by = a.y + (h - ImGui::GetFrameHeight()) * 0.5f;
+    ImGui::SetCursorScreenPos(ImVec2(a.x + w - okW - setW - em() * 1.0f, by));
+    if (button("Change limit", false, setW)) {
+        m.cfg.page = kPageSettings;
+        m.scrollToSpend = true;
+    }
+    ImGui::SetCursorScreenPos(ImVec2(a.x + w - okW - em() * 0.4f, by));
+    if (button("OK", true, okW)) act.spendOk = true;
+    ImGui::SetCursorScreenPos(ImVec2(a.x, a.y + h + em() * 0.5f));
+    ImGui::Dummy(ImVec2(0, 0));
+}
+
 // ---------------------------------------------------------------- header and status strip
 
 void header(UiModel& m, UiActions& act) {
@@ -1633,6 +1668,36 @@ void settingsPage(UiModel& m, UiActions& act) {
                 "Accurate textbook translation, and the backup when the AI is slow. deepl.com: API plan.");
     gap(0.2f);
     toggleRow("Show keys", &m.showKey);
+    subheading("Spending limit");
+    if (m.scrollToSpend) {  // came from "Change limit": bring this part into view
+        ImGui::SetScrollHereY(0.0f);
+        m.scrollToSpend = false;
+    }
+    toggleRow("Warn me about spending", &c.spendWarn);
+    if (c.spendWarn) {
+        fieldLabel("ElevenLabs credits per session");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputInt("##spendcredits", &c.spendCredits, 1000, 10000);
+        c.spendCredits = std::max(500, c.spendCredits);
+        fieldLabel("Claude or Gemini per session (US$)");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputFloat("##spenddollars", &c.spendDollars, 0.25f, 1.f, "%.2f");
+        c.spendDollars = std::max(0.05f, c.spendDollars);
+        toggleRow("Stop talking and listening at the limit", &c.spendStop);
+        note(c.spendStop ? "When a limit is reached, My voice and Listen switch off until you press OK."
+                         : "When a limit is reached, a notice appears at the top. Nothing stops.");
+        char b[220];
+        if (m.sessionCredits >= 0)
+        {
+            std::string d = std::to_string(m.sessionCredits), n;  // 20410 -> 20,410
+            for (size_t i = 0; i < d.size(); ++i) n += (i > 0 && (d.size() - i) % 3 == 0 ? "," : "") + std::string(1, d[i]);
+            std::snprintf(b, sizeof(b), TF("This session so far: %s credits and $%.2f."), n.c_str(), m.sessionDollars);
+        }
+        else
+            std::snprintf(b, sizeof(b), TF("This session so far: $%.2f. (ElevenLabs credits can't be counted: the key can't read usage.)"),
+                          m.sessionDollars);
+        note(b);
+    }
     ImGui::EndChild();
 
     ImGui::SetCursorScreenPos(ImVec2(origin.x + (colW + gapW) * 2, origin.y));
@@ -2396,6 +2461,7 @@ UiActions uiDraw(UiModel& m) {
         setupView(m, act);
     } else {
         header(m, act);
+        if (!m.spendAlert.empty()) spendBanner(m, act);
         const bool footer = !m.usage.empty();
         const float footH = footer ? std::floor(em() * 1.6f) : 0.f;
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));

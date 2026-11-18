@@ -244,6 +244,10 @@ static void loadSettings(Settings& s) {
             s.textSpeak = j.value("text_speak", s.textSpeak);
             // People who used CIMA Box before the walkthrough existed don't need it.
             s.setupDone = j.value("setup_done", !s.apiKey.empty());
+            s.spendWarn = j.value("spend_warn", s.spendWarn);
+            s.spendCredits = std::max(500, j.value("spend_credits", s.spendCredits));
+            s.spendDollars = std::max(0.05f, j.value("spend_dollars", s.spendDollars));
+            s.spendStop = j.value("spend_stop", s.spendStop);
             s.vs.setCloneStrength = j.value("set_clone_strength", s.vs.setCloneStrength);
             s.vs.cloneStrength = j.value("clone_strength", s.vs.cloneStrength);
             s.emotionStrength = j.value("emotion_strength", s.emotionStrength);
@@ -335,6 +339,7 @@ static std::string settingsJson(const Settings& s) {
         {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough},
         {"voice_chatbox", s.chatbox}, {"voice_chatbox_show", s.chatboxShow},
         {"text_translate", s.textTranslate}, {"text_speak", s.textSpeak}, {"setup_done", s.setupDone},
+        {"spend_warn", s.spendWarn}, {"spend_credits", s.spendCredits}, {"spend_dollars", s.spendDollars}, {"spend_stop", s.spendStop},
         {"set_clone_strength", s.vs.setCloneStrength}, {"clone_strength", s.vs.cloneStrength},
         {"dialects", s.variety}, {"custom_dialects", s.customVariety}, {"voice_for_language", s.voiceFor},
         {"my_gender", s.myGender}, {"talking_to", s.talkingTo}, {"talking_to_key", s.talkKey},
@@ -424,6 +429,11 @@ struct Sink {  // one playback device fed by a ring buffer
     std::atomic<bool> flush{false};
     ma_device dev;
     std::atomic<bool> on{false};
+    // What was asked for, so a device that disappears (unplugged) can be opened again.
+    std::string name;       // empty = system default
+    bool wanted = false;
+    bool fellBack = false;  // the named device wasn't there, so the system default was opened
+    const char* what = "Output";
 };
 
 // The conversation so far, newest last: what you said and what the others said (from Listen).
@@ -464,6 +474,9 @@ struct App {
     std::vector<ma_device_info> capInfos, playInfos;
     ma_device capDev;
     bool capOn = false;
+    std::string capName;      // the microphone asked for (empty = system default)
+    bool capFellBack = false;  // it wasn't there, so the system default was opened
+    std::atomic<bool> deviceEvent{false};  // a device stopped by itself (unplugged, driver reset)
     SpscRing<float> capRing{size_t(kDeviceRate) * 5};  // mic at the output rate (passthrough quality)
     Sink out, mon;
     MicMatch match{kDeviceRate};
@@ -565,6 +578,12 @@ static void captureCb(ma_device*, void*, const void* in, ma_uint32 frames) {
     if (in) g.capRing.push(static_cast<const float*>(in), frames);
 }
 
+// Called by miniaudio when something happens to a device. Only a flag here; the UI thread does the rest.
+static void deviceNoteCb(const ma_device_notification* n) {
+    if (n && (n->type == ma_device_notification_type_stopped || n->type == ma_device_notification_type_rerouted))
+        g.deviceEvent = true;
+}
+
 static void playCb(ma_device* d, void* out, const void*, ma_uint32 frames) {
     auto* s = static_cast<Sink*>(d->pUserData);
     if (s->flush.exchange(false)) s->ring.clear();
@@ -589,10 +608,23 @@ static const ma_device_id* findDevice(const std::vector<ma_device_info>& list, c
     return nullptr;  // system default
 }
 
+// A device that keeps failing would otherwise write the same line every few seconds.
+static void logQuietly(const std::string& text) {
+    static std::string last;
+    static double at = -1e9;
+    if (text == last && nowSeconds() - at < 120.0) return;
+    last = text;
+    at = nowSeconds();
+    logLine(text);
+}
+
 static void openCapture(const std::string& name) {
     if (g.capOn) { ma_device_uninit(&g.capDev); g.capOn = false; }
+    g.capName = name;
     ma_device_config c = ma_device_config_init(ma_device_type_capture);
     c.capture.pDeviceID = findDevice(g.capInfos, name);
+    g.capFellBack = !name.empty() && !c.capture.pDeviceID;
+    c.notificationCallback = deviceNoteCb;
     c.capture.format = ma_format_f32;
     c.capture.channels = 1;
     c.sampleRate = kDeviceRate;  // miniaudio resamples from the device's native rate
@@ -601,7 +633,10 @@ static void openCapture(const std::string& name) {
     g.match.forgetMic();  // a different mic sounds different
     if (ma_device_init(&g.ctx, &c, &g.capDev) == MA_SUCCESS && ma_device_start(&g.capDev) == MA_SUCCESS) {
         g.capOn = true;
+        logLine("Microphone: " + (name.empty() ? std::string("system default") : name) +
+                (g.capFellBack ? " (not found, using the system default until it's back)" : ""));
     } else {
+        logQuietly("Microphone: couldn't open " + (name.empty() ? std::string("the system default") : name));
         std::lock_guard<std::mutex> lk(g.mtx);
         g.lastError = "Couldn't open the microphone. Pick another one under Input.";
     }
@@ -609,9 +644,14 @@ static void openCapture(const std::string& name) {
 
 static void openSink(Sink& s, const std::string& name, bool wanted) {
     if (s.on.exchange(false)) ma_device_uninit(&s.dev);
+    s.name = name;
+    s.wanted = wanted;
+    s.fellBack = false;
     if (!wanted) return;
     ma_device_config c = ma_device_config_init(ma_device_type_playback);
     c.playback.pDeviceID = findDevice(g.playInfos, name);
+    s.fellBack = !name.empty() && !c.playback.pDeviceID;
+    c.notificationCallback = deviceNoteCb;
     c.playback.format = ma_format_s16;
     c.playback.channels = 1;
     c.sampleRate = kDeviceRate;
@@ -620,9 +660,44 @@ static void openSink(Sink& s, const std::string& name, bool wanted) {
     c.pUserData = &s;
     if (ma_device_init(&g.ctx, &c, &s.dev) == MA_SUCCESS && ma_device_start(&s.dev) == MA_SUCCESS) {
         s.on = true;
+        logLine(std::string(s.what) + ": " + (name.empty() ? std::string("system default") : name) +
+                (s.fellBack ? " (not found, using the system default until it's back)" : ""));
     } else {
+        logQuietly(std::string(s.what) + ": couldn't open " + (name.empty() ? std::string("the system default") : name));
         std::lock_guard<std::mutex> lk(g.mtx);
         g.lastError = "Couldn't open that output device. Pick another one under Output.";
+    }
+}
+
+// Unplugged headsets, Bluetooth that reconnects, a driver that resets: notices a device that
+// stopped by itself, or a named device that is back after the system default stood in for it,
+// and opens it again. Checked every few seconds, and right away when a device reports a change.
+static void keepDevicesAlive(UiModel& ui) {
+    static double lastCheck = 0;
+    static bool capDown = false, outDown = false, monDown = false;
+    const bool event = g.deviceEvent.exchange(false);
+    if (!event && nowSeconds() - lastCheck < 3.0) return;
+    lastCheck = nowSeconds();
+    auto sinkDown = [](Sink& s) { return s.wanted && (!s.on || !ma_device_is_started(&s.dev)); };
+    const bool cap = !g.capOn || !ma_device_is_started(&g.capDev), out = sinkDown(g.out), mon = sinkDown(g.mon);
+    if (cap != capDown) logLine(cap ? "Microphone stopped (unplugged?). Will reopen it when it's back." : "Microphone working again.");
+    if (out != outDown) logLine(out ? "Output stopped (unplugged?). Will reopen it when it's back." : "Output working again.");
+    if (mon != monDown) logLine(mon ? "Monitor output stopped (unplugged?). Will reopen it when it's back." : "Monitor output working again.");
+    capDown = cap;
+    outDown = out;
+    monDown = mon;
+    if (!event && !cap && !out && !mon && !g.capFellBack && !g.out.fellBack && !g.mon.fellBack) return;
+    refreshDeviceList(ui);
+    auto back = [](const std::vector<ma_device_info>& list, const std::string& name) { return findDevice(list, name) != nullptr; };
+    // Reopen what is down (if its device exists again, or it's the default), or move back to the real device.
+    if ((cap && (g.capName.empty() ? !g.capInfos.empty() : back(g.capInfos, g.capName))) ||
+        (g.capFellBack && back(g.capInfos, g.capName)))
+        openCapture(g.capName);
+    for (Sink* s : {&g.out, &g.mon}) {
+        const bool down = sinkDown(*s);
+        if ((down && (s->name.empty() ? !g.playInfos.empty() : back(g.playInfos, s->name))) ||
+            (s->wanted && s->fellBack && back(g.playInfos, s->name)))
+            openSink(*s, s->name, true);
     }
 }
 
@@ -934,6 +1009,11 @@ static void workerLoop() {
                 } else {
                     ok = translator.translate(setup, heard, from, *to, say, err);
                     if (ok) {
+                        static std::string lastVia;  // say when another service had to step in, and when that ends
+                        if (translator.via != lastVia &&
+                            (translator.via.find('(') != std::string::npos || lastVia.find('(') != std::string::npos))
+                            logLine("My voice translated with " + translator.via);
+                        lastVia = translator.via;
                         std::lock_guard<std::mutex> lk(g.mtx);
                         g.translateVia = translator.via;
                     }
@@ -1217,6 +1297,22 @@ int main() {
     logLine(std::string("CIMA Box ") + CIMA_FULL_VERSION + " started on " + windowsVersion() + ". Settings: " +
             (gPlace == kPlaceDocuments ? "Documents" : gPlace == kPlaceProgram ? "with the program" : "settings folder") + ".");
     ui.logPath = (settingsDir() / "cimabox.log").u8string();
+    if (!logLastRunClosed()) logLine("The last time, CIMA Box didn't close normally (it crashed, or was ended by force or by a shutdown).");
+    {   // what this person uses, for reading the log later (no keys, nothing they said)
+        const Settings& c = ui.cfg;
+        const char* engines[] = {"Changer", "Re-speak", "Translate"};
+        const char* services[] = {"Free", "DeepL", "Claude", "Gemini"};
+        const char* sources[] = {"one program", "speakers", "an input"};
+        std::string line = std::string("Using: My voice ") + (c.enabled ? "on" : "off") + ", " +
+                           engines[std::max(0, std::min(2, c.engine))] + " (" + (c.engine == kVoiceChanger ? c.stsModel : c.ttsModel) + ")";
+        if (c.engine == kTranslate) line += ", " + (c.spokenLang.empty() ? std::string("auto") : c.spokenLang) + " to " + c.targetLang;
+        line += std::string(", translation ") + services[std::max(0, std::min(3, c.translateService))];
+        line += ", quality " + std::to_string(c.quality) + (c.matchMic ? ", match my mic" : "") + (c.passthrough ? ", passthrough" : "");
+        line += std::string(". Listen ") + (c.listen.on ? "on" : "off") + " (" + sources[std::max(0, std::min(2, c.listen.source))] +
+                (c.listen.source == kSrcApp ? " " + c.listen.app : "") + ", to " + c.listen.toLang + "). VR " + (c.vr.on ? "on" : "off") +
+                ". Chatbox " + (c.chatbox || c.listen.chatbox ? "on" : "off") + ". App language " + c.uiLanguage + ".";
+        logLine(line);
+    }
     ui.settingsPath = settingsFile().u8string();
     ui.settingsPlace = gPlace;
     // After an update: show what changed since the version this person last used.
@@ -1239,6 +1335,7 @@ int main() {
         return 1;
     }
     refreshDeviceList(ui);
+    g.mon.what = "Monitor output";
     openCapture(ui.cfg.inDevice);
     openSink(g.out, ui.cfg.outDevice, true);
     openSink(g.mon, ui.cfg.monDevice, ui.cfg.monitor);
@@ -1320,7 +1417,10 @@ int main() {
     bool wasBusy = false;
     double lastUsageLine = 0;
     int lastUpdateStage = -1;
-    std::string lastCatalogMsg;
+    std::string lastCatalogMsg, lastVrStatus, lastListenStatus;
+    long long spendStartUsed = -1, spendBaseCredits = 0;  // ElevenLabs "used" when this session began
+    std::string spendStartKey;
+    double spendBaseDollars = 0;
     std::string lastErrorSeen, lastListenErrorSeen;  // a new problem: look at the status pages again
     bool vrSentShowMe = true;
     unsigned previewTex = 0;
@@ -1537,6 +1637,7 @@ int main() {
         if (act.placeVrHere) gVr.placeHere();
 
         if (act.rescanDevices) refreshDeviceList(ui);
+        keepDevicesAlive(ui);
         if (act.reopenInput) openCapture(ui.cfg.inDevice);
         if (act.reopenOutput) openSink(g.out, ui.cfg.outDevice, true);
         if (act.reopenMonitor) openSink(g.mon, ui.cfg.monDevice, ui.cfg.monitor);
@@ -1623,6 +1724,11 @@ int main() {
             g.jobs.push_back(std::move(t));
             g.jobCv.notify_one();
         }
+        if (!act.sendText.empty() && ui.spendStopped) {  // stopped at the spending limit until it's acknowledged
+            std::lock_guard<std::mutex> lk(g.mtx);
+            g.lastError = "Stopped at your spending limit. Press OK on the notice at the top to keep going.";
+            act.sendText.clear();
+        }
         if (!act.sendText.empty()) {  // typed on the Text page: same pipeline, without the microphone
             Phrase typed;
             typed.text = act.sendText;
@@ -1662,16 +1768,75 @@ int main() {
         if (nowSeconds() - lastUsageLine > 1.0) {
             lastUsageLine = nowSeconds();
             ui.usage.clear();
-            if (!ui.cfg.apiKey.empty()) ui.usage.push_back(quotaItem("ElevenLabs", gUsage.eleven(), "%s credits left", "credits"));
+            if (!ui.cfg.apiKey.empty()) {
+                ui.usage.push_back(quotaItem("ElevenLabs", gUsage.eleven(), "%s credits left", "credits"));
+                if (ui.sessionCredits >= 0) {
+                    char b[160];
+                    std::snprintf(b, sizeof(b), TF("This session: %s credits."), withCommas(ui.sessionCredits).c_str());
+                    ui.usage.back().detail += std::string(" ") + b;
+                }
+            }
             const int sv = ui.cfg.translateService;
             if (sv == kDeepL && !ui.cfg.deeplKey.empty()) ui.usage.push_back(quotaItem("DeepL", gUsage.deepl(), "%s characters left", "characters"));
             if (sv == kClaude && !ui.cfg.claudeKey.empty()) ui.usage.push_back(aiItem(true, ui.cfg.claudeModel));
             if (sv == kGemini && !ui.cfg.geminiKey.empty()) ui.usage.push_back(aiItem(false, ui.cfg.geminiModel));
         }
+        // ---- spending limit: per session, counted from when CIMA Box started
+        {
+            const Quota el = gUsage.eleven();
+            if (el.known) {
+                if (spendStartUsed < 0 || spendStartKey != usageEleven || el.used < spendStartUsed) {  // new key, or a new month
+                    spendStartUsed = el.used;
+                    spendStartKey = usageEleven;
+                    spendBaseCredits = 0;
+                }
+                ui.sessionCredits = el.used - spendStartUsed;
+            } else {
+                ui.sessionCredits = -1;
+            }
+            const AiSpend cl = aiSpend(true, ui.cfg.claudeModel), ge = aiSpend(false, ui.cfg.geminiModel);
+            ui.sessionDollars = std::max(0.0, cl.dollars) + std::max(0.0, ge.dollars);
+            if (act.spendOk) {  // the next notice comes after another full limit from here
+                spendBaseCredits = std::max<long long>(0, ui.sessionCredits);
+                spendBaseDollars = ui.sessionDollars;
+                ui.spendAlert.clear();
+                ui.spendStopped = false;
+            }
+            const bool creditsOver = ui.sessionCredits >= 0 && ui.sessionCredits - spendBaseCredits >= ui.cfg.spendCredits;
+            const bool dollarsOver = ui.sessionDollars - spendBaseDollars >= double(ui.cfg.spendDollars);
+            if (ui.cfg.spendWarn && ui.spendAlert.empty() && (creditsOver || dollarsOver)) {
+                char b[300];
+                if (creditsOver)
+                    std::snprintf(b, sizeof(b), TF("This session has used %s ElevenLabs credits, your limit."),
+                                  withCommas(ui.sessionCredits).c_str());
+                else
+                    std::snprintf(b, sizeof(b), TF("This session has spent $%.2f on translations, your limit."), ui.sessionDollars);
+                ui.spendAlert = b;
+                logLine(std::string("Spending limit reached: ") + (creditsOver ? withCommas(ui.sessionCredits) + " credits" : "$" + std::to_string(ui.sessionDollars)) +
+                        (ui.cfg.spendStop ? ", switched off talking and listening." : "."));
+                if (ui.cfg.spendStop) {
+                    ui.cfg.enabled = false;
+                    ui.cfg.listen.on = false;
+                    stopSpeaking();
+                    ui.spendStopped = true;
+                }
+            }
+        }
         if (ui.update.stage != lastUpdateStage) {
             lastUpdateStage = ui.update.stage;
             if (ui.update.stage == kUpdateFailed || ui.update.stage == kUpdateAvailable || ui.update.stage == kUpdateReady)
                 logLine("Update: " + ui.update.message);
+        }
+        // VR and Listen: each change of state (connected, waiting for SteamVR, listening to ...).
+        if (!ui.cfg.vr.on) lastVrStatus.clear();
+        else if (ui.vr.status != lastVrStatus) {
+            lastVrStatus = ui.vr.status;
+            if (!lastVrStatus.empty()) logLine("VR: " + lastVrStatus);
+        }
+        if (!ui.cfg.listen.on) lastListenStatus.clear();
+        else if (ui.listen.status != lastListenStatus) {
+            lastListenStatus = ui.listen.status;
+            if (!lastListenStatus.empty()) logLine("Listen: " + lastListenStatus);
         }
         if (ui.catalogMsg != lastCatalogMsg) {
             lastCatalogMsg = ui.catalogMsg;

@@ -541,5 +541,21 @@
 "Start": "Commencer",
 "Continue": "Continuer",
 "Next": "Suivant",
-"Skip for now": "Passer pour l'instant"
+"Skip for now": "Passer pour l'instant",
+"Talking and listening were switched off.": "Parler et écouter ont été désactivés.",
+"Change limit": "Changer la limite",
+"This session so far: %s credits and $%.2f.": "Cette session : %s crédits et $%.2f.",
+"This session so far: $%.2f. (ElevenLabs credits can't be counted: the key can't read usage.)": "Cette session : $%.2f. (Impossible de compter les crédits ElevenLabs : la clé ne peut pas lire l'utilisation.)",
+"ElevenLabs credits per session": "Crédits ElevenLabs par session",
+"Claude or Gemini per session (US$)": "Claude ou Gemini par session (US$)",
+"When a limit is reached, My voice and Listen switch off until you press OK.": "À la limite, Ma voix et Écouter se coupent jusqu'à ce que vous appuyiez sur OK.",
+"When a limit is reached, a notice appears at the top. Nothing stops.": "À la limite, un avis apparaît en haut. Rien ne s'arrête.",
+"Spending limit": "Limite de dépenses",
+"OK": "OK",
+"Warn me about spending": "M'avertir des dépenses",
+"Stop talking and listening at the limit": "Arrêter de parler et d'écouter à la limite",
+"This session: %s credits.": "Cette session : %s crédits.",
+"This session has used %s ElevenLabs credits, your limit.": "Cette session a utilisé %s crédits ElevenLabs, votre limite.",
+"This session has spent $%.2f on translations, your limit.": "Cette session a dépensé $%.2f en traductions, votre limite.",
+"Stopped at your spending limit. Press OK on the notice at the top to keep going.": "Arrêté à votre limite de dépenses. Appuyez sur OK dans l'avis en haut pour continuer."
 }

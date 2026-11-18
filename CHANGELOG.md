@@ -6,6 +6,12 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 2.7.2
+- CIMABox.exe is now the whole program: VR captions no longer need openvr_api.dll next to it, so downloading just the exe works for everything. (The old openvr_api.dll can be deleted.)
+- Spending limit (Settings > Accounts): a notice when one session uses more ElevenLabs credits, or more money on Claude or Gemini, than you set. It can also switch off talking and listening until you press OK.
+- Unplugged a headset or mic? CIMA Box notices and picks it up again when it's back, instead of going quiet.
+- The log file says more when something goes wrong: which mic and outputs were opened (or couldn't be), your main settings at start, when another translation service had to step in, VR and Listen connecting, and when the last run didn't close normally. Still never any API keys or anything anyone said.
+
 ## 2.7.1
 - A new setup walkthrough the first time you open CIMA Box: first choose your language, then connect ElevenLabs, pick what you want to do, pick a voice and where it should go, and play a test. It helps with VB-CABLE for games and Discord, and works without it too. Run it again any time from Settings > About.
 - What's left, at the bottom of every page: your ElevenLabs credits and DeepL characters, straight from your accounts, and what Claude or Gemini cost in this session. Turns amber when you're running low and red when it's used up. Hover for the details.

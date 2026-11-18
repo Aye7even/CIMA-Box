@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CIMABox VERSION 2.7.1 LANGUAGES C CXX)
+project(CIMABox VERSION 2.7.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -154,15 +154,22 @@ if(MSVC)
 endif()
 
 # ---------------------------------------------------------------- SteamVR captions (Windows)
-# Valve's OpenVR SDK: one header, the import library and openvr_api.dll, downloaded once into the
-# build folder. The DLL is loaded only when VR captions are switched on (delay-loaded), so the
-# program runs fine on PCs without SteamVR. Turn off with -DCIMA_VR=OFF.
+# Valve's OpenVR SDK, built right into CIMABox.exe from its source code (no openvr_api.dll to ship).
+# The source files are downloaded once into the build folder. OpenVR itself only finds and loads
+# SteamVR's own files when VR captions are switched on, so the program runs fine on PCs without
+# SteamVR. Turn off with -DCIMA_VR=OFF.
 option(CIMA_VR "SteamVR caption overlay" ON)
 if(WIN32 AND CIMA_VR)
   set(OPENVR_TAG v2.5.1)
-  set(OPENVR_DIR "${CMAKE_BINARY_DIR}/openvr-${OPENVR_TAG}")
+  set(OPENVR_DIR "${CMAKE_BINARY_DIR}/openvr-src-${OPENVR_TAG}")
+  set(_openvr_files
+    headers/openvr.h
+    src/openvr_api_public.cpp src/jsoncpp.cpp src/ivrclientcore.h src/json/json.h src/json/json-forwards.h)
+  foreach(_n dirtools envvartools pathtools sharedlibtools hmderrors vrpathregistry strtools)
+    list(APPEND _openvr_files src/vrcore/${_n}_public.cpp src/vrcore/${_n}_public.h)
+  endforeach()
   set(_openvr_ok TRUE)
-  foreach(_f headers/openvr.h lib/win64/openvr_api.lib bin/win64/openvr_api.dll)
+  foreach(_f ${_openvr_files})
     if(NOT EXISTS "${OPENVR_DIR}/${_f}")
       message(STATUS "Downloading OpenVR ${OPENVR_TAG}: ${_f}")
       file(DOWNLOAD "https://raw.githubusercontent.com/ValveSoftware/openvr/${OPENVR_TAG}/${_f}" "${OPENVR_DIR}/${_f}"
@@ -176,13 +183,19 @@ if(WIN32 AND CIMA_VR)
     endif()
   endforeach()
   if(_openvr_ok)
-    target_include_directories(cimabox PRIVATE "${OPENVR_DIR}/headers")
-    target_link_libraries(cimabox PRIVATE "${OPENVR_DIR}/lib/win64/openvr_api.lib" delayimp)
-    target_link_options(cimabox PRIVATE "/DELAYLOAD:openvr_api.dll")
+    set(_openvr_sources ${_openvr_files})
+    list(FILTER _openvr_sources INCLUDE REGEX "\\.cpp$")
+    list(TRANSFORM _openvr_sources PREPEND "${OPENVR_DIR}/")
+    add_library(openvr_static STATIC ${_openvr_sources})
+    target_include_directories(openvr_static PRIVATE "${OPENVR_DIR}/src" "${OPENVR_DIR}/src/vrcore"
+                               PUBLIC "${OPENVR_DIR}/headers")
+    # The same settings as Valve's own static build. WIN64 makes it look for SteamVR's 64-bit client.
+    target_compile_definitions(openvr_static PRIVATE VR_API_PUBLIC VRCORE_NO_PLATFORM WIN64 _CRT_SECURE_NO_WARNINGS
+                               PUBLIC OPENVR_BUILD_STATIC)
+    target_compile_options(openvr_static PRIVATE /W0 /utf-8)
+    target_link_libraries(openvr_static PRIVATE shell32)
+    target_link_libraries(cimabox PRIVATE openvr_static)
     target_compile_definitions(cimabox PRIVATE CIMA_HAS_OPENVR)
-    add_custom_command(TARGET cimabox POST_BUILD
-      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${OPENVR_DIR}/bin/win64/openvr_api.dll" "$<TARGET_FILE_DIR:cimabox>"
-      VERBATIM)
   endif()
 endif()
 

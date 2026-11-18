@@ -48,7 +48,7 @@ def balanced(text, start):
             if depth==0: return text[start+1:i]
         i+=1
     return ''
-calls = ['setupTitle','setupStepLine','setupCard','setupPageRow','T','TF','fieldLabel','note','heading','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
+calls = ['buttonPair','setupTitle','setupStepLine','setupCard','setupPageRow','T','TF','fieldLabel','note','heading','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
 found=[]
 def scan_file(name, which):
     text=open(src+name).read()
@@ -87,7 +87,7 @@ drop={'ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setke
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
           'Working','Some problems','Outage','Maintenance','See its page','All Systems Operational','Problems reported',
           'Open the status page to check',"This key isn't allowed to read usage (it needs User: Read access).",
-          'The DeepL key was refused.','Couldn\'t check','Hi! This is how my new voice sounds.',
+          'The DeepL key was refused.','Couldn\'t check','Hi! This is how my new voice sounds.','Stopped at your spending limit. Press OK on the notice at the top to keep going.',
           'Change my voice','Talk into your mic and others hear a different voice, or your words in another language.',
           'Type and be heard','Type instead of talking. A voice says it for you, translated if you like.',
           'Read what others say','Live captions of what people say in a game or call, translated into your language.',

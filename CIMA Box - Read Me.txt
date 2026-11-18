@@ -1,4 +1,4 @@
-CIMA Box 2.7.1
+CIMA Box 2.7.2
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -272,7 +272,8 @@ Look
   Text / Accent / My lines . Colours. Click a square to pick.
   Default look ............. Puts the look back to how it started.
 
-openvr_api.dll must stay next to CIMABox.exe for VR to work.
+VR needs nothing extra: everything is inside CIMABox.exe. (Before 2.7.2 it needed a file called
+openvr_api.dll next to it; that file can be deleted now.)
 
 
 SETTINGS (THE GEAR)
@@ -347,6 +348,19 @@ TIPS
   The voice itself is fine.
 
 
+SPENDING LIMIT (SETTINGS > ACCOUNTS)
+------------------------------------
+
+Counted per session, from when CIMA Box starts.
+  ElevenLabs credits per session .. A notice appears at the top after this many.
+  Claude or Gemini per session ...... The same for translations, in US dollars (an estimate from
+                                      list prices).
+  Stop talking and listening at the limit
+                                      Also switches off My voice and Listen until you press OK.
+Press OK on the notice to carry on: the next notice comes after another full limit. ElevenLabs
+credits can only be counted if the key is allowed to read usage (User: Read).
+
+
 WHAT'S LEFT (BOTTOM RIGHT)
 --------------------------
 
@@ -361,6 +375,9 @@ It turns amber when less than a tenth is left and red when it's used up. Hover f
 
 PROBLEMS
 --------
+
+If a headset or mic is unplugged, CIMA Box opens it again by itself when it's plugged back in
+(within a few seconds).
 
 Settings > About > Open log file opens cimabox.log: what went wrong and when. It never contains
 your API keys, so it's safe to send to whoever is helping you.
@@ -392,9 +409,8 @@ No CIMA Box tab in the SteamVR menu .... Turn on "CIMA Box tab in the SteamVR me
                                          installed. Try again later.
 "Talking to" Auto guesses wrong ........ Set it by hand (hotkey or SteamVR tab). Voice changers
                                          and avatar voices fool the guess.
-Nothing shows in the headset ........... Turn Listen on too, check the panel isn't behind you
-                                         (Head is easiest), and that openvr_api.dll is next to
-                                         CIMABox.exe.
+Nothing shows in the headset ........... Turn Listen on too, and check the panel isn't behind
+                                         you (Head is easiest).
 The chatbox shows nothing .............. Turn on OSC in VRChat.
 App capture fails on Listen ............ Needs Windows 11 or an up-to-date Windows 10. Use
                                          Speakers instead.

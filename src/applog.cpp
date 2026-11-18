@@ -1,5 +1,6 @@
 #include "applog.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <ctime>
@@ -12,6 +13,7 @@ namespace {
 std::mutex gMtx;
 std::filesystem::path gPath;
 std::set<std::string> gSecrets;
+bool gFirstOpen = true, gLastClosed = true;
 
 constexpr long kMaxBytes = 1024 * 1024;  // past this, keep only the newest part
 constexpr long kKeepBytes = 256 * 1024;
@@ -67,8 +69,20 @@ void logOpen(const std::filesystem::path& path) {
     std::lock_guard<std::mutex> lk(gMtx);
     gPath = path;
     std::ifstream in(path, std::ios::binary | std::ios::ate);
-    if (!in) return;
+    if (!in) { gFirstOpen = false; return; }
     const long size = long(in.tellg());
+    if (gFirstOpen) {  // how did the last run end? (its final line)
+        gFirstOpen = false;
+        const long tailSize = std::min<long>(size, 512);
+        std::string tail(size_t(tailSize), '\0');
+        in.seekg(size - tailSize);
+        in.read(&tail[0], tailSize);
+        while (!tail.empty() && (tail.back() == '\n' || tail.back() == '\r')) tail.pop_back();
+        const size_t nl = tail.find_last_of('\n');
+        const std::string last = nl == std::string::npos ? tail : tail.substr(nl + 1);
+        gLastClosed = last.empty() || last.find("Closed.") != std::string::npos;
+        in.clear();
+    }
     if (size <= kMaxBytes) return;
     in.seekg(size - kKeepBytes);
     std::string tail((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -94,6 +108,11 @@ void logLine(const std::string& text) {
     if (gPath.empty()) return;
     std::ofstream f(gPath, std::ios::binary | std::ios::app);
     f << line;
+}
+
+bool logLastRunClosed() {
+    std::lock_guard<std::mutex> lk(gMtx);
+    return gLastClosed;
 }
 
 std::filesystem::path logPath() {

@@ -541,5 +541,21 @@
 "Start": "はじめる",
 "Continue": "続ける",
 "Next": "次へ",
-"Skip for now": "今はスキップ"
+"Skip for now": "今はスキップ",
+"Talking and listening were switched off.": "話すことと聞くことをオフにしました。",
+"Change limit": "上限を変更",
+"This session so far: %s credits and $%.2f.": "今回のセッション：%s クレジット、$%.2f。",
+"This session so far: $%.2f. (ElevenLabs credits can't be counted: the key can't read usage.)": "今回のセッション：$%.2f。（キーに使用量を読む権限がないため、ElevenLabs のクレジットは数えられません。）",
+"ElevenLabs credits per session": "セッションあたりの ElevenLabs クレジット",
+"Claude or Gemini per session (US$)": "セッションあたりの Claude・Gemini（米ドル）",
+"When a limit is reached, My voice and Listen switch off until you press OK.": "上限に達すると、OK を押すまで「自分の声」と「聞く」がオフになります。",
+"When a limit is reached, a notice appears at the top. Nothing stops.": "上限に達すると上にお知らせが出ます。止まるものはありません。",
+"Spending limit": "使用額の上限",
+"OK": "OK",
+"Warn me about spending": "使用額を知らせる",
+"Stop talking and listening at the limit": "上限で話すことと聞くことを止める",
+"This session: %s credits.": "今回のセッション：%s クレジット。",
+"This session has used %s ElevenLabs credits, your limit.": "このセッションで ElevenLabs クレジットを %s 使い、上限に達しました。",
+"This session has spent $%.2f on translations, your limit.": "このセッションで翻訳に $%.2f 使い、上限に達しました。",
+"Stopped at your spending limit. Press OK on the notice at the top to keep going.": "使用額の上限で止まっています。続けるには上のお知らせで OK を押してください。"
 }

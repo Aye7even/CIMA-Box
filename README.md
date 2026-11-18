@@ -4,10 +4,10 @@ Change your voice, speak other languages like a native, and read what everyone a
 live, in any game or voice chat: Discord, VRChat, Valorant, Fortnite, Rec Room, you name it.
 Powered by ElevenLabs.
 
-**[Download CIMA Box for Windows](https://github.com/Aye7even/CIMA-Box/releases/latest/download/CIMABox-windows.zip)**
+**[Download CIMA Box for Windows](https://github.com/Aye7even/CIMA-Box/releases/latest/download/CIMABox.exe)**
 
-Unzip it into a normal folder (like Documents or Desktop) and run `CIMABox.exe`. It updates itself
-from then on, and tells you what's new after each update.
+That one file is the whole program. Put `CIMABox.exe` in a normal folder (like Documents or
+Desktop) and run it. It updates itself from then on, and tells you what's new after each update.
 
 ![CIMA Box: the My voice page](docs/my-voice.png)
 
@@ -74,7 +74,7 @@ To read what others say, open **Listen**, pick your game (or Discord, or any pro
 language to translate into, and switch it on. Playing in VR? Turn on **VR** too, for captions inside
 your headset.
 
-Every button and setting is explained in **`CIMA Box - Read Me.txt`**, which comes in the zip.
+Every button and setting is explained in **[`CIMA Box - Read Me.txt`](CIMA%20Box%20-%20Read%20Me.txt)**.
 
 ## Good to know
 
@@ -89,8 +89,9 @@ Every button and setting is explained in **`CIMA Box - Read Me.txt`**, which com
   them. Captions are never saved.
 - **Updates** are checked when the app starts and install with one click (Settings > Updates). Each
   one is signed, and the app refuses anything that isn't.
-- **Windows SmartScreen** may warn the first time you run it ("Windows protected your PC"). Click
-  **More info** > **Run anyway**.
+- **Your browser or Windows SmartScreen** may warn about the download or the first run ("Windows
+  protected your PC"), because the program is new and not from a big company. In the browser choose
+  **Keep**; in SmartScreen click **More info** > **Run anyway**.
 - Keep CIMA Box in a folder you can write to (not Program Files) so it can update itself.
 - **First time?** A short setup walks you through everything, starting with your language. Run it
   again from Settings > About.

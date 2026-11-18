@@ -1,4 +1,5 @@
 #include "listen.h"
+#include "applog.h"
 #include "emotion.h"
 
 #include <algorithm>
@@ -397,6 +398,10 @@ struct Listener::Impl {
             if (!same && to && problem.empty()) {
                 std::string translated;
                 if (translator.translate(setup, turn.text, from, *to, translated, err)) {
+                    static std::string lastVia;  // say when another service had to step in, and when that ends
+                    if (translator.via != lastVia && (translator.via.find('(') != std::string::npos || lastVia.find('(') != std::string::npos))
+                        logLine("Listen translated with " + translator.via);
+                    lastVia = translator.via;
                     line.text = translated;
                     line.original = turn.text;
                 } else if (err == "cancelled") {

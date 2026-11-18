@@ -99,8 +99,8 @@ Builds you make on your own PC have no updater unless you configure them with
 `-DCIMA_UPDATE_REPO=YOUR-NAME/YOUR-REPO` (and `update_key.txt` present).
 
 Notes:
-- Only `CIMABox.exe` is replaced. If a release ever needs a new `openvr_api.dll` (rare), say so in
-  the release notes so people take it from the zip.
+- Only `CIMABox.exe` is replaced, and it's all the program needs: OpenVR (SteamVR) is built into
+  it from Valve's source code since 2.7.2, so there's no `openvr_api.dll` any more.
 - The program must be in a folder its user can write to (not `Program Files`), or the update can't
   replace it. It says so if that's the case.
 - Windows SmartScreen may warn about the zip the first time ("unrecognized app"): More info > Run

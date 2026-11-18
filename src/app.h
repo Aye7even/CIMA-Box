@@ -44,7 +44,12 @@ struct Settings {
     bool chatbox = false;              // My voice and Text: show what you say in VRChat's chatbox
     bool textTranslate = true;         // Text page: translate what you type (else read it as typed)
     bool textSpeak = true;
-    bool setupDone = false;            // went through (or skipped) the setup walkthrough             // Text page: say it with the voice (else only the chatbox and the feed)
+    bool setupDone = false;            // went through (or skipped) the setup walkthrough
+    // Spending limit, per session (from when CIMA Box starts).
+    bool spendWarn = true;
+    int spendCredits = 20000;          // ElevenLabs credits
+    float spendDollars = 1.0f;         // Claude and Gemini together, US$
+    bool spendStop = false;            // also switch off talking and listening when reached             // Text page: say it with the voice (else only the chatbox and the feed)
     int chatboxShow = 0;               // ChatboxShow
     int translateService = 0;          // TranslateService, shared by both pages
     std::string deeplKey;
@@ -146,6 +151,11 @@ struct UiModel {
     std::vector<ServiceStatus> services;     // ElevenLabs, Claude, Gemini, DeepL status pages
     std::vector<UsageItem> usage;            // what's left, for the services in use
     std::string logPath;                     // cimabox.log
+    long long sessionCredits = -1;           // ElevenLabs credits used since start (-1 = can't tell)
+    double sessionDollars = 0;               // Claude + Gemini since start
+    std::string spendAlert;                  // the spending limit was reached: what to say
+    bool spendStopped = false;               // ... and talking and listening were switched off
+    bool scrollToSpend = false;              // Settings: show the spending limit part
     int setupStep = -1;                      // the walkthrough's screen, -1 = not showing
     int setupUse = 0;                        // SetupUse bits
     int setupRoute = kRouteNone;
@@ -169,5 +179,6 @@ struct UiActions {
     std::string sendText;       // Text page: say this
     std::string testSound;      // setup: say this once, nowhere but the output
     bool openLog = false;
+    bool spendOk = false;       // the spending notice was read: count the next limit from now
     std::string openUrl;        // a status page
 };
