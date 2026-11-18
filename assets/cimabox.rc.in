@@ -1,0 +1,28 @@
+// Windows resources: the program icon and version details. Filled in by CMake.
+#include <winver.h>
+
+// GLFW also uses the icon named GLFW_ICON for the window and taskbar.
+GLFW_ICON ICON "@CMAKE_CURRENT_SOURCE_DIR@/assets/cimabox.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+ PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "FileDescription", "CIMA Box"
+      VALUE "ProductName", "CIMA Box"
+      VALUE "FileVersion", "@PROJECT_VERSION@"
+      VALUE "ProductVersion", "@PROJECT_VERSION@"
+      VALUE "OriginalFilename", "CIMABox.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
