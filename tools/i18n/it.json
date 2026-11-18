@@ -400,10 +400,17 @@
 "Version history": "Cronologia versioni",
 "What's new in CIMA Box %s": "Novità di CIMA Box %s",
 "No notes for this version.": "Nessuna nota per questa versione.",
-"Settings save by themselves, here:": "Le impostazioni si salvano da sole, qui:",
-"That file holds your API keys: don't share it.": "Quel file contiene le tue chiavi API: non condividerlo.",
-"Your settings were copied here from the program's folder. The old cimabox.json there isn't used anymore; you can delete it.": "Le impostazioni sono state copiate qui dalla cartella del programma. Il vecchio cimabox.json lì non viene più usato; puoi eliminarlo.",
 "Close": "Chiudi",
 "Open settings folder": "Apri la cartella delle impostazioni",
-"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "Questa copia non può aggiornarsi da sola. Scarica CIMA Box dalla sua pagina GitHub per avere gli aggiornamenti automatici."
+"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "Questa copia non può aggiornarsi da sola. Scarica CIMA Box dalla sua pagina GitHub per avere gli aggiornamenti automatici.",
+"Save settings in": "Salva le impostazioni in",
+"A \"CIMA Box Config\" folder in Documents: easy to find and back up.": "Una cartella \"CIMA Box Config\" in Documenti: facile da trovare e da salvare.",
+"Next to CIMABox.exe, so everything stays in one folder (Desktop, a USB stick...).": "Accanto a CIMABox.exe, così tutto resta in una cartella (Desktop, una chiavetta USB...).",
+"Your own settings folder, out of the way. Updates and moving the program never touch it.": "La tua cartella delle impostazioni, in disparte. Aggiornamenti e spostamenti del programma non la toccano mai.",
+"Settings save by themselves. The file holds your API keys: don't share it.": "Le impostazioni si salvano da sole. Il file contiene le tue chiavi API: non condividerlo.",
+"Settings folder": "Cartella impostazioni",
+"Documents": "Documenti",
+"With the program": "Con il programma",
+"Couldn't save there, so your settings stayed where they were.": "Impossibile salvare lì, quindi le impostazioni sono rimaste dov'erano.",
+"ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall.": "ElevenLabs non ha risposto entro 20 secondi. Controlla la connessione, la VPN o il firewall."
 }

@@ -400,10 +400,17 @@
 "Version history": "Historique des versions",
 "What's new in CIMA Box %s": "Nouveautés de CIMA Box %s",
 "No notes for this version.": "Pas de notes pour cette version.",
-"Settings save by themselves, here:": "Les réglages s'enregistrent tout seuls, ici :",
-"That file holds your API keys: don't share it.": "Ce fichier contient tes clés API : ne le partage pas.",
-"Your settings were copied here from the program's folder. The old cimabox.json there isn't used anymore; you can delete it.": "Tes réglages ont été copiés ici depuis le dossier du programme. L'ancien cimabox.json là-bas ne sert plus ; tu peux le supprimer.",
 "Close": "Fermer",
 "Open settings folder": "Ouvrir le dossier des réglages",
-"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "Cette copie ne peut pas se mettre à jour. Télécharge CIMA Box depuis sa page GitHub pour avoir les mises à jour automatiques."
+"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "Cette copie ne peut pas se mettre à jour. Télécharge CIMA Box depuis sa page GitHub pour avoir les mises à jour automatiques.",
+"Save settings in": "Enregistrer les réglages dans",
+"A \"CIMA Box Config\" folder in Documents: easy to find and back up.": "Un dossier « CIMA Box Config » dans Documents : facile à retrouver et à sauvegarder.",
+"Next to CIMABox.exe, so everything stays in one folder (Desktop, a USB stick...).": "À côté de CIMABox.exe, pour tout garder dans un seul dossier (Bureau, clé USB...).",
+"Your own settings folder, out of the way. Updates and moving the program never touch it.": "Ton propre dossier de réglages, à l'écart. Les mises à jour et le déplacement du programme n'y touchent jamais.",
+"Settings save by themselves. The file holds your API keys: don't share it.": "Les réglages s'enregistrent tout seuls. Le fichier contient tes clés API : ne le partage pas.",
+"Settings folder": "Dossier des réglages",
+"Documents": "Documents",
+"With the program": "Avec le programme",
+"Couldn't save there, so your settings stayed where they were.": "Impossible d'enregistrer là, tes réglages sont restés où ils étaient.",
+"ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall.": "ElevenLabs n'a pas répondu en 20 secondes. Vérifie ta connexion internet, ton VPN ou ton pare-feu."
 }

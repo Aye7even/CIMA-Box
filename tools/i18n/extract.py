@@ -83,9 +83,9 @@ def keep(s):
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
 drop={'listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','SteamVR: ','Waiting for ',' to start.',
-      'Listening to ','Listening to everything playing on ','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
+      'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
-          'Recording','Converting','Level','Auto','Voice','Search voices','the default speakers','the default input']
+          'Recording','Converting','Level','Auto','Voice','Search voices','the default speakers','the default input',"Couldn't save there, so your settings stayed where they were.","ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall."]
 uniq=[]
 for s in found:
     if s in drop: continue

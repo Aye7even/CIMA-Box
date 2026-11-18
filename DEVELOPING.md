@@ -25,9 +25,11 @@ nlohmann/json, the OpenVR SDK on Windows, and curl if your system has none) is d
     cmake -B build && cmake --build build
     ./build/CIMABox
 
-Settings are kept in `%APPDATA%\CIMA Box\cimabox.json` (on macOS/Linux `~/.config/cimabox/`), saved
-a moment after every change, so builds in any folder share them. On first start, an older
-`cimabox.json` (or `voicechanger.json`) next to the program is copied there automatically.
+Settings (`cimabox.json`) save a moment after every change, by default in `%APPDATA%\CIMA Box`
+(macOS/Linux: `~/.config/cimabox/`), so builds in any folder share them. Settings > About can move
+them to `Documents\CIMA Box Config` or next to the program; that choice is kept in
+`%APPDATA%\CIMA Box\settings-location.txt`. With no choice made, a `cimabox.json` next to the
+program is used where it is.
 
 ## Publishing updates (GitHub)
 

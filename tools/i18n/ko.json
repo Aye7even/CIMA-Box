@@ -400,10 +400,17 @@
 "Version history": "버전 기록",
 "What's new in CIMA Box %s": "CIMA Box %s의 새로운 점",
 "No notes for this version.": "이 버전의 메모가 없어요.",
-"Settings save by themselves, here:": "설정은 자동으로 저장돼요. 저장 위치:",
-"That file holds your API keys: don't share it.": "이 파일에는 API 키가 들어 있으니 공유하지 마세요.",
-"Your settings were copied here from the program's folder. The old cimabox.json there isn't used anymore; you can delete it.": "설정을 프로그램 폴더에서 여기로 복사했어요. 거기 있는 예전 cimabox.json은 더 이상 안 쓰니 지워도 돼요.",
 "Close": "닫기",
 "Open settings folder": "설정 폴더 열기",
-"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "이 사본은 스스로 업데이트할 수 없어요. 자동 업데이트를 받으려면 GitHub 페이지에서 CIMA Box를 내려받으세요."
+"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "이 사본은 스스로 업데이트할 수 없어요. 자동 업데이트를 받으려면 GitHub 페이지에서 CIMA Box를 내려받으세요.",
+"Save settings in": "설정 저장 위치",
+"A \"CIMA Box Config\" folder in Documents: easy to find and back up.": "문서 안의 \"CIMA Box Config\" 폴더. 찾기 쉽고 백업하기 편해요.",
+"Next to CIMABox.exe, so everything stays in one folder (Desktop, a USB stick...).": "CIMABox.exe 옆. 모든 걸 한 폴더에 둘 수 있어요 (바탕화면, USB 등).",
+"Your own settings folder, out of the way. Updates and moving the program never touch it.": "전용 설정 폴더, 눈에 안 띄는 곳. 업데이트나 프로그램 이동에 영향을 안 받아요.",
+"Settings save by themselves. The file holds your API keys: don't share it.": "설정은 자동으로 저장돼요. 이 파일에는 API 키가 들어 있으니 공유하지 마세요.",
+"Settings folder": "설정 폴더",
+"Documents": "문서",
+"With the program": "프로그램과 함께",
+"Couldn't save there, so your settings stayed where they were.": "거기에 저장할 수 없어서 설정은 원래 자리에 그대로 있어요.",
+"ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall.": "ElevenLabs가 20초 안에 응답하지 않았어요. 인터넷 연결, VPN, 방화벽을 확인하세요."
 }

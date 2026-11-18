@@ -6,6 +6,11 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 2.6.1
+- Choose where your settings are saved: your settings folder, a "CIMA Box Config" folder in Documents, or right next to CIMABox.exe so everything stays in one folder (Settings > About > Save settings in). Switching moves the file for you.
+- A cimabox.json placed next to CIMABox.exe is used right there.
+- "Loading voices" can no longer hang: it gives up after 20 seconds with a clear message, copes with unusual voices in your library, and ignores stray spaces or line breaks pasted along with an API key.
+
 ## 2.6.0
 - Settings now save by themselves, a moment after you change something, into your own settings folder (%APPDATA%\CIMA Box). Moving or updating the program no longer touches them. Your old cimabox.json is copied over automatically.
 - "What's new": after an update, a window shows what changed. Settings > Version history shows every version.

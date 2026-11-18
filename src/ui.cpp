@@ -1450,15 +1450,17 @@ void settingsPage(UiModel& m, UiActions& act) {
     std::snprintf(b, sizeof(b), TF("CIMA Box %s"), CIMA_VERSION);
     ImGui::TextUnformatted(b);
     if (button("Version history")) m.showChanges = 2;
-    note("Settings save by themselves, here:");
+    fieldLabel("Save settings in");
+    static const char* const kPlaces[] = {"Settings folder", "Documents", "With the program"};
+    int place = m.settingsPlace;
+    if (segmented("##settingsplace", kPlaces, 3, &place)) act.setSettingsPlace = place;
+    note(m.settingsPlace == kPlaceDocuments ? "A \"CIMA Box Config\" folder in Documents: easy to find and back up."
+         : m.settingsPlace == kPlaceProgram ? "Next to CIMABox.exe, so everything stays in one folder (Desktop, a USB stick...)."
+                                            : "Your own settings folder, out of the way. Updates and moving the program never touch it.");
     note(m.settingsPath);
+    if (!m.settingsError.empty()) note(T(m.settingsError), kDanger);
     if (button("Open settings folder")) act.openSettingsFolder = true;
-    note("That file holds your API keys: don't share it.");
-    if (!m.settingsMovedFrom.empty()) {
-        note("Your settings were copied here from the program's folder. The old cimabox.json there isn't used "
-             "anymore; you can delete it.", kBusy);
-        note(m.settingsMovedFrom, kBusy);
-    }
+    note("Settings save by themselves. The file holds your API keys: don't share it.");
     ImGui::EndChild();
 
     ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));

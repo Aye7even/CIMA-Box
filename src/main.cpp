@@ -12,6 +12,7 @@
 #include <GLFW/glfw3native.h>
 #include <dwmapi.h>
 #include <shellapi.h>  // ShellExecuteW: "Open settings folder"
+#include <shlobj.h>    // SHGetKnownFolderPath: the Documents folder
 #endif
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -61,9 +62,13 @@ using Clock = std::chrono::steady_clock;
 
 namespace fs = std::filesystem;
 
-// Settings live in the user's own settings folder, so the program can be moved, replaced or updated
-// freely: %APPDATA%\CIMA Box\cimabox.json on Windows, ~/.config/cimabox/cimabox.json elsewhere.
-fs::path settingsDir() {
+// Where cimabox.json lives, chosen in Settings > About:
+//   the settings folder (default): %APPDATA%\CIMA Box (~/.config/cimabox elsewhere)
+//   Documents:                     Documents\CIMA Box Config
+//   next to the program:           everything in one folder (Desktop, a USB stick...)
+// The choice itself is remembered in the settings folder (settings-location.txt). With no choice made,
+// a cimabox.json next to CIMABox.exe is used where it is.
+static fs::path appDataDir() {
     std::error_code ec;
 #ifdef _WIN32
     if (const wchar_t* a = _wgetenv(L"APPDATA"); a && *a) return fs::path(a) / L"CIMA Box";
@@ -73,7 +78,22 @@ fs::path settingsDir() {
 #endif
     return fs::current_path(ec);
 }
-static fs::path settingsFile() { return settingsDir() / "cimabox.json"; }
+
+static fs::path documentsDir() {
+#ifdef _WIN32
+    PWSTR p = nullptr;  // the real Documents folder, also when OneDrive has moved it
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &p)) && p) {
+        const fs::path r(p);
+        CoTaskMemFree(p);
+        return r;
+    }
+    if (p) CoTaskMemFree(p);
+    if (const wchar_t* u = _wgetenv(L"USERPROFILE"); u && *u) return fs::path(u) / L"Documents";
+#else
+    if (const char* h = std::getenv("HOME"); h && *h) return fs::path(h) / "Documents";
+#endif
+    return appDataDir();
+}
 
 static fs::path programDir() {
 #ifdef _WIN32
@@ -86,22 +106,48 @@ static fs::path programDir() {
 #endif
 }
 
+static const char* const kPlaceWords[] = {"settings-folder", "documents", "program"};
+static int gPlace = kPlaceSettingsFolder;
+
+static fs::path placeDir(int place) {
+    if (place == kPlaceDocuments) return documentsDir() / "CIMA Box Config";
+    if (place == kPlaceProgram) return programDir();
+    return appDataDir();
+}
+fs::path settingsDir() { return placeDir(gPlace); }
+static fs::path settingsFile() { return settingsDir() / "cimabox.json"; }
+static fs::path locationFile() { return appDataDir() / "settings-location.txt"; }
+
+static int choosePlace() {
+    std::ifstream lf(locationFile());
+    std::string word;
+    if (lf >> word)
+        for (int i = 0; i < 3; ++i)
+            if (word == kPlaceWords[i]) return i;
+    // No choice made: a cimabox.json next to the program means "keep it here". (If 2.6 already copied
+    // that file into the settings folder, whichever was changed last wins.)
+    std::error_code ec;
+    const fs::path here = programDir() / "cimabox.json", there = appDataDir() / "cimabox.json";
+    if (fs::exists(here, ec)) {
+        if (!fs::exists(there, ec)) return kPlaceProgram;
+        const auto a = fs::last_write_time(here, ec), b = fs::last_write_time(there, ec);
+        if (!ec && a >= b) return kPlaceProgram;
+    }
+    return kPlaceSettingsFolder;
+}
+
 static bool gSettingsExisted = false;  // false on a brand-new install
-static std::string gSettingsMovedFrom;  // where they were before they moved to the settings folder
 
 static void loadSettings(Settings& s) {
     std::error_code ec;
-    const fs::path file = settingsFile();
-    if (!fs::exists(file, ec)) {
-        // Earlier versions kept cimabox.json (or voicechanger.json) next to the program.
-        for (const fs::path& old : {programDir() / "cimabox.json", fs::current_path(ec) / "cimabox.json",
-                                    programDir() / "voicechanger.json", fs::current_path(ec) / "voicechanger.json"}) {
-            if (!fs::exists(old, ec)) continue;
-            fs::create_directories(file.parent_path(), ec);
-            if (fs::copy_file(old, file, fs::copy_options::overwrite_existing, ec)) gSettingsMovedFrom = old.u8string();
-            break;
-        }
-    }
+    gPlace = choosePlace();
+    fs::path file = settingsFile();
+    if (!fs::exists(file, ec))  // settings from before the app was called CIMA Box
+        for (const fs::path& old : {programDir() / "voicechanger.json", fs::current_path(ec) / "voicechanger.json"})
+            if (fs::exists(old, ec)) {
+                file = old;
+                break;
+            }
     std::ifstream f(file);
     gSettingsExisted = bool(f);
     json j = f ? json::parse(f, nullptr, false) : json();
@@ -327,6 +373,28 @@ static void saveSettings(const Settings& s) {
     }
     fs::rename(tmp, file, ec);
     if (!ec) gLastSaved = text;
+}
+
+// Settings > About > "Save settings in": write the file in the new place, then remove the old one.
+static bool moveSettings(const Settings& s, int place, std::string& err) {
+    if (place == gPlace) return true;
+    std::error_code ec;
+    const fs::path oldFile = settingsFile();
+    const int oldPlace = gPlace;
+    gPlace = place;
+    gLastSaved.clear();
+    saveSettings(s);
+    if (gLastSaved.empty()) {  // that folder can't be written to (e.g. the program is in Program Files)
+        gPlace = oldPlace;
+        saveSettings(s);
+        err = "Couldn't save there, so your settings stayed where they were.";
+        return false;
+    }
+    if (!fs::equivalent(oldFile, settingsFile(), ec)) fs::remove(oldFile, ec);
+    fs::create_directories(appDataDir(), ec);
+    std::ofstream(locationFile()) << kPlaceWords[place];
+    err.clear();
+    return true;
 }
 
 // ---------------------------------------------------------------- shared state
@@ -927,12 +995,23 @@ static void refreshCatalog(const std::string& key) {
         std::vector<Voice> voices;
         std::vector<Model> models;
         std::string e1, e2;
-        const bool ok1 = api.listVoices(voices, e1), ok2 = api.listModels(models, e2);
+        bool ok1 = false, ok2 = false;
+        try {
+            ok1 = api.listVoices(voices, e1);
+            ok2 = ok1 && api.listModels(models, e2);
+        } catch (const std::exception& ex) {  // never leave the button stuck on "Loading voices"
+            e1 = std::string("Couldn't read the voice list: ") + ex.what();
+        }
+        auto explain = [](const std::string& e) {
+            if (e.find("Timeout") != std::string::npos || e.find("timed out") != std::string::npos)
+                return std::string("ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall.");
+            return e;
+        };
         {
             std::lock_guard<std::mutex> lk(g.mtx);
             if (ok1) g.voices = std::move(voices);
             if (ok2) g.models = std::move(models);
-            g.catalogMsg = !ok1 ? e1 : !ok2 ? e2 : "Loaded " + std::to_string(g.voices.size()) + " voices";
+            g.catalogMsg = !ok1 ? explain(e1) : !ok2 ? explain(e2) : "Loaded " + std::to_string(g.voices.size()) + " voices";
             ++g.catalogVersion;
         }
         g.loading = false;
@@ -1004,7 +1083,7 @@ int main() {
     loadSettings(ui.cfg);
     setUiLanguage(ui.cfg.uiLanguage);
     ui.settingsPath = settingsFile().u8string();
-    ui.settingsMovedFrom = gSettingsMovedFrom;
+    ui.settingsPlace = gPlace;
     // After an update: show what changed since the version this person last used.
     if (gSettingsExisted && compareVersions(CIMA_FULL_VERSION, ui.cfg.lastSeenVersion.empty() ? "0" : ui.cfg.lastSeenVersion) > 0) {
         ui.showChanges = 1;
@@ -1366,6 +1445,11 @@ int main() {
         if (nowSeconds() - lastAutosave > 2.0) {
             lastAutosave = nowSeconds();
             saveSettings(ui.cfg);
+        }
+        if (act.setSettingsPlace >= 0) {
+            moveSettings(ui.cfg, act.setSettingsPlace, ui.settingsError);
+            ui.settingsPlace = gPlace;
+            ui.settingsPath = settingsFile().u8string();
         }
         if (act.openSettingsFolder) {
 #ifdef _WIN32

@@ -400,10 +400,17 @@
 "Version history": "版本历史",
 "What's new in CIMA Box %s": "CIMA Box %s 新功能",
 "No notes for this version.": "此版本没有说明。",
-"Settings save by themselves, here:": "设置会自动保存,位置:",
-"That file holds your API keys: don't share it.": "这个文件里有你的 API 密钥: 不要分享。",
-"Your settings were copied here from the program's folder. The old cimabox.json there isn't used anymore; you can delete it.": "你的设置已从程序文件夹复制到这里。那里旧的 cimabox.json 不再使用,可以删除。",
 "Close": "关闭",
 "Open settings folder": "打开设置文件夹",
-"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "此副本无法自动更新。请从 CIMA Box 的 GitHub 页面下载,以获得自动更新。"
+"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "此副本无法自动更新。请从 CIMA Box 的 GitHub 页面下载,以获得自动更新。",
+"Save settings in": "设置保存位置",
+"A \"CIMA Box Config\" folder in Documents: easy to find and back up.": "“文档”中的“CIMA Box Config”文件夹:好找,也方便备份。",
+"Next to CIMABox.exe, so everything stays in one folder (Desktop, a USB stick...).": "放在 CIMABox.exe 旁边,所有东西都在一个文件夹里 (桌面、U 盘……)。",
+"Your own settings folder, out of the way. Updates and moving the program never touch it.": "你自己的设置文件夹,不碍事。更新和移动程序都不会影响它。",
+"Settings save by themselves. The file holds your API keys: don't share it.": "设置会自动保存。这个文件里有你的 API 密钥: 不要分享。",
+"Settings folder": "设置文件夹",
+"Documents": "文档",
+"With the program": "与程序放在一起",
+"Couldn't save there, so your settings stayed where they were.": "无法保存到那里,所以设置仍在原来的位置。",
+"ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall.": "ElevenLabs 在 20 秒内没有响应。请检查网络连接、VPN 或防火墙。"
 }

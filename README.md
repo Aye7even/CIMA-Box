@@ -71,9 +71,12 @@ Every button and setting is explained in **`CIMA Box - Read Me.txt`**, which com
 
 ## Good to know
 
-- **Your keys stay on your PC.** Settings, including your API keys, are saved in
-  `%APPDATA%\CIMA Box\cimabox.json` and never uploaded anywhere except to the services they belong
-  to. Don't share that file.
+- **Put the program anywhere**, Desktop included. Settings save by themselves, and you choose
+  where (Settings > About > Save settings in): your settings folder (the default), a
+  `CIMA Box Config` folder in Documents, or right next to `CIMABox.exe` to keep everything in one
+  folder.
+- **Your keys stay on your PC.** They're saved in that settings file (`cimabox.json`) and only ever
+  sent to the services they belong to. Don't share that file.
 - **What's sent where:** your voice goes to ElevenLabs; text to translate goes to the translation
   service you picked. With Listen on, other people's voices are sent to ElevenLabs too, to caption
   them. Captions are never saved.

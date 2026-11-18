@@ -18,6 +18,8 @@ enum Activation { kVoiceActivity = 0, kPushToTalk = 1 };
 enum Page { kPageVoice = 0, kPageListen = 1, kPageVR = 2, kPageSettings = 3 };
 // Who you are talking to, as chosen. Auto = the last person who spoke (guessed from their voice).
 enum TalkingTo { kTalkAuto = 0, kTalkUnknown = 1, kTalkMan = 2, kTalkWoman = 3, kTalkGroup = 4, kTalkCount = 5 };
+// Where cimabox.json is kept (Settings > About).
+enum SettingsPlace { kPlaceSettingsFolder = 0, kPlaceDocuments = 1, kPlaceProgram = 2 };
 enum ChatboxShow { kShowSaid = 0, kShowSpoken = 1, kShowBoth = 2 };
 
 struct Settings {
@@ -110,7 +112,8 @@ struct UiModel {
     UpdateState update;                      // GitHub updates
     bool updatesConfigured = false;          // this build knows where updates come from
     std::string settingsPath;                // where cimabox.json is saved
-    std::string settingsMovedFrom;           // the old cimabox.json it was copied from (first start of 2.6)
+    int settingsPlace = kPlaceSettingsFolder;  // SettingsPlace
+    std::string settingsError;               // moving the settings didn't work
     int showChanges = 0;                     // 1: open "What's new" (since changesSince), 2: the whole history
     std::string changesSince;                // versions newer than this
 
@@ -128,4 +131,5 @@ struct UiActions {
     bool refreshApps = false, clearCaptions = false;
     int setCaptionsOnly = -1;  // 0 / 1 when the user switches the compact view
     bool checkUpdates = false, installUpdate = false, openSettingsFolder = false;
+    int setSettingsPlace = -1;  // SettingsPlace picked in Settings > About
 };

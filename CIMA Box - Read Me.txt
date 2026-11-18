@@ -1,5 +1,5 @@
-CIMA Box 2.6
-============
+CIMA Box 2.6.1
+==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
 say (for example in VRChat) into your language.
@@ -20,9 +20,8 @@ Settings: the app's language, your API keys and hotkeys.
 GETTING STARTED
 ---------------
 
-1. Put CIMABox.exe in a normal folder (Documents, Desktop...) and run it. Your settings save by
-   themselves in your own settings folder (%APPDATA%\CIMA Box), so you can move or update the
-   program any time without losing them.
+1. Put CIMABox.exe anywhere you like (Desktop, Documents...) and run it. Your settings save by
+   themselves, so you can move or update the program any time without losing them.
 2. Click the gear (top right) to open Settings, paste your ElevenLabs API key under Accounts and
    click "Load voices and models". (Until you do, the bottom of the window shows these steps.)
    Want the menus in another language? Pick it under App language in the same place.
@@ -269,9 +268,15 @@ App language
 About
   Version history .......... What changed in every version. After each update, a "What's new"
                              window shows the changes since the version you had.
-  Open settings folder ..... Opens %APPDATA%\CIMA Box, where cimabox.json (your settings and keys)
-                             is saved, a moment after every change. You can also put app
-                             translation files in a "lang" folder there.
+  Save settings in ......... Where cimabox.json (your settings and keys) is kept. It saves by
+                             itself a moment after every change.
+    Settings folder ........ %APPDATA%\CIMA Box. Out of the way; the default.
+    Documents .............. A "CIMA Box Config" folder in your Documents.
+    With the program ....... Right next to CIMABox.exe, so everything stays in one folder (handy
+                             on the Desktop or a USB stick). Putting a cimabox.json next to
+                             CIMABox.exe does the same.
+                             Switching moves the file for you.
+  Open settings folder ..... Opens the folder where cimabox.json is.
 
 Accounts
   ElevenLabs API key ....... Needed for everything. From the API keys page on elevenlabs.io.

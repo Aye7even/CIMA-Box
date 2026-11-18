@@ -400,10 +400,17 @@
 "Version history": "Historial de versiones",
 "What's new in CIMA Box %s": "Novedades de CIMA Box %s",
 "No notes for this version.": "No hay notas para esta versión.",
-"Settings save by themselves, here:": "Los ajustes se guardan solos, aquí:",
-"That file holds your API keys: don't share it.": "Ese archivo contiene tus claves de API: no lo compartas.",
-"Your settings were copied here from the program's folder. The old cimabox.json there isn't used anymore; you can delete it.": "Tus ajustes se copiaron aquí desde la carpeta del programa. El cimabox.json antiguo de allí ya no se usa; puedes borrarlo.",
 "Close": "Cerrar",
 "Open settings folder": "Abrir carpeta de ajustes",
-"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "Esta copia no puede actualizarse sola. Descarga CIMA Box desde su página de GitHub para tener actualizaciones automáticas."
+"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "Esta copia no puede actualizarse sola. Descarga CIMA Box desde su página de GitHub para tener actualizaciones automáticas.",
+"Save settings in": "Guardar ajustes en",
+"A \"CIMA Box Config\" folder in Documents: easy to find and back up.": "Una carpeta \"CIMA Box Config\" en Documentos: fácil de encontrar y de copiar.",
+"Next to CIMABox.exe, so everything stays in one folder (Desktop, a USB stick...).": "Junto a CIMABox.exe, para tenerlo todo en una carpeta (Escritorio, un USB...).",
+"Your own settings folder, out of the way. Updates and moving the program never touch it.": "Tu propia carpeta de ajustes, apartada. Las actualizaciones y mover el programa nunca la tocan.",
+"Settings save by themselves. The file holds your API keys: don't share it.": "Los ajustes se guardan solos. El archivo contiene tus claves de API: no lo compartas.",
+"Settings folder": "Carpeta de ajustes",
+"Documents": "Documentos",
+"With the program": "Con el programa",
+"Couldn't save there, so your settings stayed where they were.": "No se pudo guardar ahí, así que tus ajustes se quedaron donde estaban.",
+"ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall.": "ElevenLabs no respondió en 20 segundos. Revisa tu conexión a internet, VPN o firewall."
 }

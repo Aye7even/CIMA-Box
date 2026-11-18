@@ -400,10 +400,17 @@
 "Version history": "История версий",
 "What's new in CIMA Box %s": "Что нового в CIMA Box %s",
 "No notes for this version.": "Для этой версии нет заметок.",
-"Settings save by themselves, here:": "Настройки сохраняются сами, сюда:",
-"That file holds your API keys: don't share it.": "В этом файле твои API-ключи: никому его не давай.",
-"Your settings were copied here from the program's folder. The old cimabox.json there isn't used anymore; you can delete it.": "Настройки скопированы сюда из папки программы. Старый cimabox.json там больше не используется, его можно удалить.",
 "Close": "Закрыть",
 "Open settings folder": "Открыть папку настроек",
-"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "Эта копия не умеет обновляться. Скачай CIMA Box со страницы на GitHub, чтобы получать обновления автоматически."
+"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "Эта копия не умеет обновляться. Скачай CIMA Box со страницы на GitHub, чтобы получать обновления автоматически.",
+"Save settings in": "Хранить настройки",
+"A \"CIMA Box Config\" folder in Documents: easy to find and back up.": "Папка «CIMA Box Config» в Документах: легко найти и сохранить копию.",
+"Next to CIMABox.exe, so everything stays in one folder (Desktop, a USB stick...).": "Рядом с CIMABox.exe, чтобы всё было в одной папке (рабочий стол, флешка...).",
+"Your own settings folder, out of the way. Updates and moving the program never touch it.": "Твоя папка настроек, в стороне. Обновления и перенос программы её не трогают.",
+"Settings save by themselves. The file holds your API keys: don't share it.": "Настройки сохраняются сами. В файле твои API-ключи: никому его не давай.",
+"Settings folder": "Папка настроек",
+"Documents": "Документы",
+"With the program": "С программой",
+"Couldn't save there, so your settings stayed where they were.": "Не удалось сохранить туда, поэтому настройки остались на прежнем месте.",
+"ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall.": "ElevenLabs не ответил за 20 секунд. Проверь подключение к интернету, VPN или брандмауэр."
 }

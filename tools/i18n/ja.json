@@ -400,10 +400,17 @@
 "Version history": "バージョン履歴",
 "What's new in CIMA Box %s": "CIMA Box %s の新機能",
 "No notes for this version.": "このバージョンのメモはありません。",
-"Settings save by themselves, here:": "設定は自動で保存されます。保存先:",
-"That file holds your API keys: don't share it.": "このファイルには API キーが入っています。共有しないでください。",
-"Your settings were copied here from the program's folder. The old cimabox.json there isn't used anymore; you can delete it.": "設定はプログラムのフォルダーからここにコピーされました。そこにある古い cimabox.json はもう使われないので、削除して大丈夫です。",
 "Close": "閉じる",
 "Open settings folder": "設定フォルダーを開く",
-"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "このコピーは自動更新できません。自動更新を使うには GitHub のページから CIMA Box をダウンロードしてください。"
+"This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.": "このコピーは自動更新できません。自動更新を使うには GitHub のページから CIMA Box をダウンロードしてください。",
+"Save settings in": "設定の保存先",
+"A \"CIMA Box Config\" folder in Documents: easy to find and back up.": "ドキュメント内の「CIMA Box Config」フォルダー。見つけやすく、バックアップも簡単です。",
+"Next to CIMABox.exe, so everything stays in one folder (Desktop, a USB stick...).": "CIMABox.exe の隣。すべてを 1 つのフォルダーにまとめられます (デスクトップ、USB メモリなど)。",
+"Your own settings folder, out of the way. Updates and moving the program never touch it.": "専用の設定フォルダー。アップデートやプログラムの移動の影響を受けません。",
+"Settings save by themselves. The file holds your API keys: don't share it.": "設定は自動で保存されます。このファイルには API キーが入っているので共有しないでください。",
+"Settings folder": "設定フォルダー",
+"Documents": "ドキュメント",
+"With the program": "プログラムと一緒",
+"Couldn't save there, so your settings stayed where they were.": "そこには保存できなかったため、設定は元の場所のままです。",
+"ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall.": "ElevenLabs から 20 秒以内に応答がありませんでした。インターネット接続、VPN、ファイアウォールを確認してください。"
 }

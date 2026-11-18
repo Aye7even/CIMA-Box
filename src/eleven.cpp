@@ -28,9 +28,12 @@ std::string apiError(long code, const std::string& body) {
 bool contains(const std::string& s, const char* needle) { return s.find(needle) != std::string::npos; }
 
 // Runs one request; true only for HTTP 200.
+std::string trimmed(const std::string& s);
+
 bool call(Eleven& api, HttpRequest& r, std::string& body, std::string& err, long* statusOut = nullptr) {
-    if (api.apiKey.empty()) { err = "Add your ElevenLabs API key first"; return false; }
-    r.headers.push_back("xi-api-key: " + api.apiKey);
+    const std::string key = trimmed(api.apiKey);  // a pasted key often brings a space or line break along
+    if (key.empty()) { err = "Add your ElevenLabs API key first"; return false; }
+    r.headers.push_back("xi-api-key: " + key);
     long status = 0;
     if (statusOut) *statusOut = 0;
     if (!api.http.perform(r, status, body, err)) return false;
@@ -66,16 +69,18 @@ void Eleven::warm() {
 bool Eleven::listVoices(std::vector<Voice>& out, std::string& err) {
     HttpRequest r;
     r.url = std::string(kBase) + "/v1/voices";
+    r.timeoutSec = 20;
     std::string body;
     if (!call(*this, r, body, err)) return false;
     json j = json::parse(body, nullptr, false);
     if (!j.is_object() || !j.contains("voices") || !j["voices"].is_array()) { err = "Unexpected /v1/voices response"; return false; }
     out.clear();
-    for (const json& v : j["voices"]) {
+    for (const json& v : j["voices"]) {  // read leniently: one odd voice mustn't stop the whole list
         Voice x;
-        x.id = v.value("voice_id", "");
-        x.name = v.value("name", "");
-        if (v.contains("category") && v["category"].is_string()) x.category = v["category"].get<std::string>();
+        x.id = str(v, "voice_id");
+        x.name = str(v, "name");
+        if (x.name.empty()) x.name = x.id;
+        x.category = str(v, "category");
         if (!x.id.empty()) out.push_back(std::move(x));
     }
     return true;
@@ -84,6 +89,7 @@ bool Eleven::listVoices(std::vector<Voice>& out, std::string& err) {
 bool Eleven::listModels(std::vector<Model>& out, std::string& err) {
     HttpRequest r;
     r.url = std::string(kBase) + "/v1/models";
+    r.timeoutSec = 20;
     std::string body;
     if (!call(*this, r, body, err)) return false;
     json j = json::parse(body, nullptr, false);
@@ -92,8 +98,9 @@ bool Eleven::listModels(std::vector<Model>& out, std::string& err) {
     auto flag = [](const json& m, const char* k) { return m.contains(k) && m[k].is_boolean() && m[k].get<bool>(); };
     for (const json& m : j) {
         Model x;
-        x.id = m.value("model_id", "");
-        x.name = m.value("name", x.id);
+        x.id = str(m, "model_id");
+        x.name = str(m, "name");
+        if (x.name.empty()) x.name = x.id;
         x.voiceConversion = flag(m, "can_do_voice_conversion");
         x.textToSpeech = flag(m, "can_do_text_to_speech");
         if (!x.id.empty()) out.push_back(std::move(x));
