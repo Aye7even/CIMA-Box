@@ -87,14 +87,6 @@ Every button and setting is explained in **[`CIMA Box - Read Me.txt`](CIMA%20Box
 - **What's sent where:** your voice goes to ElevenLabs; text to translate goes to the translation
   service you picked. With Listen on, other people's voices are sent to ElevenLabs too, to caption
   them. Captions are never saved.
-- **Updates** are checked when the app starts and install with one click (Settings > Updates). Each
-  one is signed, and the app refuses anything that isn't.
-- **Your browser or Windows SmartScreen** may warn about the download or the first run ("Windows
-  protected your PC"), because the program is new and not from a big company. In the browser choose
-  **Keep**; in SmartScreen click **More info** > **Run anyway**.
-- Keep CIMA Box in a folder you can write to (not Program Files) so it can update itself.
-- **First time?** A short setup walks you through everything, starting with your language. Run it
-  again from Settings > About.
 - **What's left** of your ElevenLabs credits (and DeepL characters, or what Claude or Gemini cost
   this session) shows quietly at the bottom of the window.
 - **Something stopped working?** Settings > Service status shows whether ElevenLabs, Claude or
