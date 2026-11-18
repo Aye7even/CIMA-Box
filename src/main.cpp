@@ -38,6 +38,7 @@
 #include "emotion.h"
 #include "listen.h"
 #include "micmatch.h"
+#include "servicestatus.h"
 #include "voiceout.h"
 #include "osc.h"
 #include "vroverlay.h"
@@ -236,6 +237,8 @@ static void loadSettings(Settings& s) {
             s.passthrough = j.value("passthrough", s.passthrough);
             s.chatbox = j.value("voice_chatbox", s.chatbox);
             s.chatboxShow = j.value("voice_chatbox_show", s.chatboxShow);
+            s.textTranslate = j.value("text_translate", s.textTranslate);
+            s.textSpeak = j.value("text_speak", s.textSpeak);
             s.vs.setCloneStrength = j.value("set_clone_strength", s.vs.setCloneStrength);
             s.vs.cloneStrength = j.value("clone_strength", s.vs.cloneStrength);
             s.emotionStrength = j.value("emotion_strength", s.emotionStrength);
@@ -269,7 +272,7 @@ static void loadSettings(Settings& s) {
     if (s.engine < kVoiceChanger || s.engine > kTranslate) s.engine = kVoiceChanger;
     if (const Language* l = findLanguage(s.spokenLang)) s.spokenLang = l->code; else s.spokenLang.clear();
     if (!findLanguage(s.targetLang)) s.targetLang = "ja";
-    if (s.page != kPageListen && s.page != kPageVR) s.page = kPageVoice;
+    if (s.page != kPageListen && s.page != kPageVR && s.page != kPageText) s.page = kPageVoice;
     {
         VrSettings& r = s.vr;
         if (r.placement < kVrHead || r.placement > kVrFixed) r.placement = kVrHead;
@@ -326,6 +329,7 @@ static std::string settingsJson(const Settings& s) {
         {"emotion", s.emotion}, {"emotion_strength", s.emotionStrength},
         {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough},
         {"voice_chatbox", s.chatbox}, {"voice_chatbox_show", s.chatboxShow},
+        {"text_translate", s.textTranslate}, {"text_speak", s.textSpeak},
         {"set_clone_strength", s.vs.setCloneStrength}, {"clone_strength", s.vs.cloneStrength},
         {"dialects", s.variety}, {"custom_dialects", s.customVariety}, {"voice_for_language", s.voiceFor},
         {"my_gender", s.myGender}, {"talking_to", s.talkingTo}, {"talking_to_key", s.talkKey},
@@ -406,6 +410,7 @@ constexpr int kDeviceRate = 48000;
 struct Phrase {
     std::vector<int16_t> pcm;   // 16 kHz: speech-to-text, and the voice changer at Standard quality
     std::vector<int16_t> full;  // the same at kDeviceRate: the voice changer at High and Best
+    std::string text;           // typed on the Text page instead (no audio)
 };
 
 struct Sink {  // one playback device fed by a ring buffer
@@ -419,6 +424,7 @@ struct Sink {  // one playback device fed by a ring buffer
 // Gives the AI translator its context, and feeds the VR captions.
 struct ConvoLine {
     bool me = false;
+    bool typed = false;    // yours, typed on the Text page
     std::string original;  // as spoken
     std::string shown;     // translation, or the same as original
     std::string language;  // spoken language name, for the others' lines
@@ -468,6 +474,7 @@ struct App {
 static App g;
 static Listener gListen;  // the Listen page's own pipeline; runs next to the voice changer
 static VrOverlay gVr;     // captions inside the headset (idle unless switched on)
+static StatusWatcher gStatus;  // ElevenLabs, Claude, Gemini, DeepL status pages
 static const auto gStart = std::chrono::steady_clock::now();
 static double nowSeconds() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - gStart).count(); }
 
@@ -728,6 +735,7 @@ static void workerLoop() {
 
     while (g.running) {
         std::vector<int16_t> pcm, full;
+        std::string typedText;
         Settings s;
         bool haveJob = false, professional = false;
         {
@@ -739,11 +747,13 @@ static void workerLoop() {
             if (!g.jobs.empty()) {
                 pcm = std::move(g.jobs.front().pcm);
                 full = std::move(g.jobs.front().full);
+                typedText = std::move(g.jobs.front().text);
                 g.jobs.pop_front();
                 haveJob = true;
             }
             for (const Voice& v : g.voices) professional = professional || (v.id == s.voiceId && v.category == "professional");
         }
+        if (!typedText.empty()) s.engine = s.textTranslate ? kTranslate : kRespeak;  // the Text page's own choice
         g.cancel = false;
         if (!g.running) break;  // quitting: don't start anything that shutdown could no longer cancel
         api.apiKey = captionApi.apiKey = s.apiKey;
@@ -818,10 +828,10 @@ static void workerLoop() {
 
         std::string err, heard, spoken, delivery;
         bool ok = true;
-        if (s.voiceId.empty()) {
+        if (s.voiceId.empty() && (typedText.empty() || s.textSpeak)) {
             ok = false;
             err = "Pick a voice first";
-        } else if (s.engine == kVoiceChanger) {
+        } else if (s.engine == kVoiceChanger && typedText.empty()) {
             // The chatbox needs words, and Changer has none: transcribe at the same time, so the
             // voice isn't kept waiting.
             std::future<std::string> words;
@@ -839,14 +849,16 @@ static void workerLoop() {
             if (words.valid()) heard = words.get();
         } else {
             std::string detected, say, sayLang;
-            const bool emotion = s.emotion;
+            const bool typed = !typedText.empty();
+            const bool emotion = s.emotion && !typed;  // nothing to listen to in typed text
             const bool tags = modelTakesTags(s.ttsModel);
             VoiceTrack track;
             std::vector<HeardToken> tokens;
             // Measured on this computer while the upload and transcription run, so it adds no wait.
             std::future<VoiceTrack> measuring;
             if (emotion) measuring = std::async(std::launch::async, [&pcm] { return trackVoice(pcm); });
-            ok = api.transcribe(pcm, s.spokenLang, heard, detected, err, emotion ? &tokens : nullptr);
+            if (typed) heard = typedText;
+            else ok = api.transcribe(pcm, s.spokenLang, heard, detected, err, emotion ? &tokens : nullptr);
             if (emotion) track = measuring.get();
             sttMs = msSince(t0);
             const bool blank = heard.find_first_not_of(" \t\r\n") == std::string::npos;
@@ -932,7 +944,7 @@ static void workerLoop() {
                 spoken = say;
             }
             if (to && s.engine == kTranslate) sayLang = to->code;
-            if (ok && !blank) {
+            if (ok && !blank && (!typed || s.textSpeak)) {
                 tVoice = Clock::now();
                 ok = speak([&](const std::string& format, std::string& e) {
                     return api.textToSpeech(s.voiceId, s.ttsModel, s.vs, say, sayLang, sink, e, format);
@@ -959,6 +971,7 @@ static void workerLoop() {
             if (ok && !heard.empty()) {
                 ConvoLine me;
                 me.me = true;
+                me.typed = !typedText.empty();
                 me.original = heard;
                 me.shown = withoutTags(spoken.empty() ? heard : spoken);
                 addConvo(std::move(me));
@@ -1122,6 +1135,7 @@ int main() {
         }
     });
     gListen.start();
+    gStatus.start();
     gVr.setThumbnail(kLogos[0].rgba, kLogos[0].size);  // the SteamVR menu tab's icon
     gVr.start();
     if (!ui.cfg.apiKey.empty()) refreshCatalog(ui.cfg.apiKey);
@@ -1176,6 +1190,8 @@ int main() {
     bool talkWasDown = false;
     std::string voiceKey, voiceKeyVoice;  // language/dialect the voice was last used with
     uint64_t vrSentConvo = ~0ull, vrVersion = 0;  // what the headset panel was last given
+    uint64_t chatConvo = ~0ull;                   // what the Text page was last given
+    std::string lastErrorSeen, lastListenErrorSeen;  // a new problem: look at the status pages again
     bool vrSentShowMe = true;
     unsigned previewTex = 0;
     uint64_t previewConvo = ~0ull;
@@ -1323,6 +1339,20 @@ int main() {
         {
             std::lock_guard<std::mutex> lk(g.mtx);
             convoNow = g.convoVersion;
+            if (convoNow != chatConvo) {  // the Text page's conversation
+                chatConvo = convoNow;
+                ui.chat.clear();
+                for (const ConvoLine& c : g.convo) {
+                    ChatLine l;
+                    l.me = c.me;
+                    l.typed = c.typed;
+                    l.text = c.shown;
+                    l.original = c.original != c.shown ? c.original : std::string();
+                    l.language = c.language;
+                    l.speaker = c.speaker;
+                    ui.chat.push_back(std::move(l));
+                }
+            }
             if (ui.cfg.vr.on && (convoNow != vrSentConvo || ui.cfg.vr.showMe != vrSentShowMe)) {
                 gVr.setLines(vrLines(ui.cfg.vr), ++vrVersion);
                 vrSentConvo = convoNow;
@@ -1412,7 +1442,8 @@ int main() {
         {
             const auto vit = ui.cfg.variety.find(ui.cfg.targetLang);
             const std::string key = ui.cfg.targetLang + "/" + (vit == ui.cfg.variety.end() ? std::string() : vit->second);
-            if (ui.cfg.voicePerLanguage && ui.cfg.engine == kTranslate && !voiceKey.empty() && key != voiceKey) {
+            const bool translating = ui.cfg.engine == kTranslate || (ui.cfg.page == kPageText && ui.cfg.textTranslate);
+            if (ui.cfg.voicePerLanguage && translating && !voiceKey.empty() && key != voiceKey) {
                 if (!voiceKeyVoice.empty()) ui.cfg.voiceFor[voiceKey] = voiceKeyVoice;
                 const auto it = ui.cfg.voiceFor.find(key);
                 if (it != ui.cfg.voiceFor.end()) {
@@ -1450,6 +1481,28 @@ int main() {
             moveSettings(ui.cfg, act.setSettingsPlace, ui.settingsError);
             ui.settingsPlace = gPlace;
             ui.settingsPath = settingsFile().u8string();
+        }
+        if (!act.sendText.empty()) {  // typed on the Text page: same pipeline, without the microphone
+            Phrase typed;
+            typed.text = act.sendText;
+            std::lock_guard<std::mutex> lk(g.mtx);
+            g.jobs.push_back(std::move(typed));
+            g.jobCv.notify_one();
+        }
+        // ---- service status: ask again soon after something fails, in case it's on their side
+        ui.services = gStatus.state();
+        if (ui.lastError != lastErrorSeen || ui.listen.error != lastListenErrorSeen) {
+            if ((!ui.lastError.empty() && ui.lastError != "cancelled") || !ui.listen.error.empty()) gStatus.checkSoon();
+            lastErrorSeen = ui.lastError;
+            lastListenErrorSeen = ui.listen.error;
+        }
+        if (!act.openUrl.empty()) {
+#ifdef _WIN32
+            const int n = MultiByteToWideChar(CP_UTF8, 0, act.openUrl.c_str(), -1, nullptr, 0);
+            std::wstring w(size_t(std::max(n, 1)), L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, act.openUrl.c_str(), -1, &w[0], n);
+            ShellExecuteW(nullptr, L"open", w.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#endif
         }
         if (act.openSettingsFolder) {
 #ifdef _WIN32
@@ -1496,6 +1549,7 @@ int main() {
     keyThread.join();
     gVr.stop();
     gListen.stop();
+    gStatus.stop();
     if (g.capOn) ma_device_uninit(&g.capDev);
     openSink(g.out, "", false);
     openSink(g.mon, "", false);

@@ -815,9 +815,63 @@ void outputPanel(UiModel& m, UiActions& act) {
     if (button("Rescan devices")) act.rescanDevices = true;
 }
 
+// ---------------------------------------------------------------- service status
+
+ImVec4 healthColor(int h) {
+    return h == kHealthOk ? kVoices[2] : h == kHealthMinor ? kSignal : h == kHealthMajor ? kDanger
+         : h == kHealthMaintenance ? kBusy : kMuted;
+}
+
+const char* healthWord(int h) {
+    return h == kHealthOk ? "Working" : h == kHealthMinor ? "Some problems" : h == kHealthMajor ? "Outage"
+         : h == kHealthMaintenance ? "Maintenance" : "See its page";
+}
+
+// The first service in trouble that this setup actually uses (ElevenLabs always, plus the
+// translation service when one is picked). Null when everything in use is fine.
+const ServiceStatus* troubleInUse(const UiModel& m) {
+    const char* translator = m.cfg.translateService == kClaude   ? "Claude"
+                           : m.cfg.translateService == kGemini   ? "Gemini"
+                           : !m.cfg.deeplKey.empty()             ? "DeepL"
+                                                                 : "";
+    for (const ServiceStatus& st : m.services)
+        if ((st.name == "ElevenLabs" || st.name == translator) && (st.health == kHealthMinor || st.health == kHealthMajor))
+            return &st;
+    return nullptr;
+}
+
+// One line per service: a dot, the name, what its status page says. Click to open the page.
+void serviceRows(UiModel& m, UiActions& act) {
+    for (const ServiceStatus& st : m.services) {
+        ImGui::PushID(st.name.c_str());
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float rowH = ImGui::GetTextLineHeight(), w = ImGui::GetContentRegionAvail().x;
+        if (ImGui::InvisibleButton("##row", ImVec2(w, rowH + em() * 0.15f))) act.openUrl = st.page;
+        const bool hot = ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddCircleFilled(ImVec2(p.x + em() * 0.3f, p.y + rowH * 0.55f), em() * 0.24f, col(healthColor(st.health)), 16);
+        const float nameX = p.x + em() * 0.9f;
+        dl->AddText(ImVec2(nameX, p.y), col(hot ? kSignal : kText), st.name.c_str());
+        const std::string what = T(healthWord(st.health));
+        const float whatX = nameX + em() * 5.4f;
+        dl->PushClipRect(ImVec2(whatX, p.y), ImVec2(p.x + w, p.y + rowH + 2), true);
+        dl->AddText(ImVec2(whatX, p.y), col(healthColor(st.health)), what.c_str());
+        dl->PopClipRect();
+        if (hot) {
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(em() * 26.f);
+            ImGui::TextUnformatted(T(st.detail));
+            ImGui::TextColored(kMuted, "%s", T("Click to open the status page"));
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
+        ImGui::PopID();
+    }
+}
+
 // ---------------------------------------------------------------- header and status strip
 
-void header(UiModel& m) {
+void header(UiModel& m, UiActions& act) {
     const float h = em() * 2.3f, w = ImGui::GetContentRegionAvail().x;
     const ImVec2 p = ImGui::GetCursorScreenPos();
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -843,20 +897,54 @@ void header(UiModel& m) {
 
     // The two halves of the app: changing your own voice, and reading what others say.
     ImGui::SetCursorScreenPos(ImVec2(x, std::floor(p.y + (h - ImGui::GetFrameHeight()) * 0.5f)));
-    static const char* const kPages[] = {"My voice", "Listen", "VR"};
+    static const char* const kPages[] = {"My voice", "Text", "Listen", "VR"};
+    static const int kPageIds[] = {kPageVoice, kPageText, kPageListen, kPageVR};
     float tabW = 0.f;  // as wide as the longest name needs, in whatever language
     for (const char* pg : kPages) tabW = std::max(tabW, ImGui::CalcTextSize(shown(pg).c_str()).x);
     const ImVec2 tabsAt = ImGui::GetCursorScreenPos();
-    const float tabsW = (tabW + em() * 1.8f) * 3.f + em() * 0.4f;
-    segmented("##page", kPages, 3, &m.cfg.page, tabsW);
+    const float tabsW = (tabW + em() * 1.8f) * 4.f + em() * 0.4f;
+    int tab = -1;
+    for (int i = 0; i < 4; ++i)
+        if (kPageIds[i] == m.cfg.page) tab = i;
+    if (segmented("##page", kPages, 4, &tab, tabsW)) m.cfg.page = kPageIds[tab];
+    float pillX = tabsAt.x + tabsW + em() * 0.9f;
 
     // A new version: a small amber button next to the tabs, to Settings where it installs.
     if (m.update.stage == kUpdateAvailable || m.update.stage == kUpdateDownloading || m.update.stage == kUpdateReady) {
         char label[160];
         std::snprintf(label, sizeof(label), TF("Update to %s"), m.update.latest.c_str());
-        ImGui::SetCursorScreenPos(ImVec2(tabsAt.x + tabsW + em() * 0.9f, tabsAt.y));
-        if (button((std::string(label) + "##updatepill").c_str(), true, ImGui::CalcTextSize(label).x + em() * 1.6f))
-            m.cfg.page = kPageSettings;
+        ImGui::SetCursorScreenPos(ImVec2(pillX, tabsAt.y));
+        const float pw = ImGui::CalcTextSize(label).x + em() * 1.6f;
+        if (button((std::string(label) + "##updatepill").c_str(), true, pw)) m.cfg.page = kPageSettings;
+        pillX += pw + em() * 0.6f;
+    }
+
+    // A service you use reports problems on its status page: say so, so it isn't mistaken for the app.
+    if (const ServiceStatus* bad = troubleInUse(m)) {
+        char label[160];
+        std::snprintf(label, sizeof(label), TF("%s: problems"), bad->name.c_str());
+        // Leave room for the state and switch on the right; in long languages just the name, or the dot.
+        const float room = p.x + w - em() * 14.f - pillX;
+        if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) std::snprintf(label, sizeof(label), "%s", bad->name.c_str());
+        if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) label[0] = 0;
+        const ImVec2 ls = ImGui::CalcTextSize(label);
+        const float pw = label[0] ? ls.x + em() * 2.0f : em() * 1.4f, ph = ImGui::GetFrameHeight();
+        const ImVec2 a(pillX, tabsAt.y);
+        ImGui::SetCursorScreenPos(a);
+        if (ImGui::InvisibleButton("##servicepill", ImVec2(pw, ph))) act.openUrl = bad->page;
+        const bool hot = ImGui::IsItemHovered();
+        const ImVec4 c = healthColor(bad->health);
+        dl->AddRect(a, ImVec2(a.x + pw, a.y + ph), col(ImVec4(c.x, c.y, c.z, hot ? 0.9f : 0.5f)), ImGui::GetStyle().FrameRounding);
+        dl->AddCircleFilled(ImVec2(a.x + em() * 0.7f, a.y + ph * 0.5f), em() * 0.24f, col(c), 16);
+        dl->AddText(ImVec2(a.x + em() * 1.2f, a.y + (ph - ls.y) * 0.5f), col(hot ? kText : c), label);
+        if (hot) {
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(em() * 26.f);
+            ImGui::TextUnformatted(T(bad->detail));
+            ImGui::TextColored(kMuted, "%s", T("This is on their side, not in CIMA Box. Click to open their status page."));
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
     }
 
     // Settings: a gear at the far right.
@@ -894,7 +982,7 @@ void header(UiModel& m) {
     }
 
     // State and on/off switch of the half that is showing.
-    const bool listen = m.cfg.page == kPageListen, vrPageOn = m.cfg.page == kPageVR;
+    const bool listen = m.cfg.page == kPageListen || m.cfg.page == kPageText, vrPageOn = m.cfg.page == kPageVR;
     bool& on = vrPageOn ? m.cfg.vr.on : listen ? m.cfg.listen.on : m.cfg.enabled;
     const char* state = "Off";
     ImVec4 color = kMuted;
@@ -991,7 +1079,14 @@ void statusStrip(UiModel& m, UiActions& act, float height) {
         return;
     }
     ImGui::BeginChild("lines", ImVec2(leftW, 0), 0, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
-    if (!m.lastError.empty()) statusLine("Problem", T(m.lastError), kDanger);
+    if (!m.lastError.empty()) {
+        statusLine("Problem", T(m.lastError), kDanger);
+        if (const ServiceStatus* bad = troubleInUse(m)) {
+            char b[400];
+            std::snprintf(b, sizeof(b), TF("%s's status page reports: %s"), bad->name.c_str(), bad->detail.c_str());
+            statusLine("Not the app", b, healthColor(bad->health));
+        }
+    }
     else if (!m.heardText.empty()) statusLine("You said", m.heardText, kText);
     else ImGui::TextColored(kMuted, "%s", T(m.cfg.engine == kVoiceChanger ? "Changer mode sends your voice straight through, without text."
                                                                            : "What you say will show up here."));
@@ -1527,7 +1622,166 @@ void settingsPage(UiModel& m, UiActions& act) {
         if (u.stage != kUpdateAvailable && button("Check for updates")) act.checkUpdates = true;
         ImGui::EndDisabled();
     }
+    subheading("Service status");
+    note("Checked every few minutes. If something breaks while a service shows problems, it's on their side.");
+    gap(0.15f);
+    serviceRows(m, act);
     ImGui::EndChild();
+}
+
+// ---------------------------------------------------------------- Text: type instead of talking
+
+void textVoicePanel(UiModel& m, UiActions& act) {
+    Settings& c = m.cfg;
+    static const char* const kModes[] = {"As typed", "Translate"};
+    int mode = c.textTranslate ? 1 : 0;
+    if (segmented("##textmode", kModes, 2, &mode)) c.textTranslate = mode == 1;
+    note(c.textTranslate ? "Translates what you type, then the voice reads it." : "The voice reads what you type.");
+
+    fieldLabel("Voice");
+    voiceCombo(m);
+    if (m.voices.empty()) {
+        if (c.apiKey.empty()) {
+            note("Add your ElevenLabs API key in Settings (the gear at the top right) to see your voices.");
+        } else {
+            ImGui::BeginDisabled(m.loading);
+            if (button(m.loading ? "Loading voices" : "Load voices and models", true)) act.loadCatalog = true;
+            ImGui::EndDisabled();
+        }
+    }
+    fieldLabel("Model");
+    modelCombo(m.models, false, c.ttsModel);
+    if (c.textTranslate) {
+        fieldLabel("I type in");
+        languageCombo("##typedin", c.spokenLang, true);
+        fieldLabel("Translate to");
+        languageCombo("##texttarget", c.targetLang, false, c.ttsModel);
+        dialectPicker(c);
+        translationService(c, false);
+        if (c.translateService == kClaude || c.translateService == kGemini) {
+            subheading("Gender");
+            genderPicker(m);
+        }
+    }
+    gap(0.3f);
+    toggleRow("Say it out loud", &c.textSpeak);
+    note(c.textSpeak ? "Plays through the output picked on My voice, so others hear it in the game or call."
+                     : "Off: only shows in the conversation and the chatbox.");
+    toggleRow("Show in VRChat chatbox", &c.chatbox);
+    note("These settings are shared with My voice.");
+}
+
+// One line of the conversation. Yours get an amber bar, other people's the color of their voice.
+void chatLine(const ChatLine& l, float fontSize, bool showOriginal) {
+    const ImVec4 color = l.me ? kSignal : l.speaker >= 0 ? kVoices[l.speaker % 4] : kLine;
+    const float indent = em() * 0.9f;
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    ImGui::Indent(indent);
+    ImGui::BeginGroup();
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
+    if (l.me) ImGui::TextColored(kSignal, "%s", T(l.typed ? "You (typed)" : "You"));
+    else if (l.speaker >= 0) ImGui::TextColored(color, TF("Voice %d"), l.speaker + 1);
+    else ImGui::TextColored(kMuted, "%s", l.language.empty() ? T("Them") : l.language.c_str());
+    ImGui::PopFont();
+    ImGui::PushFont(nullptr, fontSize);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(l.text.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::PopFont();
+    if (showOriginal && !l.original.empty()) {
+        ImGui::PushFont(nullptr, std::max(ImGui::GetStyle().FontSizeBase * 0.9f, fontSize * 0.72f));
+        ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(l.original.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+    }
+    ImGui::EndGroup();
+    ImGui::Unindent(indent);
+    const float bar = std::max(2.f, std::floor(em() * 0.2f));
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(start.x, start.y + 2), ImVec2(start.x + bar, ImGui::GetItemRectMax().y - 2),
+                                              col(color), bar * 0.5f);
+}
+
+void conversationPanel(UiModel& m, UiActions& act, ImVec2 size) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.05f, em() * 0.9f));
+    ImGui::BeginChild("conversation", size, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleVar();
+    ListenSettings& l = m.cfg.listen;
+
+    const float listenW = em() * 9.f;
+    heading("Conversation", 1.15f);
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, ImGui::GetContentRegionAvail().x - listenW));
+    if (button(l.on ? "Stop listening" : "Start listening", !l.on, listenW)) l.on = !l.on;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", T("Other people's words come from Listen. Pick what to listen to on the Listen page."));
+    listenStatus(m);
+    gap(0.2f);
+
+    const float rowH = ImGui::GetFrameHeight();
+    const bool problem = !m.lastError.empty();
+    const ServiceStatus* bad = problem ? troubleInUse(m) : nullptr;
+    const float footH = rowH + ImGui::GetStyle().ItemSpacing.y +
+                        ImGui::GetTextLineHeightWithSpacing() * ((problem ? 1.f : 0.f) + (bad ? 1.f : 0.f));
+    ImGui::BeginChild("chatfeed", ImVec2(0, std::max(em() * 4.f, ImGui::GetContentRegionAvail().y - footH)), 0,
+                      ImGuiWindowFlags_NoBackground);
+    const float fontSize = ImGui::GetStyle().FontSizeBase * l.textScale;
+    if (m.chat.empty() && !m.listen.hearing) {
+        gap(0.6f);
+        note(l.on ? "Type below to talk. What other people say shows up here, translated."
+                  : "Type below to talk. Turn on Listen to see what other people say here, translated.");
+    }
+    for (size_t i = 0; i < m.chat.size(); ++i) {
+        ImGui::PushID(int(i));
+        chatLine(m.chat[i], fontSize, l.showOriginal);
+        gap(0.45f);
+        ImGui::PopID();
+    }
+    bool pending = false;
+    for (const Caption& c : m.captions) pending = pending || c.pending;
+    if (m.listen.hearing) ImGui::TextColored(kSignal, TF("Hearing speech%s"), dots().c_str());
+    else if (pending) ImGui::TextColored(kBusy, TF("Translating%s"), dots().c_str());
+    if (m.busy || m.queued > 0) ImGui::TextColored(kMuted, TF("Sending%s"), dots().c_str());
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.f) ImGui::SetScrollHereY(1.0f);  // follow, unless scrolled up
+    ImGui::EndChild();
+
+    if (problem) statusLine("Problem", T(m.lastError), kDanger);
+    if (bad) {
+        char b[400];
+        std::snprintf(b, sizeof(b), TF("%s's status page reports: %s"), bad->name.c_str(), bad->detail.c_str());
+        statusLine("Not the app", b, healthColor(bad->health));
+    }
+    const float sendW = em() * 5.f;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - sendW - ImGui::GetStyle().ItemSpacing.x);
+    const bool enter = ImGui::InputTextWithHint("##type", T("Type a message, then press Enter"), &m.textDraft,
+                                                ImGuiInputTextFlags_EnterReturnsTrue);
+    if (enter) ImGui::SetKeyboardFocusHere(-1);  // keep typing
+    ImGui::SameLine();
+    const bool clicked = button("Send", true, sendW);
+    if ((enter || clicked) && m.textDraft.find_first_not_of(" \t\r\n") != std::string::npos) {
+        act.sendText = m.textDraft;
+        m.textDraft.clear();
+    }
+    ImGui::EndChild();
+}
+
+void textPage(UiModel& m, UiActions& act) {
+    const float gapW = em() * 1.6f;
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float colW = std::floor((avail.x - gapW * 2) / 3.f);
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+
+    beginPanel("textvoice", ImVec2(colW, avail.y), "Voice");
+    textVoicePanel(m, act);
+    ImGui::EndChild();
+
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));
+    conversationPanel(m, act, ImVec2(avail.x - colW - gapW, avail.y));
+
+    chevron(ImGui::GetWindowDrawList(), ImVec2(origin.x + colW + gapW * 0.5f, origin.y + avail.y * 0.5f), em() * 0.42f,
+            col(m.busy ? kSignal : kLine));
 }
 
 // ---------------------------------------------------------------- My voice: the three stages
@@ -1637,8 +1891,9 @@ UiActions uiDraw(UiModel& m) {
     if (m.captionsOnly) {
         captionsOnlyView(m, act);
     } else {
-        header(m);
+        header(m, act);
         if (m.cfg.page == kPageListen) listenPage(m, act);
+        else if (m.cfg.page == kPageText) textPage(m, act);
         else if (m.cfg.page == kPageVR) vrPage(m, act);
         else if (m.cfg.page == kPageSettings) settingsPage(m, act);
         else voicePage(m, act);

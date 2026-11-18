@@ -82,9 +82,11 @@ def keep(s):
     if s in ('%s','%.2f','%.0f','%d','%.0f dB','%d ms','%.1fx','%.2f s','%s%s %.2f s',', ','.'): return False
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
-drop={'listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','SteamVR: ','Waiting for ',' to start.',
+drop={'textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','SteamVR: ','Waiting for ',' to start.',
       'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
+          'Working','Some problems','Outage','Maintenance','See its page','All Systems Operational','Problems reported',
+          'Open the status page to check',"Couldn't read the status page",'Checking',
           'Recording','Converting','Level','Auto','Voice','Search voices','the default speakers','the default input',"Couldn't save there, so your settings stayed where they were.","ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall."]
 uniq=[]
 for s in found:

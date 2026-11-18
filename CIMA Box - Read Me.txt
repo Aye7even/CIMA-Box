@@ -1,14 +1,16 @@
-CIMA Box 2.6.1
+CIMA Box 2.7.0
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
 say (for example in VRChat) into your language.
 
-It has three pages, switched at the top of the window:
+It has four pages, switched at the top of the window:
 
   My voice   Your microphone goes to ElevenLabs and comes back as a different voice, which is
              played on any output device (for example a virtual cable that Discord or VRChat
              uses as its microphone). It can also re-speak or translate what you say.
+  Text       Type instead of talking: the voice reads it (as typed or translated), and the
+             whole conversation, other people's words included, shows in one place.
   Listen     Captions of what other people say, translated into your language.
   VR         Shows those captions (and your own words, if you like) on a small floating panel
              inside your headset, in any SteamVR game.
@@ -159,6 +161,27 @@ Bottom strip
   Shows what it heard ("You said"), what the voice was told to say ("Spoken as"), how the
   phrase sounded (with Carry my emotion on), and how long each step took.
   Stop speaking ............ Cancels everything that is playing or waiting.
+
+
+TEXT PAGE
+---------
+
+For when you can't or don't want to talk. Type at the bottom and press Enter (or Send).
+
+  As typed / Translate ..... Read your words as they are, or translate them first. The voice,
+                             model, languages, dialect, translation service and chatbox are the
+                             same settings as on My voice.
+  I type in ................ The language you write in (Detect automatically works too).
+  Say it out loud .......... On: the voice says it through the output picked on My voice, so
+                             people in the game or call hear it. Off: it only goes to the
+                             conversation and the VRChat chatbox (if that is on).
+  Conversation ............. Everything said, oldest at the top: your lines in amber (spoken or
+                             typed), other people's in the color of their voice, translated, with
+                             the original underneath. Other people's words come from Listen, so
+                             press Start listening (or the switch at the top right) and pick what
+                             to listen to on the Listen page.
+
+Typed messages work even when the My voice switch is off.
 
 
 LISTEN PAGE
@@ -323,6 +346,12 @@ TIPS
 
 PROBLEMS
 --------
+
+If something stops working, first look at Settings > Service status. It shows what the status
+pages of ElevenLabs, Claude and DeepL say (Gemini has no readable page, so it just links to it),
+checked every few minutes. When a service you use reports problems, "ElevenLabs: problems" (or
+similar) appears at the top of the window: it's on their side, so wait and try again later.
+Click it to open their status page.
 
 "Add your ElevenLabs API key first" .... Paste your key under Account.
 Nothing happens when I talk ............ Check the switch at the top right is on, the right mic

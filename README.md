@@ -25,6 +25,11 @@ from then on, and tells you what's new after each update.
 - Works anywhere that takes a microphone: games, Discord, Zoom, OBS and streams.
 - In VRChat it can also show what you said, or the translation, in the chatbox above your avatar.
 
+**Text**: type instead of talking. The voice reads what you type, as typed or translated into
+another language, and it can go in the VRChat chatbox too. What other people say (from Listen)
+shows up translated in the same window, so you can follow the whole conversation without switching
+tabs. Handy when you can't or don't want to talk out loud.
+
 **Listen**: live captions of what other people say, translated into your language. It can listen to
 just one program (your game, Discord...), everything on your speakers, or a microphone, and tells
 apart who is speaking. Keep the captions in a small window on top of your game.
@@ -85,6 +90,9 @@ Every button and setting is explained in **`CIMA Box - Read Me.txt`**, which com
 - **Windows SmartScreen** may warn the first time you run it ("Windows protected your PC"). Click
   **More info** > **Run anyway**.
 - Keep CIMA Box in a folder you can write to (not Program Files) so it can update itself.
+- **Something stopped working?** Settings > Service status shows whether ElevenLabs, Claude or
+  DeepL are having problems right now, and a small note appears at the top of the window when a
+  service you use is. Then it's on their side: wait a bit and try again.
 - What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits

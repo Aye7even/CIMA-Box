@@ -8,6 +8,7 @@
 #include "appaudio.h"
 #include "eleven.h"
 #include "listen.h"
+#include "servicestatus.h"
 #include "voiceout.h"
 #include "vroverlay.h"
 #include "translate.h"
@@ -15,7 +16,7 @@
 
 enum Engine { kVoiceChanger = 0, kRespeak = 1, kTranslate = 2 };
 enum Activation { kVoiceActivity = 0, kPushToTalk = 1 };
-enum Page { kPageVoice = 0, kPageListen = 1, kPageVR = 2, kPageSettings = 3 };
+enum Page { kPageVoice = 0, kPageListen = 1, kPageVR = 2, kPageSettings = 3, kPageText = 4 };
 // Who you are talking to, as chosen. Auto = the last person who spoke (guessed from their voice).
 enum TalkingTo { kTalkAuto = 0, kTalkUnknown = 1, kTalkMan = 2, kTalkWoman = 3, kTalkGroup = 4, kTalkCount = 5 };
 // Where cimabox.json is kept (Settings > About).
@@ -40,7 +41,9 @@ struct Settings {
     bool matchMic = false;             // give the new voice the tone and level of your actual mic
     float matchAmount = 0.8f;
     bool passthrough = false;          // voice changer off: send your own mic to the output instead
-    bool chatbox = false;              // My voice: show what you say in VRChat's chatbox
+    bool chatbox = false;              // My voice and Text: show what you say in VRChat's chatbox
+    bool textTranslate = true;         // Text page: translate what you type (else read it as typed)
+    bool textSpeak = true;             // Text page: say it with the voice (else only the chatbox and the feed)
     int chatboxShow = 0;               // ChatboxShow
     int translateService = 0;          // TranslateService, shared by both pages
     std::string deeplKey;
@@ -76,6 +79,15 @@ struct Settings {
 
 // The translator settings for one language and dialect (the dialect part only).
 void applyVariety(const Settings& s, const std::string& langCode, TranslateSetup& t);
+
+// One line of the conversation on the Text page: yours (spoken or typed) or someone else's (Listen).
+struct ChatLine {
+    bool me = false, typed = false;
+    std::string text;      // translated, or as said
+    std::string original;  // as said, when it differs
+    std::string language;  // theirs
+    int speaker = -1;      // "Voice 1/2"
+};
 
 struct UiModel {
     Settings cfg;  // edited in place by the interface
@@ -116,12 +128,15 @@ struct UiModel {
     std::string settingsError;               // moving the settings didn't work
     int showChanges = 0;                     // 1: open "What's new" (since changesSince), 2: the whole history
     std::string changesSince;                // versions newer than this
+    std::vector<ChatLine> chat;              // Text page, oldest first
+    std::vector<ServiceStatus> services;     // ElevenLabs, Claude, Gemini, DeepL status pages
 
     // interface-only state
     std::string voiceFilter;
     bool binding = false, bindArmed = false, showKey = false;
     int bindingWhich = 0;              // 0 = push-to-talk key, 1 = "talking to" key
     float meterDb = -100.f, listenMeterDb = -100.f;
+    std::string textDraft;             // Text page: what's being typed
 };
 
 struct UiActions {
@@ -132,4 +147,6 @@ struct UiActions {
     int setCaptionsOnly = -1;  // 0 / 1 when the user switches the compact view
     bool checkUpdates = false, installUpdate = false, openSettingsFolder = false;
     int setSettingsPlace = -1;  // SettingsPlace picked in Settings > About
+    std::string sendText;       // Text page: say this
+    std::string openUrl;        // a status page
 };
