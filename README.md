@@ -9,6 +9,8 @@ Powered by ElevenLabs.
 Unzip it into a normal folder (like Documents or Desktop) and run `CIMABox.exe`. It updates itself
 from then on, and tells you what's new after each update.
 
+![CIMA Box: the My voice page](docs/my-voice.png)
+
 ## What it does
 
 **My voice**: your microphone, turned into any ElevenLabs voice (including a clone of your own).
@@ -27,12 +29,18 @@ from then on, and tells you what's new after each update.
 just one program (your game, Discord...), everything on your speakers, or a microphone, and tells
 apart who is speaking. Keep the captions in a small window on top of your game.
 
+![The Listen page](docs/listen.png)
+
 **VR**: those captions on a small see-through panel inside your headset, in any SteamVR game. Put it
 in front of your eyes, on your wrist, or in a fixed spot. Switch who you're talking to from the
 SteamVR menu without taking the headset off.
 
+![The VR page, with a preview of the caption panel](docs/vr.png)
+
 The app itself speaks English, Español, Português, Français, Deutsch, Italiano, Русский, 日本語,
 한국어 and 简体中文 (Settings, the gear at the top right).
+
+![Settings: app language, API keys, hotkeys and updates](docs/settings.png)
 
 ## What you need
 
