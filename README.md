@@ -96,6 +96,23 @@ Every button and setting is explained in **[`CIMA Box - Read Me.txt`](CIMA%20Box
   you.
 - What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
+## Is it free?
+
+**CIMA Box itself is free**, and always will be. It runs on a few online services, though, and those have their own plans. The good news: you can try everything without paying anything.
+
+**Try it for free**
+
+1. **ElevenLabs** (the voices and captions): make a free account at [elevenlabs.io](https://elevenlabs.io). The free plan comes with a small amount of voice each month (about 10 minutes), which is plenty to try CIMA Box out. When CIMA Box starts for the first time, it shows you where to find your key and where to paste it.
+2. **Google Gemini** (natural translations, with slang and dialects): sign in to [Google AI Studio](https://aistudio.google.com) with your Google account and click **Get API key**. It's free for everyday use. Paste the key in CIMA Box under **Settings > Accounts**, then choose **Gemini** as the translation service.
+
+That's it: no credit card needed for either one.
+
+**If you use it a lot**
+
+The free ElevenLabs plan runs out quickly if you use CIMA Box every day. Their cheapest paid plan gives you about three times as much voice, plus the option to clone your own voice. You pay the services directly; CIMA Box never charges you anything, and your keys stay on your own PC.
+
+The line at the bottom right of the window always shows how much you have left.
+
 ## Credits
 
 A lot of this program was built with the help of Claude Fable and Claude Opus by Anthropic, so
