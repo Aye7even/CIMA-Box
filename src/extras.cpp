@@ -218,6 +218,39 @@ std::string markSwears(const std::string& text, std::vector<std::string>& found)
     return out;
 }
 
+std::string markListed(const std::string& text, const std::vector<std::string>& list, std::vector<std::string>& found) {
+    found.clear();
+    std::vector<Span> spans;
+    const std::string low = lowerAscii(text);
+    for (const std::string& raw : list) {
+        std::string item = raw;
+        while (!item.empty() && item.back() == ' ') item.pop_back();
+        while (!item.empty() && item.front() == ' ') item.erase(item.begin());
+        if (item.empty()) continue;
+        const std::string want = lowerAscii(item);
+        const bool spaceless = static_cast<unsigned char>(want[0]) >= 0xE0;  // CJK: no spaces between words
+        for (size_t at = low.find(want); at != std::string::npos; at = low.find(want, at + 1)) {
+            const size_t end = at + want.size();
+            const bool startOk = spaceless || at == 0 || !isWordByte(static_cast<unsigned char>(text[at - 1]));
+            const bool endOk = spaceless || end >= text.size() || !isWordByte(static_cast<unsigned char>(text[end]));
+            if (startOk && endOk) spans.push_back({at, end});
+        }
+    }
+    // Longest first where two overlap ("son of a" and "son"), then in reading order.
+    std::sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) { return a.b != b.b ? a.b < b.b : a.e > b.e; });
+    std::string out;
+    size_t pos = 0;
+    for (const Span& w : spans) {
+        if (w.b < pos) continue;
+        out.append(text, pos, w.b - pos);
+        found.push_back(text.substr(w.b, w.e - w.b));
+        out += "[[" + std::to_string(found.size()) + "]]";
+        pos = w.e;
+    }
+    out.append(text, pos, std::string::npos);
+    return out;
+}
+
 // ---------------------------------------------------------------- typed lines
 
 void countSentLine(FeatureSettings& f, const std::string& raw) {

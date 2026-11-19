@@ -37,6 +37,8 @@ struct FeatureSettings {
     int voiceSwear = kSwearKeep;   // SwearMode
     bool maskCaptions = false;     // others' swearing shown as f***
     std::vector<WordFix> words;    // personal word list
+    bool deeplWordsOn = false;     // words translated by DeepL instead of the AI
+    std::vector<std::string> deeplWords;
     std::vector<std::string> quickPhrases;
     std::map<std::string, int> sentCounts;  // typed lines and how often, for suggestions (top ones kept)
 
@@ -89,6 +91,9 @@ std::string replaceSwears(const std::string& text, const std::string& with);  //
 std::vector<std::string> swearWords(const std::string& text);
 // The text with each swear word replaced by a marker [[1]], [[2]]...; `words` gets them in order.
 std::string markSwears(const std::string& text, std::vector<std::string>& words);
+// The same with your own list ("Words for DeepL"): every word or phrase from `list` in `text` (any
+// letter case, whole words; anywhere in Chinese, Japanese and Korean text) becomes [[1]], [[2]]...
+std::string markListed(const std::string& text, const std::vector<std::string>& list, std::vector<std::string>& found);
 
 // A typed line was sent: count it (keeps the 40 most used).
 void countSentLine(FeatureSettings& f, const std::string& line);

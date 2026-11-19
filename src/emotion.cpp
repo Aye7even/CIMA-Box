@@ -155,7 +155,7 @@ std::string setEnding(std::string s, bool question, bool exclaim, const char* ot
 
 // Pitch of one frame (8 kHz samples), by normalised autocorrelation; NaN if there is no clear pitch.
 float framePitch(const float* x, int n) {
-    constexpr int sr = kRate / 2, minLag = sr / 400, maxLag = sr / 70;  // 70..400 Hz
+    constexpr int sr = kRate / 2, minLag = sr / 500, maxLag = sr / 70;  // 70..500 Hz (high and excited voices too)
     double r[maxLag + 2] = {};
     for (int lag = minLag - 1; lag <= maxLag + 1 && lag < n; ++lag) {
         double num = 0, e1 = 0, e2 = 0;
@@ -166,12 +166,17 @@ float framePitch(const float* x, int n) {
         }
         r[lag] = (e1 > 0 && e2 > 0) ? num / std::sqrt(e1 * e2) : 0;
     }
-    int best = 0;
+    // A voice repeats every period, so it also matches itself at 2, 3, 4... periods, often just as well.
+    // The real period is the SHORTEST lag that matches about as well as the best one: taking the best
+    // one alone reads a 220 Hz voice as 110 or 73 Hz (which hit higher voices hardest).
     double bestR = 0.55;
     for (int lag = minLag; lag <= maxLag; ++lag)
-        if (r[lag] > bestR && r[lag] >= r[lag - 1] && r[lag] >= r[lag + 1]) { bestR = r[lag]; best = lag; }
+        if (r[lag] > bestR && r[lag] >= r[lag - 1] && r[lag] >= r[lag + 1]) bestR = r[lag];
+    if (bestR <= 0.55) return kNaN;
+    int best = 0;
+    for (int lag = minLag; lag <= maxLag && !best; ++lag)
+        if (r[lag] >= bestR * 0.9 && r[lag] >= r[lag - 1] && r[lag] >= r[lag + 1]) best = lag;
     if (best == 0) return kNaN;
-    if (best / 2 >= minLag && r[best / 2] > bestR * 0.85) best /= 2;  // octave-down error
     const double a = r[best - 1], b = r[best], c = r[best + 1], den = a - 2 * b + c;
     const double shift = std::fabs(den) > 1e-12 ? std::max(-0.5, std::min(0.5, 0.5 * (a - c) / den)) : 0.0;
     return float(12.0 * std::log2(sr / (best + shift) / 100.0));
@@ -627,7 +632,7 @@ Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& t
         out.parts.push_back(std::move(part));
 
         // ---- learn the usual voice from ordinary parts (and from anything until it is learned)
-        if (m.pitched >= 20 && m.voiced >= 0.4f && (!base.ready() || out.parts.back().tag.empty() || out.parts.back().tag == "flatly")) {
+        if (m.pitched >= 12 && m.voiced >= 0.25f && (!base.ready() || out.parts.back().tag.empty() || out.parts.back().tag == "flatly")) {
             const float a = std::max(0.1f, 1.f / float(base.phrases + 1));
             const float rate = float(ps.lastWord - ps.firstWord + 1) / std::max(0.3f, last.end - first.start);
             if (base.phrases == 0) {

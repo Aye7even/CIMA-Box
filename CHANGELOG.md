@@ -6,6 +6,21 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 2.8.3
+- How you talk, checked line by line: Very casual no longer hints at swearing or teasing (it only swears if you did), "Clean up my swearing" now always wins over Very casual's slang, My own changes how a line sounds but never what it says, and a dialect's own words win over the standard language's casual hints (Kansai gets Kansai endings, not Tokyo ones).
+- The bottom strip now names the service that really translated your listed words: "your words by Free" when DeepL doesn't have the language and the Free service did it (before, it always said DeepL). A word neither can translate is left out.
+- Translations no longer leave your own words in the original language. Filipino and Hindi were told to mix in English the way people do casually, so a line like "go ahead" could stay in English; now only the few English words people really use (okay, sorry) are kept, and every language is told that someone who only speaks it has to understand the whole line.
+- When the AI won't say a word (some harsh profanity, for example), it now leaves just that word out instead of swapping your whole line for a different, friendlier message you never said.
+- New: Find a setting. Click the magnifier next to the gear (or press Ctrl+F), type a few letters like "swear", "key" or "chatbox", and it takes you straight to the setting and lights it up. On/off settings can be switched right in the search list.
+- New: Settings > Look. Make CIMA Box yours: text size (85% to 130%), four color themes (Default, Midnight, Forest, Rose) or your own accent, text, background and panel colors, and a background picture of your own (JPEG or PNG) with how strongly it shows. "Back to the original look" undoes it all. The dog logo stays as it is.
+- The page tabs make room in long languages instead of running into the switch.
+- New: Words for DeepL (Features > Talking). Make your own list of words the AI tends to soften or refuse, like strong swearing or slang. Those words never go through the AI: it translates the rest of your line around them, and DeepL (or Free, without a DeepL key) translates just those words. If the AI can't keep the gaps in place, the whole line goes to DeepL instead. DeepL gets the whole sentence as context, so it picks the right meaning for each word, and if DeepL swaps a word for a whole different phrase instead of translating it, that word is left out rather than saying something you never said.
+- How you talk stays just as casual, but it no longer adds things you didn't say: no extra sentences, reactions or nicknames like "bro" or "dude", and nothing borrowed from what others said before. At most one small filler word per line.
+- Very casual no longer adds swear words or crude words you didn't say. It keeps your swearing when you swear, but it won't invent any (in Arabic especially, a word that sounds a bit rough in English can be a real insult).
+- Arabic with no dialect picked now uses one neutral, widely understood spoken Arabic instead of mixing words from different dialects in the same line. For the most natural result, pick the dialect of the people you're talking to.
+- Fixed: higher voices (most women's, and excited voices) were often measured an octave or more too low. That threw off how your tone is followed on My voice, learning your usual voice, and telling voices apart on Listen. All three should be steadier now, especially for women.
+- Learning your usual voice works with more voices: higher and more excited voices are measured now, and shorter phrases count. If it still doesn't move, the log says why.
+
 ## 2.8.2
 - Push to talk can now leave your real voice on between presses (My voice > Input > While not holding the key > My real voice). Talk normally, and hold the key when you want a line translated or in the new voice. Your mic goes quiet from the press until that line has played, so people never hear both at once. Silent, the way it worked before, stays the default.
 

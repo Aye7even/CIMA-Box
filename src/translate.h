@@ -49,6 +49,7 @@ struct TranslateSetup {
     std::string deeplVariant;   // DeepL's regional target for it ("ES-419"), empty = standard
     int swear = 0;              // SwearMode (extras.h): what to do with your swearing (My voice)
     std::string wordNote;       // "- Keep these names and words exactly as written: ..." (personal word list)
+    std::vector<std::string> deeplWords;  // "Words for DeepL": translated by DeepL (or Free), never by the AI
     bool readGender = false;    // Listen: ask whether the words show the speaker's gender (-> Translator::wordsGender)
     int speaker = kGenderUnknown;     // My voice: you. Listen: the guess from the speaker's voice.
     int listener = kListenerUnknown;  // Addressee. My voice: who you are talking to

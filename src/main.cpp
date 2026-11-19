@@ -12,6 +12,7 @@
 #include <GLFW/glfw3native.h>
 #include <dwmapi.h>
 #include <shellapi.h>  // ShellExecuteW: "Open settings folder"
+#include <commdlg.h>   // GetOpenFileNameW: Settings > Look > Choose a picture
 #include <shlobj.h>    // SHGetKnownFolderPath: the Documents folder
 #endif
 #include <imgui.h>
@@ -223,6 +224,19 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.emotion = j.value("emotion", s.emotion);
         s.quality = j.value("audio_quality", s.quality);
         s.matchMic = j.value("match_mic", s.matchMic);
+        if (j.contains("look") && j["look"].is_object()) {
+            const json& l = j["look"];
+            LookSettings& o = s.look;
+            o.textScale = std::min(1.3f, std::max(0.85f, l.value("text_scale", o.textScale)));
+            o.preset = std::min(int(kLookCount) - 1, std::max(-1, l.value("preset", o.preset)));
+            o.accent = l.value("accent", o.accent) & 0xFFFFFF;
+            o.background = l.value("background", o.background) & 0xFFFFFF;
+            o.panel = l.value("panel", o.panel) & 0xFFFFFF;
+            o.text = l.value("text", o.text) & 0xFFFFFF;
+            o.picture = l.value("picture", o.picture);
+            if (o.picture.find_first_of("/\\:") != std::string::npos) o.picture.clear();  // only a file name in our folder
+            o.pictureShow = std::min(0.8f, std::max(0.1f, l.value("picture_show", o.pictureShow)));
+        }
         if (j.contains("vr") && j["vr"].is_object()) {
             const json& v = j["vr"];
             VrSettings& r = s.vr;  // "on" is saved: if you use VR captions, they come back on
@@ -370,6 +384,7 @@ static json featuresJson(const Settings& s) {
     for (const auto& kv : f.profiles) profiles[kv.first] = kv.second;
     return {
         {"voice_swear", f.voiceSwear}, {"mask_captions", f.maskCaptions}, {"words", words},
+        {"deepl_words_on", f.deeplWordsOn}, {"deepl_words", f.deeplWords},
         {"quick_phrases", f.quickPhrases}, {"sent_counts", f.sentCounts},
         {"hear_them", f.hearThem}, {"ear_voice", f.earVoice}, {"ear_device", f.earDevice}, {"ear_volume", f.earVolume},
         {"live_captions", f.liveCaptions}, {"answer_theirs", f.answerTheirs}, {"my_languages", f.myLanguages},
@@ -403,6 +418,8 @@ static void readFeatures(const json& root, Settings& s) {
             if (w.is_object()) f.words.push_back({w.value("heard", std::string()), w.value("write", std::string())});
     }
     strList("quick_phrases", f.quickPhrases);
+    f.deeplWordsOn = j.value("deepl_words_on", f.deeplWordsOn);
+    strList("deepl_words", f.deeplWords);
     if (j.contains("sent_counts") && j["sent_counts"].is_object())
         for (auto it = j["sent_counts"].begin(); it != j["sent_counts"].end(); ++it)
             if (it.value().is_number_integer()) f.sentCounts[it.key()] = it.value().get<int>();
@@ -482,6 +499,9 @@ static std::string settingsJson(const Settings& s) {
         {"usual_voice", {{"loud_db", s.baseline.loudDb}, {"pitch", s.baseline.pitch}, {"range", s.baseline.range},
                          {"rate", s.baseline.rate}, {"phrases", s.baseline.phrases}}},
     };
+    j["look"] = {{"text_scale", s.look.textScale}, {"preset", s.look.preset}, {"accent", s.look.accent},
+                 {"background", s.look.background}, {"panel", s.look.panel}, {"text", s.look.text},
+                 {"picture", s.look.picture}, {"picture_show", s.look.pictureShow}};
     {
         const VrSettings& r = s.vr;
         json pose = json::array();
@@ -516,7 +536,8 @@ static std::string profileJson(const Settings& s, bool shared = false) {
         json& f = j["features"];
         for (const char* k : {"profiles", "sent_counts", "saved_lines"}) f.erase(k);  // not settings: what you typed and kept
         if (shared) {  // for someone else: nothing personal you wrote, and their own PC decides about the screen
-            for (const char* k : {"words", "quick_phrases"}) f.erase(k);
+            for (const char* k : {"words", "quick_phrases", "deepl_words"}) f.erase(k);
+            if (j.contains("look")) j["look"].erase("picture");
             if (f.contains("screen")) for (const char* k : {"on", "agreed", "watch"}) f["screen"].erase(k);
         }
     }
@@ -792,6 +813,7 @@ static TranslateSetup translateSetup(const Settings& s, bool speaking = true) {
     t.timeoutMs = s.aiTimeoutMs;
     t.wordNote = wordListNote(s.fx.words);
     if (speaking) t.swear = s.fx.voiceSwear;
+    if (speaking && s.fx.deeplWordsOn) t.deeplWords = s.fx.deeplWords;
     else t.readGender = s.fx.genderFromWords;
     if (s.fx.best) {  // Best translations: the bigger models (unless one was picked by hand), and more time
         if (t.claudeModel == "claude-haiku-5-5") t.claudeModel = "claude-sonnet-5-5";
@@ -1224,7 +1246,11 @@ static void workerLoop() {
                     std::lock_guard<std::mutex> lk(g.mtx);
                     base = g.baseline;
                 }
+                const int learnedBefore = base.phrases;
                 dir = directSpeech(track, tokens, base, s.emotionStrength, tags);
+                if (!base.ready() && base.phrases == learnedBefore)  // for Report a problem: why learning seems stuck
+                    logLine("Usual voice: nothing learned from this phrase (" + std::to_string(tokens.size()) + " words with times, " +
+                            std::to_string(int(track.pitch.size())) + " frames). Too short, too quiet or unclear.");
                 std::lock_guard<std::mutex> lk(g.mtx);
                 g.baseline = base;
                 delivery = dir.summary;
@@ -1730,6 +1756,78 @@ static void setupLogo(GLFWwindow* win, UiModel& ui, float scale) {
     ui.logoSize = float(pick->size);
 }
 
+// ---------------------------------------------------------------- Settings > Look: background picture
+
+static unsigned gPictureTexture = 0;
+
+// Loads the background picture from the settings folder into a texture (or clears it).
+static void loadPicture(UiModel& ui) {
+    if (gPictureTexture) glDeleteTextures(1, &gPictureTexture);
+    gPictureTexture = 0;
+    ui.pictureTexture = 0;
+    ui.pictureW = ui.pictureH = 0;
+    if (ui.cfg.look.picture.empty()) return;
+    std::ifstream f(settingsDir() / fs::u8path(ui.cfg.look.picture), std::ios::binary);
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    if (!decodePicture(bytes, rgba, w, h)) {
+        ui.pictureMsg = "That picture couldn't be read. Pick a JPEG or PNG file.";
+        ui.cfg.look.picture.clear();
+        return;
+    }
+    glGenTextures(1, &gPictureTexture);
+    glBindTexture(GL_TEXTURE_2D, gPictureTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+    ui.pictureTexture = gPictureTexture;
+    ui.pictureW = float(w);
+    ui.pictureH = float(h);
+}
+
+// "Choose a picture": a Windows file picker, then a copy into the settings folder so the look
+// survives the original being moved or deleted.
+static void pickPicture(GLFWwindow* win, UiModel& ui) {
+#ifdef _WIN32
+    wchar_t path[1024] = L"";
+    OPENFILENAMEW of = {};
+    of.lStructSize = sizeof(of);
+    of.hwndOwner = glfwGetWin32Window(win);
+    of.lpstrFilter = L"Pictures (JPEG, PNG)\0*.jpg;*.jpeg;*.png\0";
+    of.lpstrFile = path;
+    of.nMaxFile = 1024;
+    of.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameW(&of)) return;  // cancelled
+    const fs::path from(path);
+    std::string ext = from.extension().u8string();
+    for (char& ch : ext) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    if (ext != ".jpg" && ext != ".jpeg" && ext != ".png") {
+        ui.pictureMsg = "That picture couldn't be read. Pick a JPEG or PNG file.";
+        return;
+    }
+    const std::string name = "background" + ext;
+    std::error_code ec;
+    for (const char* old : {"background.jpg", "background.jpeg", "background.png"})
+        if (name != old) fs::remove(settingsDir() / old, ec);
+    fs::copy_file(from, settingsDir() / name, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        ui.pictureMsg = "Couldn't copy that picture into CIMA Box's settings folder.";
+        return;
+    }
+    ui.pictureMsg.clear();
+    ui.cfg.look.picture = name;
+    loadPicture(ui);
+    logLine("Look: background picture set (" + std::to_string(int(ui.pictureW)) + "x" + std::to_string(int(ui.pictureH)) + ")");
+#else
+    (void)win;
+    (void)ui;
+#endif
+}
+
 // The pictures in the "how do I get this key?" guides, as textures the window can draw.
 static void setupGuidePictures(UiModel& ui) {
     for (int i = 0; i < kPicCount && i < guidePicCount(); ++i) {
@@ -2003,6 +2101,7 @@ int main() {
     ImGui_ImplOpenGL3_Init(glsl);
     setupLogo(win, ui, scale);
     setupGuidePictures(ui);
+    loadPicture(ui);
 
     int catalogVersion = -1;
     uint64_t captionVersion = 0;
@@ -2793,6 +2892,14 @@ int main() {
         if (ui.catalogMsg != lastCatalogMsg) {
             lastCatalogMsg = ui.catalogMsg;
             if (!ui.catalogMsg.empty()) logLine("Voices: " + ui.catalogMsg);
+        }
+        if (act.pickPicture) pickPicture(win, ui);
+        if (act.clearPicture) {
+            std::error_code ec;
+            for (const char* old : {"background.jpg", "background.jpeg", "background.png"}) fs::remove(settingsDir() / old, ec);
+            ui.cfg.look.picture.clear();
+            ui.pictureMsg.clear();
+            loadPicture(ui);
         }
         if (act.openSettingsFolder) {
 #ifdef _WIN32

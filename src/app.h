@@ -27,6 +27,17 @@ enum ChatboxShow { kShowSaid = 0, kShowSpoken = 1, kShowBoth = 2 };
 // The one-time notice about costs. Raise it when the notice says something new: everyone sees it once more.
 const int kUsageNotice = 1;
 
+// How the app looks (Settings > Look). The defaults are the original look; the dog logo can't be changed.
+struct LookSettings {
+    float textScale = 1.f;          // 0.85 .. 1.3
+    int preset = 0;                 // kLookDefault... ; -1 = colors picked by hand
+    uint32_t accent = 0xE8B05E, background = 0x14171E, panel = 0x1C212B, text = 0xDDE2EB;
+    std::string picture;            // file name of the background picture in the settings folder ("" = none)
+    float pictureShow = 0.35f;      // how strongly the picture shows through, 0.1 .. 0.8
+};
+enum LookPreset { kLookDefault = 0, kLookMidnight = 1, kLookForest = 2, kLookRose = 3, kLookCount = 4 };
+void lookPreset(LookSettings& l, int preset);  // sets the four colors of a preset
+
 struct Settings {
     std::string apiKey;
     int page = kPageVoice;
@@ -90,6 +101,7 @@ struct Settings {
     int pttKey = 0;
     ListenSettings listen;             // the Listen page: captions for what other people say
     VrSettings vr;                     // the VR page: captions inside the headset
+    LookSettings look;
     FeatureSettings fx;                // the Features page
     ScreenSettings screen;             // screen translation (Features page)
 };
@@ -176,6 +188,9 @@ struct UiModel {
     ListenState listen;
     uint64_t logoTexture = 0;         // the app picture, 0 = not loaded
     float logoSize = 0;               // pixels
+    uint64_t pictureTexture = 0;      // Settings > Look: the background picture, 0 = none
+    float pictureW = 0, pictureH = 0;
+    std::string pictureMsg;           // why a picture couldn't be used
     bool captionsOnly = false;        // compact always-on-top view
     VrState vr;                       // SteamVR overlay status
     bool vrSupported = false;
@@ -202,6 +217,9 @@ struct UiModel {
     bool spendStopped = false;               // ... and talking and listening were switched off
     bool scrollToSpend = false;              // Settings: show the spending limit part
     bool showUsageNotice = false;            // Settings > About: read the notice about costs again
+    bool findOpen = false;                   // the "Find a setting" window
+    bool findKeep = false;                   // keep the last search when it opens (pictures for the README)
+    std::string findQuery;
     int setupStep = -1;                      // the walkthrough's screen, -1 = not showing
     int setupUse = 0;                        // SetupUse bits
     int setupRoute = kRouteNone;
@@ -224,6 +242,7 @@ struct UiModel {
     std::string setupCodeMsg;          // after copying or pasting a setup code
     std::string wordHeard, wordWrite;  // new word list entry
     std::string phraseDraft;           // new quick phrase
+    std::string deeplWordDraft;        // new word for "Words for DeepL"
     std::string tryText;               // "Try a line"
     std::string tryResults[4];         // Polite, Casual, Very casual, My own
     bool tryBusy = false;
@@ -253,6 +272,7 @@ struct UiActions {
     bool refreshApps = false, clearCaptions = false;
     int setCaptionsOnly = -1;  // 0 / 1 when the user switches the compact view
     bool checkUpdates = false, installUpdate = false, openSettingsFolder = false;
+    bool pickPicture = false, clearPicture = false;  // Settings > Look
     int setSettingsPlace = -1;  // SettingsPlace picked in Settings > About
     std::string sendText;       // Text page: say this
     std::string testSound;      // setup: say this once, nowhere but the output

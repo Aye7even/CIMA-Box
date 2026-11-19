@@ -87,11 +87,11 @@ def keep(s):
     if s in ('%s','%.2f','%.0f','%d','%.0f dB','%d ms','%.1fx','%.2f s','%s%s %.2f s',', ','.'): return False
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
-drop={'Google Gemini','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','SteamVR: ','Waiting for ',' to start.',
+drop={'Google Gemini','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','deeplwords','lookpreset','SteamVR: ','Waiting for ',' to start.',
       'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
           'Working','Some problems','Outage','Maintenance',"Couldn't check",'All Systems Operational','Problems reported',
-          "Couldn't check right now",'Answering normally (checked from this PC)',"This key isn't allowed to read usage (it needs User: Read access).",
+          "Couldn't check right now","That picture couldn't be read. Pick a JPEG or PNG file.","Couldn't copy that picture into CIMA Box's settings folder.",'Answering normally (checked from this PC)',"This key isn't allowed to read usage (it needs User: Read access).",
           'The DeepL key was refused.','Couldn\'t check','Hi! This is how my new voice sounds.','Stopped at your spending limit. Press OK on the notice at the top to keep going.',
           'Paste a key first.','Couldn\'t reach the service. Check your internet connection.','It works.',
           'The key is right, but the account has no credits yet. Buy credits in the Claude Console (Billing).',

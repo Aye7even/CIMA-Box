@@ -51,7 +51,7 @@ SteamVR menu without taking the headset off.
 - **Hear them in your ear**: a voice reads the translated captions in your headphones.
 - **Captions while they talk**, **answer in their language**, a **see-through caption window**
   that clicks pass through, sound labels, high-contrast captions and muting one person.
-- **Cancel before it's spoken**, **clean up your swearing** (tone down or bleep), **Best
+- **Cancel before it's spoken**, **clean up your swearing** (tone down or bleep), **words for DeepL** (your own list of words that skip the AI), **Best
   translations**, and **Try a line** to compare styles.
 - **Quick phrases**, **your own word list**, **learning mode** (how to read a line, replay, save),
   a searchable **history**, and **profiles** you can share with friends as a code (never with keys).
@@ -110,6 +110,10 @@ Every button and setting is explained in **[`CIMA Box - Read Me.txt`](CIMA%20Box
   protected your PC"), because the program is new and not from a big company. In the browser choose
   **Keep**; in SmartScreen click **More info** > **Run anyway**.
 - Keep CIMA Box in a folder you can write to (not Program Files) so it can update itself.
+- **Make it yours:** Settings > Look changes the text size, the colors (four themes or your own),
+  and can put your own picture behind everything.
+- **Find any setting:** click the magnifier (or press Ctrl+F), type a word like "swear" or "key", and it
+  takes you right there. On/off settings switch right in the list.
 - **First time?** A short setup walks you through everything, starting with your language. Run it
   again from Settings > About.
 - **Your keys, your costs.** CIMA Box is free and runs on your own accounts, so whatever it uses is

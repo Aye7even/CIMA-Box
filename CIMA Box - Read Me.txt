@@ -1,4 +1,4 @@
-CIMA Box 2.8.2
+CIMA Box 2.8.3
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -16,6 +16,10 @@ It has five pages, switched at the top of the window:
              inside your headset, in any SteamVR game.
   Features   Extras you can turn on one by one: screen translation, a voice reading captions
              in your ear, quick phrases, profiles and more.
+
+Can't find something? Click the magnifier next to the gear (or press Ctrl+F) and type what you're
+looking for, like "swear", "key", "chatbox" or "spending". Pick a result to go straight to it; it
+lights up for a moment. On/off settings have their switch right in the list.
 
 The switch at the top right turns the page you're on on or off. The gear next to it opens
 Settings: the app's language, your API keys and hotkeys.
@@ -349,6 +353,18 @@ Talking
                              language; this stops that. Leave a list empty to allow all.
   Clean up my swearing ..... Tone it down (milder words, with Claude, Gemini or OpenAI) or Say
                              "beep".
+  Words for DeepL .......... Your own list of words the AI tends to soften or refuse, like strong
+                             swearing or slang. They never go through the AI: it translates the
+                             rest of the line around them and DeepL (or Free) translates just
+                             those words. Any letter case matches, whole words only; add several
+                             at once with commas. If the AI loses track of them, the whole line
+                             goes to DeepL. Shown in the bottom strip as "(your words by DeepL)".
+                             DeepL won't translate some harsh profanity and swaps
+                             them for something else; those are left out instead.
+                             For languages DeepL doesn't have, the Free service translates
+                             the words instead (the strip then says "your words by Free").
+                             Free is built from translations people submit, so it's often
+                             wrong on swearing.
   Best translations ........ Bigger AI models and twice the time limit. Better for dialects and
                              slang; a bit slower and pricier.
   Try a line ............... Type a line and see how each style (Polite, Casual, Very casual, My
@@ -460,7 +476,18 @@ App language
   _template.json.txt with every text. Copy it to a new name ending in .json (for example tr.json),
   put your language's code and name at the top (for example "tr" and "Türkçe"), write the
   translations between the quotes and restart CIMA Box. Anything you leave empty stays English.
-  Arabic, Hebrew, Persian and Hindi can't be used for the menus (the text would show unjoined).
+  Hindi and other Indian scripts can't be used for the menus yet (their letters wouldn't combine).
+
+Look
+  Text size ................ Makes all the text in CIMA Box bigger or smaller (85% to 130%).
+  Colors ................... Default (the original look), Midnight, Forest or Rose. Or pick your
+                             own Accent (switches, the selected option), Text, Background and
+                             Panels colors: click a color square to change it.
+  Background picture ....... Any JPEG or PNG as the window's background. It's copied into the
+                             settings folder, so you can move or delete the original. Picture
+                             strength sets how much of it shows through.
+  Back to the original look  Undoes all of the above.
+  The dog logo always stays the same.
 
 About
   Version history .......... What changed in every version. After each update, a "What's new"

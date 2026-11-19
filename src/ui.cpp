@@ -33,24 +33,28 @@ ImVec4 rgb(unsigned v, float a = 1.f) {
     return ImVec4(((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f, a);
 }
 // Kept calm on purpose: text that isn't pure white, panels told apart by their shade instead of
-// outlines, and one accent colour used only for what is live or selected.
-const ImVec4 kBg = rgb(0x14171E);          // window
-const ImVec4 kPanel = rgb(0x1C212B);       // the three stages and the status strip
-const ImVec4 kField = rgb(0x272D3A);       // inputs, buttons
-const ImVec4 kFieldHover = rgb(0x303747);
-const ImVec4 kFieldActive = rgb(0x394154);
-const ImVec4 kLine = rgb(0x2B3240);
-const ImVec4 kText = rgb(0xDDE2EB);
-const ImVec4 kMuted = rgb(0x8D98AD);
-const ImVec4 kSignal = rgb(0xE8B05E);      // amber = live signal: meter, switches, the selected option
-const ImVec4 kSignalHover = rgb(0xF0C07A);
-const ImVec4 kSignalDown = rgb(0xCF9A48);
-const ImVec4 kOnSignal = rgb(0x1E1707);    // text on amber
+// outlines, and one accent colour used only for what is live or selected. These are the original
+// look; Settings > Look can change them (applyLook), so they aren't constants.
+ImVec4 kBg = rgb(0x14171E);          // window
+ImVec4 kPanel = rgb(0x1C212B);       // the three stages and the status strip
+ImVec4 kField = rgb(0x272D3A);       // inputs, buttons
+ImVec4 kFieldHover = rgb(0x303747);
+ImVec4 kFieldActive = rgb(0x394154);
+ImVec4 kLine = rgb(0x2B3240);
+ImVec4 kText = rgb(0xDDE2EB);
+ImVec4 kMuted = rgb(0x8D98AD);
+ImVec4 kLabel = kMuted;              // names of settings, above their control
+ImVec4 kSignal = rgb(0xE8B05E);      // amber = live signal: meter, switches, the selected option
+ImVec4 kSignalHover = rgb(0xF0C07A);
+ImVec4 kSignalDown = rgb(0xCF9A48);
+ImVec4 kOnSignal = rgb(0x1E1707);    // text on amber
+ImVec4 kPopup = rgb(0x222834);
 const ImVec4 kBusy = rgb(0x8FB2F2);
 const ImVec4 kDanger = rgb(0xF08484);
-const ImVec4 kVoices[] = {kSignal, kBusy, rgb(0x7FD6A4), rgb(0xE59AD0)};  // speakers inside one caption
+ImVec4 kVoices[] = {kSignal, kBusy, rgb(0x7FD6A4), rgb(0xE59AD0)};  // speakers inside one caption
 // The same person keeps the same colour across captions (Features > Same voice, same color).
 const ImVec4 kPeople[] = {rgb(0x7FD6A4), rgb(0xE59AD0), rgb(0x8EC5FF), kBusy, rgb(0xB9A3FF), rgb(0xFF9E8A), rgb(0xD7E37A), rgb(0x6FD3D0)};
+float gPanelAlpha = 1.f;             // below 1 when a background picture shows through the panels
 
 ImFont* gSemibold = nullptr;
 
@@ -176,9 +180,49 @@ std::string shown(const char* label) {
     return hash ? std::string(t, size_t(hash - t)) : std::string(t);
 }
 
+// ---------------------------------------------------------------- finding a setting
+// "Find a setting" (the magnifier, or Ctrl+F) switches to the right page, then the row with that
+// label scrolls into view as it is drawn and glows for a moment. Any fieldLabel, toggleRow,
+// subheading or feature card can be found this way: they all call jumpAnchor() with their label.
+struct JumpState {
+    std::string want;      // label to scroll to (English, as written in the code)
+    int framesLeft = 0;    // give up if it isn't drawn within a few frames (hidden by another choice)
+    int hits = 0;
+    std::string glow;      // label glowing now
+    double glowUntil = 0;
+};
+JumpState gJump;
+
+// Call right before drawing the row with this label. Returns true while it should glow.
+bool jumpAnchor(const char* label) {
+    if (!gJump.want.empty() && gJump.want == label) {
+        // A page that hasn't been shown yet doesn't know how tall it is on its first frame, so the
+        // scroll can't reach far down yet: keep scrolling for a few frames.
+        ImGui::SetScrollHereY(0.25f);
+        if (gJump.glow != label || gJump.glowUntil < ImGui::GetTime()) {
+            gJump.glow = label;
+            gJump.glowUntil = ImGui::GetTime() + 2.0;
+        }
+        if (++gJump.hits >= 3) gJump.want.clear();
+    }
+    return gJump.glowUntil > ImGui::GetTime() && gJump.glow == label;
+}
+
+// A soft amber wash behind a row that was just found, fading out.
+void jumpGlow(ImVec2 a, ImVec2 b) {
+    const float t = float(std::max(0.0, gJump.glowUntil - ImGui::GetTime()) / 2.0);
+    const float pad = em() * 0.35f;
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x - pad, a.y - pad * 0.5f), ImVec2(b.x + pad, b.y + pad * 0.5f),
+                                              ImGui::GetColorU32(ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.22f * std::min(1.f, t * 2.f))),
+                                              em() * 0.35f);
+}
+
 void fieldLabel(const char* text) {
     gap(0.22f);
-    ImGui::TextColored(kMuted, "%s", shown(text).c_str());
+    const bool glow = jumpAnchor(text);
+    ImGui::TextColored(kLabel, "%s", shown(text).c_str());
+    if (glow) jumpGlow(ImGui::GetItemRectMin(), ImVec2(ImGui::GetItemRectMin().x + ImGui::GetContentRegionAvail().x,
+                                                     ImGui::GetItemRectMax().y + ImGui::GetFrameHeight()));
 }
 
 // Small muted help text. Translated when the whole text is a known one.
@@ -224,10 +268,12 @@ void drawSwitch(ImVec2 pos, float h, bool on, bool hovered, ImGuiID animId) {
 
 // A label on the left, a switch on the right; the whole row is clickable.
 bool toggleRow(const char* label, bool* v) {
+    const bool glow = jumpAnchor(label);
     ImGui::PushID(label);
     const float h = ImGui::GetFrameHeight(), w = ImGui::GetContentRegionAvail().x;
     const float sh = std::floor(em() * 1.2f);
     const ImVec2 p = ImGui::GetCursorScreenPos();
+    if (glow) jumpGlow(p, ImVec2(p.x + w, p.y + h));
     const bool pressed = ImGui::InvisibleButton("##row", ImVec2(w, h));
     if (pressed) *v = !*v;
     const std::string text = shown(label);
@@ -281,7 +327,7 @@ bool segmented(const char* id, const char* const* labels, int count, int* value,
 void sliderHeader(const char* label, const char* valueText) {
     gap(0.1f);
     const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-    ImGui::TextColored(kMuted, "%s", shown(label).c_str());
+    ImGui::TextColored(kLabel, "%s", shown(label).c_str());
     ImGui::SameLine();
     ImGui::SetCursorScreenPos(ImVec2(right - ImGui::CalcTextSize(valueText).x, ImGui::GetCursorScreenPos().y));
     ImGui::TextUnformatted(valueText);
@@ -310,7 +356,11 @@ void sliderOverlay(float t) {
 bool sliderF(const char* label, float* v, float lo, float hi, const char* fmt, float shownScale = 1.f) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), TF(fmt), *v * shownScale);
+    const bool glow = jumpAnchor(label);
+    const ImVec2 top(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + em() * 0.1f);
+    const float rowW = ImGui::GetContentRegionAvail().x;
     sliderHeader(label, buf);
+    if (glow) jumpGlow(top, ImVec2(top.x + rowW, ImGui::GetItemRectMax().y + ImGui::GetFrameHeight()));
     ImGui::PushID(label);
     hideSliderParts();
     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -627,14 +677,18 @@ void beginPanel(const char* id, ImVec2 size, const char* title) {
     ImGui::BeginChild(id, size, ImGuiChildFlags_Borders);
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
+    const bool glow = jumpAnchor(title);
     heading(title, 1.15f);
+    if (glow) jumpGlow(ImGui::GetItemRectMin(), ImVec2(ImGui::GetItemRectMin().x + ImGui::GetContentRegionAvail().x, ImGui::GetItemRectMax().y));
     gap(0.25f);
 }
 
 // A smaller heading inside a panel, with a little room above it.
 void subheading(const char* text) {
     gap(0.8f);
+    const bool glow = jumpAnchor(text);
     heading(text, 1.0f);
+    if (glow) jumpGlow(ImGui::GetItemRectMin(), ImVec2(ImGui::GetItemRectMin().x + ImGui::GetContentRegionAvail().x, ImGui::GetItemRectMax().y));
     gap(0.1f);
 }
 
@@ -980,6 +1034,202 @@ void spendBanner(UiModel& m, UiActions& act) {
 
 // ---------------------------------------------------------------- header and status strip
 
+// ---------------------------------------------------------------- find a setting
+// Every setting someone might look for, where it lives, and other words people might type for it.
+// `label` must be the exact English label the page draws (it's how the row is found and glows).
+// `toggle`: for simple on/off settings, the switch is right in the search results.
+struct Findable {
+    const char* label;
+    int page;
+    const char* section;   // the panel or card it's in (a label that is translated already)
+    const char* words;     // more ways to say it, English, lower case
+    bool* (*toggle)(Settings&);
+};
+#define TOGGLE(expr) [](Settings& c) -> bool* { return &c.expr; }
+const Findable kFindables[] = {
+    // My voice
+    {"Microphone", kPageVoice, "Input", "mic input device", nullptr},
+    {"Start talking by", kPageVoice, "Input", "push to talk voice activation ptt", nullptr},
+    {"While not holding the key", kPageVoice, "Input", "push to talk real voice between presses passthrough", nullptr},
+    {"Voice", kPageVoice, "Voice", "voice pick choose elevenlabs", nullptr},
+    {"A voice for each language", kPageVoice, "Voice", "remember voice per language", TOGGLE(voicePerLanguage)},
+    {"Model", kPageVoice, "Voice", "eleven model v3 v4 flash", nullptr},
+    {"Translate to", kPageVoice, "Voice", "target language translation output language", nullptr},
+    {"I speak", kPageVoice, "Voice", "my language source", nullptr},
+    {"Translation service", kPageVoice, "Voice", "claude gemini openai deepl free ai", nullptr},
+    {"How you talk", kPageVoice, "Voice", "style polite casual very casual formal slang my own", nullptr},
+    {"Match how they talk to me", kPageVoice, "Voice", "mirror match style", TOGGLE(mirror)},
+    {"Dialect", kPageVoice, "Voice", "accent region variety kansai gulf egyptian mexican", nullptr},
+    {"I am", kPageVoice, "Voice", "gender man woman me", nullptr},
+    {"Talking to", kPageVoice, "Voice", "gender listener who", nullptr},
+    {"Carry my emotion", kPageVoice, "Voice", "emotion tone feelings excited whisper", TOGGLE(emotion)},
+    {"Remove background noise", kPageVoice, "Voice", "noise", TOGGLE(removeNoise)},
+    {"Send the new voice to", kPageVoice, "Output", "output cable virtual device speakers", nullptr},
+    {"Hear it yourself too", kPageVoice, "Output", "monitor hear myself headphones", TOGGLE(monitor)},
+    {"Pass my mic through when off", kPageVoice, "Output", "passthrough real voice off", TOGGLE(passthrough)},
+    {"Match my mic", kPageVoice, "Output", "mic tone level sound like my mic", TOGGLE(matchMic)},
+    {"Show in VRChat chatbox", kPageVoice, "Output", "chatbox osc vrchat text bubble", TOGGLE(chatbox)},
+    // Text
+    {"Say it out loud", kPageText, "Voice", "typed text speak", TOGGLE(textSpeak)},
+    // Listen
+    {"Listen to", kPageListen, "Source", "source app game speakers capture", nullptr},
+    {"Translate into", kPageListen, "Source", "captions language my language", nullptr},
+    {"They speak", kPageListen, "Source", "their language detect", nullptr},
+    {"Tell speakers apart", kPageListen, "Source", "speakers who", TOGGLE(listen.tellApart)},
+    {"Show the original words", kPageListen, "Source", "original text", TOGGLE(listen.showOriginal)},
+    {"Skip speech in my language", kPageListen, "Source", "skip ignore my language", TOGGLE(listen.onlyOtherLanguages)},
+    {"Send to VRChat chatbox", kPageListen, "Source", "chatbox osc captions", TOGGLE(listen.chatbox)},
+    // VR
+    {"Where", kPageVR, "Placement", "vr panel position head hand fixed", nullptr},
+    {"What I say", kPageVR, "Placement", "vr show me", TOGGLE(vr.showMe)},
+    {"CIMA Box tab in the SteamVR menu", kPageVR, "Placement", "steamvr dashboard menu tab", TOGGLE(vr.dashboard)},
+    {"Text size", kPageVR, "Look", "vr font size bigger", nullptr},
+    {"Glow", kPageVR, "Look", "vr glow", TOGGLE(vr.style.glow)},
+    // Features
+    {"Cancel before it's spoken", kPageFeatures, "Talking", "preview stop cancel wait", nullptr},
+    {"Answer in their language", kPageFeatures, "Talking", "auto target reply their language", TOGGLE(fx.answerTheirs)},
+    {"Languages", kPageFeatures, "Talking", "languages i speak around me detect", nullptr},
+    {"Clean up my swearing", kPageFeatures, "Talking", "swear curse profanity bleep beep censor", nullptr},
+    {"Words for DeepL", kPageFeatures, "Talking", "deepl words swear profanity slang softened refused", TOGGLE(fx.deeplWordsOn)},
+    {"Best translations", kPageFeatures, "Talking", "best quality bigger model sonnet", TOGGLE(fx.best)},
+    {"Try a line", kPageFeatures, "Talking", "test compare styles", nullptr},
+    {"More hotkeys", kPageFeatures, "Talking", "hotkey key real voice stop speaking", nullptr},
+    {"Screen translation", kPageFeatures, "Hearing and reading", "screen ocr screenshot snapshot chat box read picture", nullptr},
+    {"Hear them in my ear", kPageFeatures, "Hearing and reading", "ear read aloud tts headphones", TOGGLE(fx.hearThem)},
+    {"Captions while they talk", kPageFeatures, "Hearing and reading", "live captions words", TOGGLE(fx.liveCaptions)},
+    {"Hide swearing (f***)", kPageFeatures, "Captions", "mask swear captions censor", TOGGLE(fx.maskCaptions)},
+    {"Sound labels ([laughs], [music])", kPageFeatures, "Captions", "laughs music sounds", TOGGLE(fx.soundLabels)},
+    {"Skip music and noise", kPageFeatures, "Captions", "music noise ignore", TOGGLE(fx.ignoreNoise)},
+    {"Big, high-contrast captions", kPageFeatures, "Captions", "big contrast readable large", TOGGLE(fx.highContrast)},
+    {"Same voice, same color", kPageFeatures, "Captions", "voice colors numbers mute person", TOGGLE(fx.voiceIds)},
+    {"Guess gender from their words", kPageFeatures, "Captions", "gender", TOGGLE(fx.genderFromWords)},
+    {"Caption window over the game", kPageFeatures, "Hearing and reading", "overlay window click through see-through", nullptr},
+    {"Quick phrases", kPageFeatures, "Handy", "phrases buttons shortcuts", nullptr},
+    {"My word list", kPageFeatures, "Handy", "names words spelling wrong", nullptr},
+    {"Learning mode", kPageFeatures, "Handy", "learn romaji pinyin study replay", TOGGLE(fx.learning)},
+    {"Keep a history", kPageFeatures, "Handy", "history log save conversation", TOGGLE(fx.keepHistory)},
+    {"Profiles", kPageFeatures, "Handy", "profile save setup load share code", nullptr},
+    // Settings
+    {"App language", kPageSettings, "App language", "language interface ui translate app", nullptr},
+    {"Look", kPageSettings, "App language", "look theme colors colour dark design appearance background picture wallpaper font size", nullptr},
+    {"Text size", kPageSettings, "Look", "font size bigger smaller text readable zoom", nullptr},
+    {"Colors", kPageSettings, "Look", "theme colour accent midnight forest rose", nullptr},
+    {"Background picture", kPageSettings, "Look", "wallpaper photo image background", nullptr},
+    {"About", kPageSettings, "App language", "version setup tutorial report problem log costs", nullptr},
+    {"Accounts", kPageSettings, "Accounts", "api key elevenlabs deepl claude gemini openai", nullptr},
+    {"Spending limit", kPageSettings, "Accounts", "spend money credits tokens limit cost budget", nullptr},
+    {"Push to talk", kPageSettings, "Hotkeys", "hotkey key ptt", nullptr},
+    {"Updates", kPageSettings, "Hotkeys", "update version new", nullptr},
+    {"Check when CIMA Box starts", kPageSettings, "Hotkeys", "update automatically", TOGGLE(checkUpdates)},
+    {"Service status", kPageSettings, "Hotkeys", "status outage down working", nullptr},
+};
+#undef TOGGLE
+
+// Go to a setting by its label, as if picked in "Find a setting".
+void findJumpTo(UiModel& m, const char* label) {
+    for (const Findable& f : kFindables)
+        if (std::strcmp(f.label, label) == 0) {
+            m.cfg.page = f.page;
+            gJump.want = f.label;
+            gJump.framesLeft = 8;
+            gJump.hits = 0;
+            return;
+        }
+}
+
+std::string lowerFind(std::string s) {
+    for (char& ch : s) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    return s;
+}
+
+// The search window. Type a few letters: the closest settings show with where they are. Click one
+// (or Enter) to go there; on/off settings can be switched right in the list.
+void findWindow(UiModel& m) {
+    std::string& query = m.findQuery;
+    static int selected = 0;
+    if (m.findOpen && !ImGui::IsPopupOpen("##find")) {
+        ImGui::OpenPopup("##find");
+        if (!m.findKeep) query.clear();
+        selected = 0;
+    }
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + em() * 3.2f), ImGuiCond_Always, ImVec2(0.5f, 0.f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(em() * 30.f, vp->Size.x * 0.9f), 0.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 0.9f, em() * 0.9f));
+    if (!ImGui::BeginPopup("##find", ImGuiWindowFlags_NoMove)) {
+        ImGui::PopStyleVar();
+        m.findOpen = false;
+        return;
+    }
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##findq", T("Find a setting"), &query);
+    // Score: the label (as shown, and in English) and the extra words.
+    struct Hit { const Findable* f; int score; };
+    std::vector<Hit> hits;
+    const std::string q = lowerFind(query);
+    for (const Findable& f : kFindables) {
+        int score = 0;
+        if (q.empty()) score = 1;
+        else {
+            const std::string shownLow = lowerFind(T(f.label)), en = lowerFind(f.label), words = lowerFind(f.words);
+            if (shownLow.rfind(q, 0) == 0 || en.rfind(q, 0) == 0) score = 100;
+            else if (shownLow.find(q) != std::string::npos || en.find(q) != std::string::npos) score = 60;
+            else if (words.find(q) != std::string::npos) score = 30;
+            else if (lowerFind(T(f.section)).find(q) != std::string::npos) score = 10;
+        }
+        if (score > 0) hits.push_back({&f, score});
+    }
+    std::stable_sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) { return a.score > b.score; });
+    if (hits.size() > 9) hits.resize(9);
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) selected = std::min(int(hits.size()) - 1, selected + 1);
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) selected = std::max(0, selected - 1);
+    selected = std::max(0, std::min(selected, int(hits.size()) - 1));
+    const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+    static const char* const kPageNames[] = {"My voice", "Listen", "VR", "Settings", "Text", "Features"};
+    gap(0.3f);
+    if (hits.empty()) note("Nothing by that name. Try another word, like \"swear\", \"key\" or \"chatbox\".");
+    for (size_t i = 0; i < hits.size(); ++i) {
+        const Findable& f = *hits[i].f;
+        ImGui::PushID(int(i));
+        const float rowH = em() * 2.5f, w = ImGui::GetContentRegionAvail().x;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float sh = std::floor(em() * 1.2f), sw = sh * 1.8f;
+        const float rowW = f.toggle ? w - sw - em() * 0.8f : w;
+        const bool go = ImGui::InvisibleButton("##go", ImVec2(rowW, rowH));
+        const bool hot = ImGui::IsItemHovered();
+        if (hot) selected = int(i);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (int(i) == selected) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), col(kFieldHover), em() * 0.35f);
+        dl->AddText(ImVec2(p.x + em() * 0.5f, p.y + em() * 0.2f), col(kText), T(f.label));
+        const std::string where = std::string(T(kPageNames[f.page])) + "  ›  " + T(f.section);
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.88f);
+        dl->AddText(ImVec2(p.x + em() * 0.5f, p.y + em() * 1.3f), col(kMuted), where.c_str());
+        ImGui::PopFont();
+        if (f.toggle) {
+            bool* v = f.toggle(m.cfg);
+            const ImVec2 sp(p.x + w - sw - em() * 0.4f, p.y + (rowH - sh) * 0.5f);
+            ImGui::SetCursorScreenPos(sp);
+            if (ImGui::InvisibleButton("##sw", ImVec2(sw, sh))) *v = !*v;
+            drawSwitch(sp, sh, *v, ImGui::IsItemHovered(), ImGui::GetID("##swanim"));
+            ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rowH));
+            ImGui::Dummy(ImVec2(0, 0));
+        }
+        if (go || (enter && int(i) == selected)) {
+            m.cfg.page = f.page;
+            gJump.want = f.label;
+            gJump.framesLeft = 8;
+            gJump.hits = 0;
+            m.findOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) { m.findOpen = false; ImGui::CloseCurrentPopup(); }
+    ImGui::EndPopup();
+    ImGui::PopStyleVar();
+}
+
 void header(UiModel& m, UiActions& act) {
     const float h = em() * 2.3f, w = ImGui::GetContentRegionAvail().x;
     const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -1011,7 +1261,9 @@ void header(UiModel& m, UiActions& act) {
     float tabW = 0.f;  // as wide as the longest name needs, in whatever language
     for (const char* pg : kPages) tabW = std::max(tabW, ImGui::CalcTextSize(shown(pg).c_str()).x);
     const ImVec2 tabsAt = ImGui::GetCursorScreenPos();
-    const float tabsW = (tabW + em() * 1.6f) * 5.f + em() * 0.4f;
+    // Long languages: the tabs give way before they'd run into the state and switch on the right
+    // (their names shrink a little to fit).
+    const float tabsW = std::min((tabW + em() * 1.6f) * 5.f + em() * 0.4f, p.x + w - tabsAt.x - em() * 17.5f);
     int tab = -1;
     for (int i = 0; i < 5; ++i)
         if (kPageIds[i] == m.cfg.page) tab = i;
@@ -1032,7 +1284,7 @@ void header(UiModel& m, UiActions& act) {
     if (!m.capturing.empty()) {
         char label[200];
         std::snprintf(label, sizeof(label), TF("Capturing: %s"), m.capturing.c_str());
-        const float room = p.x + w - em() * 14.f - pillX;
+        const float room = p.x + w - em() * 16.5f - pillX;
         if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) std::snprintf(label, sizeof(label), "%s", m.capturing.c_str());
         if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) label[0] = 0;  // no room for words: the red dot alone (hover says the rest)
         const ImVec2 ls = ImGui::CalcTextSize(label);
@@ -1052,7 +1304,7 @@ void header(UiModel& m, UiActions& act) {
         char label[160];
         std::snprintf(label, sizeof(label), TF("%s: problems"), bad->name.c_str());
         // Leave room for the state and switch on the right; in long languages just the name, or the dot.
-        const float room = p.x + w - em() * 14.f - pillX;
+        const float room = p.x + w - em() * 16.5f - pillX;
         if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) std::snprintf(label, sizeof(label), "%s", bad->name.c_str());
         if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) label[0] = 0;
         const ImVec2 ls = ImGui::CalcTextSize(label);
@@ -1098,11 +1350,24 @@ void header(UiModel& m, UiActions& act) {
         dl->AddCircleFilled(c, ri, gc, 32);
         dl->AddCircleFilled(c, gs * 0.15f, col(kBg), 24);
     }
+    // Find a setting: a magnifier left of the gear (Ctrl+F too).
+    const ImVec2 fp(gp.x - em() * 0.9f - gs, gp.y);
+    ImGui::SetCursorScreenPos(fp);
+    if (ImGui::InvisibleButton("##find", ImVec2(gs, gs))) m.findOpen = true;
+    {
+        const bool hot = ImGui::IsItemHovered();
+        if (hot) ImGui::SetTooltip("%s", T("Find a setting (Ctrl+F)"));
+        const ImU32 fc = col(m.findOpen ? kSignal : hot ? kText : kMuted);
+        const ImVec2 c(fp.x + gs * 0.42f, fp.y + gs * 0.42f);
+        dl->AddCircle(c, gs * 0.3f, fc, 24, gs * 0.11f);
+        dl->AddLine(ImVec2(c.x + gs * 0.22f, c.y + gs * 0.22f), ImVec2(fp.x + gs * 0.92f, fp.y + gs * 0.92f), fc, gs * 0.13f);
+    }
+    const float rightX = fp.x;  // things to the left of the magnifier end here
     if (onSettings) {
         const char* title = T("Settings");
         ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.1f);
         const ImVec2 ts = ImGui::CalcTextSize(title);
-        dl->AddText(ImVec2(gp.x - em() * 0.8f - ts.x, p.y + (h - ts.y) * 0.5f), col(kText), title);
+        dl->AddText(ImVec2(rightX - em() * 0.8f - ts.x, p.y + (h - ts.y) * 0.5f), col(kText), title);
         ImGui::PopFont();
         ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
         ImGui::Dummy(ImVec2(w, em() * 0.35f));
@@ -1134,7 +1399,7 @@ void header(UiModel& m, UiActions& act) {
     }
     state = T(state);
     const float sh = std::floor(em() * 1.5f), sw = sh * 1.8f;
-    const ImVec2 sp(gp.x - em() * 1.1f - sw, p.y + (h - sh) * 0.5f);
+    const ImVec2 sp(rightX - em() * 1.1f - sw, p.y + (h - sh) * 0.5f);
     ImGui::SetCursorScreenPos(sp);
     if (ImGui::InvisibleButton("##master", ImVec2(sw, sh))) on = !on;
     drawSwitch(sp, sh, on, ImGui::IsItemHovered(), ImGui::GetID(vrPageOn ? "##vranim" : listen ? "##listenanim" : "##masteranim"));
@@ -1144,8 +1409,16 @@ void header(UiModel& m, UiActions& act) {
                                            : (on ? "Turn the voice changer off" : "Turn the voice changer on")));
 
     const ImVec2 ts = ImGui::CalcTextSize(state);
-    const float tx = sp.x - em() * 0.9f - ts.x, ty = p.y + (h - ts.y) * 0.5f;
-    dl->AddText(ImVec2(tx, ty), col(color), state);
+    float tx = sp.x - em() * 0.9f - ts.x;
+    const float ty = p.y + (h - ts.y) * 0.5f;
+    if (tx - em() * 1.2f < pillX) {  // no room for the words: the coloured dot alone, the words on hover
+        tx = sp.x - em() * 0.4f;
+        const ImVec2 dc(tx - em() * 0.7f, p.y + h * 0.5f);
+        if (ImGui::IsMouseHoveringRect(ImVec2(dc.x - em() * 0.6f, dc.y - em() * 0.6f), ImVec2(dc.x + em() * 0.6f, dc.y + em() * 0.6f)))
+            ImGui::SetTooltip("%s", state);
+    } else {
+        dl->AddText(ImVec2(tx, ty), col(color), state);
+    }
     dl->AddCircleFilled(ImVec2(tx - em() * 0.7f, p.y + h * 0.5f), em() * 0.26f, col(color), 16);
 
     ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
@@ -1735,6 +2008,39 @@ void settingsPage(UiModel& m, UiActions& act) {
     }
     ImGui::EndChild();
     note("Missing yours? A translation file in the \"lang\" folder next to CIMABox.exe adds it (see the Read Me).");
+
+    subheading("Look");
+    LookSettings& look = c.look;
+    float pct = look.textScale * 100.f;
+    if (sliderF("Text size", &pct, 85.f, 130.f, "%.0f%%")) look.textScale = std::round(pct / 5.f) * 0.05f;
+    fieldLabel("Colors");
+    static const char* const kPresetNames[] = {"Default", "Midnight", "Forest", "Rose"};
+    int preset = look.preset;
+    if (segmented("##lookpreset", kPresetNames, kLookCount, &preset)) lookPreset(look, preset);
+    gap(0.2f);
+    bool changed = false;
+    changed |= colorRow("Accent", &look.accent);
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
+    changed |= colorRow("Text", &look.text);
+    changed |= colorRow("Background", &look.background);
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
+    changed |= colorRow("Panels", &look.panel);
+    if (changed) look.preset = -1;  // picked by hand: no preset is selected
+    fieldLabel("Background picture");
+    if (look.picture.empty()) {
+        if (button("Choose a picture")) act.pickPicture = true;
+        note("A JPEG or PNG. It's copied into CIMA Box's settings folder, so you can move or delete the original.");
+    } else {
+        buttonPair("Choose another", "Remove", act.pickPicture, act.clearPicture);
+        float show = look.pictureShow * 100.f;
+        if (sliderF("Picture strength", &show, 10.f, 80.f, "%.0f%%")) look.pictureShow = show / 100.f;
+    }
+    if (!m.pictureMsg.empty()) note(m.pictureMsg, kDanger);
+    if (button("Back to the original look")) {
+        look = LookSettings();  // the original look has no picture either
+        act.clearPicture = true;
+    }
+
     subheading("About");
     char b[320];
     std::snprintf(b, sizeof(b), TF("CIMA Box %s"), CIMA_VERSION);
@@ -2926,10 +3232,12 @@ void setupView(UiModel& m, UiActions& act) {
 // people who never use a feature never see its options. Returns whether to draw the settings;
 // call featureCardEnd() either way.
 bool featureCard(const char* id, const char* title, const char* desc, bool* on) {
+    const bool glow = jumpAnchor(title);
     ImGui::PushID(id);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 0.85f, em() * 0.7f));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(kField.x, kField.y, kField.z, (on && *on) ? 0.6f : 0.32f));
-    ImGui::PushStyleColor(ImGuiCol_Border, (on && *on) ? ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.38f) : ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Border, glow       ? kSignal
+                                           : (on && *on) ? ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.38f) : ImVec4(0, 0, 0, 0));
     ImGui::BeginChild("##card", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar();
@@ -3057,6 +3365,35 @@ void featuresTalking(UiModel& m, UiActions& act) {
                                           : "Each swear word becomes \"beep\".");
     }
     if (!swear) f.voiceSwear = kSwearKeep;
+    featureCardEnd();
+
+    if (featureCard("deeplwords", "Words for DeepL",
+                    "Words the AI tends to soften or refuse, like strong swearing or slang. These skip the AI and DeepL translates them as they are.",
+                    &f.deeplWordsOn)) {
+        for (size_t i = 0; i < f.deeplWords.size(); ++i)
+            if (removableRow(f.deeplWords[i], int(i))) { f.deeplWords.erase(f.deeplWords.begin() + long(i)); break; }
+        const float addW = std::max(em() * 4.f, ImGui::CalcTextSize(T("Add")).x + em() * 1.6f);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - addW - ImGui::GetStyle().ItemSpacing.x);
+        const bool enter = ImGui::InputTextWithHint("##newdeeplword", T("Add a word or phrase"), &m.deeplWordDraft,
+                                                    ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        if (button("Add##deeplword", false, addW) || enter) {
+            std::string item;
+            auto take = [&] {
+                while (!item.empty() && item.back() == ' ') item.pop_back();
+                while (!item.empty() && item.front() == ' ') item.erase(item.begin());
+                if (!item.empty() && std::find(f.deeplWords.begin(), f.deeplWords.end(), item) == f.deeplWords.end()) f.deeplWords.push_back(item);
+                item.clear();
+            };
+            for (char ch : m.deeplWordDraft) { if (ch == ',') take(); else item += ch; }
+            take();
+            m.deeplWordDraft.clear();
+        }
+        note("Add several at once with commas. The AI translates the rest of your line and leaves a gap where each word goes; "
+             "DeepL fills it in. Any letter case matches, and only whole words. On its own, DeepL can't always pick the right form for the sentence.");
+        if (!isAiService(c.translateService)) note("Your translation service is already DeepL or Free, so every word goes there anyway.", kMuted);
+        else if (c.deeplKey.empty()) note("No DeepL key: these words go to the Free service instead. Add a DeepL key in Settings > Accounts for better results.", kBusy);
+    }
     featureCardEnd();
 
     if (featureCard("best", "Best translations", "Bigger AI models and more time. Better dialects and slang, a bit slower and pricier.", &f.best)) {
@@ -3469,10 +3806,7 @@ void usageNoticeWindow(UiModel& m, bool inSetup) {
         if (ok || limit) {
             m.cfg.usageNotice = kUsageNotice;
             m.showUsageNotice = false;
-            if (limit) {
-                m.cfg.page = kPageSettings;
-                m.scrollToSpend = true;
-            }
+            if (limit) findJumpTo(m, "Spending limit");
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -3578,6 +3912,86 @@ void screenPreviewWindow(UiModel& m, UiActions& act) {
 
 // ---------------------------------------------------------------- public
 
+// ---------------------------------------------------------------- the look (Settings > Look)
+
+void styleColors() {
+    ImVec4* c = ImGui::GetStyle().Colors;
+    c[ImGuiCol_Text] = kText;
+    c[ImGuiCol_TextDisabled] = kMuted;
+    c[ImGuiCol_WindowBg] = kBg;
+    c[ImGuiCol_ChildBg] = kPanel;
+    c[ImGuiCol_PopupBg] = kPopup;
+    c[ImGuiCol_Border] = kLine;
+    c[ImGuiCol_FrameBg] = kField;
+    c[ImGuiCol_FrameBgHovered] = kFieldHover;
+    c[ImGuiCol_FrameBgActive] = kFieldActive;
+    c[ImGuiCol_Button] = kField;
+    c[ImGuiCol_ButtonHovered] = kFieldHover;
+    c[ImGuiCol_ButtonActive] = kFieldActive;
+    c[ImGuiCol_Header] = kFieldHover;
+    c[ImGuiCol_HeaderHovered] = kFieldHover;
+    c[ImGuiCol_HeaderActive] = kFieldActive;
+    c[ImGuiCol_SliderGrab] = kSignal;
+    c[ImGuiCol_SliderGrabActive] = kSignalHover;
+    c[ImGuiCol_CheckMark] = kSignal;
+    c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_ScrollbarGrab] = kLine;
+    c[ImGuiCol_ScrollbarGrabHovered] = kFieldActive;
+    c[ImGuiCol_ScrollbarGrabActive] = kMuted;
+    c[ImGuiCol_Separator] = kLine;
+    c[ImGuiCol_TextSelectedBg] = ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.32f);
+    c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.03f, 0.04f, 0.06f, 0.62f);
+    c[ImGuiCol_NavCursor] = kSignal;
+
+    c[ImGuiCol_ChildBg] = ImVec4(kPanel.x, kPanel.y, kPanel.z, gPanelAlpha);
+}
+
+ImVec4 rgbOf(uint32_t v) { return rgb(v); }
+float luminance(const ImVec4& c) { return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; }
+ImVec4 toward(const ImVec4& a, const ImVec4& b, float t) { return ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, 1.f); }
+
+// Recolours the whole app from the four colours someone picked. The original look keeps its exact
+// hand-tuned shades; anything else gets its in-between shades worked out from the four.
+void applyLook(const LookSettings& l, bool picture) {
+    static LookSettings last;
+    static bool lastPicture = false, first = true;
+    if (!first && std::memcmp(&last.accent, &l.accent, sizeof(uint32_t) * 4) == 0 && last.textScale == l.textScale &&
+        lastPicture == picture && last.pictureShow == l.pictureShow)
+        return;
+    first = false;
+    last.accent = l.accent; last.background = l.background; last.panel = l.panel; last.text = l.text;
+    last.textScale = l.textScale; last.pictureShow = l.pictureShow; lastPicture = picture;
+    LookSettings d;
+    const bool original = l.accent == d.accent && l.background == d.background && l.panel == d.panel && l.text == d.text;
+    if (original) {
+        kBg = rgb(0x14171E); kPanel = rgb(0x1C212B); kField = rgb(0x272D3A); kFieldHover = rgb(0x303747);
+        kFieldActive = rgb(0x394154); kLine = rgb(0x2B3240); kText = rgb(0xDDE2EB); kMuted = rgb(0x8D98AD);
+        kSignal = rgb(0xE8B05E); kSignalHover = rgb(0xF0C07A); kSignalDown = rgb(0xCF9A48); kOnSignal = rgb(0x1E1707);
+        kPopup = rgb(0x222834);
+    } else {
+        kBg = rgbOf(l.background);
+        kPanel = rgbOf(l.panel);
+        kText = rgbOf(l.text);
+        kField = toward(kPanel, kText, 0.07f);
+        kFieldHover = toward(kPanel, kText, 0.11f);
+        kFieldActive = toward(kPanel, kText, 0.16f);
+        kLine = toward(kPanel, kText, 0.08f);
+        kMuted = toward(kPanel, kText, 0.62f);
+        kPopup = toward(kPanel, kText, 0.04f);
+        kSignal = rgbOf(l.accent);
+        const bool dark = luminance(kBg) < 0.5f;
+        kSignalHover = toward(kSignal, dark ? ImVec4(1, 1, 1, 1) : ImVec4(0, 0, 0, 1), 0.18f);
+        kSignalDown = toward(kSignal, ImVec4(0, 0, 0, 1), 0.12f);
+        kOnSignal = luminance(kSignal) > 0.45f ? toward(kSignal, ImVec4(0, 0, 0, 1), 0.88f) : ImVec4(1, 1, 1, 1);
+    }
+    kLabel = kMuted;
+    kVoices[0] = kSignal;
+    gPanelAlpha = picture ? std::max(0.55f, 1.f - l.pictureShow * 0.6f) : 1.f;
+    styleColors();
+    // ImGui 1.92 takes a new base size at the start of the next frame (the same way its own style editor does).
+    ImGui::GetStyle().FontSizeBase = ImGui::GetStyle()._NextFrameFontSizeBase = 16.f * std::min(1.3f, std::max(0.85f, l.textScale));
+}
+
 void uiSetup(float scale) {
     ImGuiStyle& s = ImGui::GetStyle();
     s = ImGuiStyle();
@@ -3599,43 +4013,49 @@ void uiSetup(float scale) {
     s.ScrollbarSize = 8;
     s.DisabledAlpha = 0.4f;
 
-    ImVec4* c = s.Colors;
-    c[ImGuiCol_Text] = kText;
-    c[ImGuiCol_TextDisabled] = kMuted;
-    c[ImGuiCol_WindowBg] = kBg;
-    c[ImGuiCol_ChildBg] = kPanel;
-    c[ImGuiCol_PopupBg] = rgb(0x222834);
-    c[ImGuiCol_Border] = kLine;
-    c[ImGuiCol_FrameBg] = kField;
-    c[ImGuiCol_FrameBgHovered] = kFieldHover;
-    c[ImGuiCol_FrameBgActive] = kFieldActive;
-    c[ImGuiCol_Button] = kField;
-    c[ImGuiCol_ButtonHovered] = kFieldHover;
-    c[ImGuiCol_ButtonActive] = kFieldActive;
-    c[ImGuiCol_Header] = kFieldHover;
-    c[ImGuiCol_HeaderHovered] = kFieldHover;
-    c[ImGuiCol_HeaderActive] = kFieldActive;
-    c[ImGuiCol_SliderGrab] = kSignal;
-    c[ImGuiCol_SliderGrabActive] = kSignalHover;
-    c[ImGuiCol_CheckMark] = kSignal;
-    c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
-    c[ImGuiCol_ScrollbarGrab] = kLine;
-    c[ImGuiCol_ScrollbarGrabHovered] = kFieldActive;
-    c[ImGuiCol_ScrollbarGrabActive] = kMuted;
-    c[ImGuiCol_Separator] = kLine;
-    c[ImGuiCol_TextSelectedBg] = rgb(0xE8B05E, 0.32f);
-    c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.03f, 0.04f, 0.06f, 0.62f);
-    c[ImGuiCol_NavCursor] = kSignal;
+    styleColors();
 
     s.ScaleAllSizes(scale);
-    s.FontSizeBase = 16.0f;
+    s.FontSizeBase = 16.0f;  // Settings > Look > Text size scales this (applyLook)
     s.FontScaleDpi = scale;
     loadFonts();
 }
 
+void findJump(UiModel& m, const char* label) { findJumpTo(m, label); }
+
+void lookPreset(LookSettings& l, int preset) {
+    struct P { uint32_t accent, background, panel, text; };
+    static const P kPresets[kLookCount] = {
+        {0xE8B05E, 0x14171E, 0x1C212B, 0xDDE2EB},  // Default: the original amber on slate
+        {0x7AA2F7, 0x0B0D13, 0x141822, 0xDCE3F2},  // Midnight: blue on near-black
+        {0x7FD6A4, 0x0F1512, 0x17201B, 0xDCE8E0},  // Forest: green on dark green-grey
+        {0xE59AD0, 0x17121A, 0x221A26, 0xEDE0EA},  // Rose: pink on plum
+    };
+    if (preset < 0 || preset >= kLookCount) return;
+    l.preset = preset;
+    l.accent = kPresets[preset].accent;
+    l.background = kPresets[preset].background;
+    l.panel = kPresets[preset].panel;
+    l.text = kPresets[preset].text;
+}
+
 UiActions uiDraw(UiModel& m) {
     UiActions act;
+    const bool picture = m.pictureTexture != 0 && m.pictureW > 0 && m.pictureH > 0;
+    applyLook(m.cfg.look, picture);
     const ImGuiViewport* vp = ImGui::GetMainViewport();
+    if (picture) {
+        // The picture fills the window (cropped, never stretched), under a wash of the background
+        // colour so text on top stays readable.
+        ImDrawList* bg = ImGui::GetBackgroundDrawList();
+        const ImVec2 a = vp->Pos, b(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y);
+        const float sx = vp->Size.x / m.pictureW, sy = vp->Size.y / m.pictureH, sc = std::max(sx, sy);
+        const float u = (vp->Size.x / sc) / m.pictureW, v = (vp->Size.y / sc) / m.pictureH;
+        const ImVec2 uv0((1.f - u) * 0.5f, (1.f - v) * 0.5f), uv1(uv0.x + u, uv0.y + v);
+        bg->AddImage(ImTextureRef(ImTextureID(m.pictureTexture)), a, b, uv0, uv1);
+        bg->AddRectFilled(a, b, ImGui::GetColorU32(ImVec4(kBg.x, kBg.y, kBg.z, 1.f - m.cfg.look.pictureShow)));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+    }
     ImGui::SetNextWindowPos(vp->WorkPos);
     ImGui::SetNextWindowSize(vp->WorkSize);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.1f, em() * 0.8f));
@@ -3643,6 +4063,7 @@ UiActions uiDraw(UiModel& m) {
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                      ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleVar();
+    if (picture) ImGui::PopStyleColor();  // only the root window is see-through; popups keep their colour
 
     const bool pictureOpen = m.bigPicture >= 0;  // a picture shown big: nothing underneath reacts to clicks
     if (pictureOpen) ImGui::BeginDisabled();
@@ -3652,6 +4073,8 @@ UiActions uiDraw(UiModel& m) {
         setupView(m, act);
     } else {
         header(m, act);
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F, false)) m.findOpen = true;
+        if (!gJump.want.empty() && --gJump.framesLeft < 0) gJump.want.clear();  // not shown right now (hidden by another choice)
         if (!m.spendAlert.empty()) spendBanner(m, act);
         const bool footer = !m.usage.empty();
         const float footH = footer ? std::floor(em() * 1.6f) : 0.f;
@@ -3669,6 +4092,7 @@ UiActions uiDraw(UiModel& m) {
         if (footer) usageLine(m, footH);
     }
 
+    findWindow(m);
     usageNoticeWindow(m, m.setupStep >= 0 || m.captionsOnly);
     changesWindow(m);
     if (pictureOpen) ImGui::EndDisabled();

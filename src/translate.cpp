@@ -249,6 +249,9 @@ namespace {
 // Set for the phrase being translated: "prefer_less" (Casual, Very casual), "prefer_more" (Polite)
 // or empty. The "prefer_" forms are simply ignored for languages without the choice.
 thread_local std::string tlFormality;
+// The sentence a single word comes from ("Words for DeepL", swear words): DeepL reads it to pick the
+// right meaning and form, but doesn't translate it. Empty for whole lines.
+thread_local std::string tlContext;
 
 bool deeplOnce(Http& http, const std::string& key, const std::string& text, const Language* from, const std::string& target,
                std::string& out, std::string& err, bool& languageRefused, bool formality = true) {
@@ -257,6 +260,7 @@ bool deeplOnce(Http& http, const std::string& key, const std::string& text, cons
     if (from) req["source_lang"] = from->deeplSource;
     const bool formal = formality && !tlFormality.empty();
     if (formal) req["formality"] = tlFormality;
+    if (!tlContext.empty()) req["context"] = tlContext;
     const std::string payload = req.dump();
     HttpRequest r;
     r.url = deeplHost(key) + "/v2/translate";
@@ -684,11 +688,11 @@ std::string casualHint(const std::string& code) {
         {"ar", "the spoken dialect's everyday words and grammar instead of fusha (unless Modern Standard was chosen)"},
         {"id", "aku/kamu or gue/lo, nggak, udah, banget, and particles like sih, dong, kok"},
         {"ms", "aku/kau, tak, dah, and particles like lah, kot"},
-        {"fil", "everyday Tagalog with the English words people mix in, and particles like naman, kasi, eh"},
-        {"hi", "tu or tum (never aap), the English words people really mix in, and words like yaar"},
+        {"fil", "everyday Tagalog with particles like naman, kasi, eh, and only the few English words Filipinos use without thinking (okay, sorry, game); everything else in Tagalog, never the speaker's own English phrases"},
+        {"hi", "tu or tum (never aap), words like yaar, and only the few English words people use without thinking (okay, sorry, phone); everything else in Hindi, never the speaker's own English phrases"},
         {"vi", "pronouns friends use (tao/mày between close friends, mình/bạn otherwise) and particles like nhé, nha, á"},
         {"th", "pronouns friends use (เรา, แก, มึง/กู only for very close friends) and particles like อะ, ว่ะ, นะ"},
-        {"en", "contractions, dropped words, and everyday slang and fillers like gonna, kinda, like, bro"},
+        {"en", "contractions, dropped words, and everyday slang and fillers like gonna, kinda, like, ya know"},
     };
     for (const auto& h : kHints)
         if (code == h.first) return h.second;
@@ -754,7 +758,12 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
     // unless it is spelled out: who you're talking to, what that sounds like in this language, what
     // is not allowed, examples, and a last check right before the answer. A neatly worded original
     // must not pull the result back to polite: the setting decides, not the source sentence.
-    const std::string hint = casualHint(to.code);
+    // Arabic with no dialect picked: one widely understood spoken Arabic, never a mix. Left to itself a
+    // model jumps between Egyptian, Gulf and Levantine words in one line, which sounds wrong to everyone.
+    const std::string hint = to.code == std::string("ar") && st.variety.empty()
+        ? "a neutral, widely understood spoken Arabic (close to the \"white dialect\", اللهجة البيضاء): everyday words "
+          "most Arabs understand, no fusha formality, and never mix words from different dialects in one line"
+        : casualHint(to.code);
     const bool custom = st.level == kLevelCustom && !trimText(st.customStyle).empty();
     const bool polite = !custom && st.level == kLevelPolite;
     const bool veryCasual = !custom && st.level == kLevelVeryCasual;
@@ -762,9 +771,10 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
     std::string level, check;
     if (custom) {
         level = "HOW TO SOUND (the most important rule): exactly the way they describe it: \"" + trimText(st.customStyle) +
-                "\". Follow that closely; it matters more than sounding neutral, and more than how the original was worded.";
+                "\". Follow that closely; it matters more than sounding neutral, and more than how the original was worded. "
+                "Their description changes how it sounds, never what is said: no added sentences, jokes, names or details.";
         check = "Before you answer, check the line against their description (\"" + trimText(st.customStyle) +
-                "\"). If it sounds more neutral or more polite than that, rewrite it.";
+                "\"). If it sounds more neutral or more polite than that, rewrite it. Then check you added nothing they didn't say.";
     } else if (polite) {
         level = "HOW TO SOUND: you're talking to someone you just met in a lobby and want to come across as friendly and "
                 "respectful. Use the polite speech level (for example Korean 해요체, Japanese です/ます, or vous/usted/Sie/вы "
@@ -775,7 +785,7 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                 (veryCasual
                      ? "VERY CASUAL. You're talking to your closest friend, someone you've known for years, joking around "
                        "with no filter. Talk the loosest way young native speakers talk to their best friend: slang, "
-                       "shortened and slurred words, filler words, teasing, and swearing where the mood fits."
+                       "shortened and slurred words, and a rough, joking tone."
                      : "CASUAL. You're talking to a friend you hang out with a lot. Talk the relaxed way friends talk to "
                        "each other: contractions, dropped words, everyday slang and filler words.") +
                 "\n  - Do NOT translate the sentence as it is worded. First get what they mean, then say that the way a "
@@ -785,23 +795,35 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                 "Polite and formal forms are forbidden: no 요/습니다 endings, no です/ます, no usted/vous/Sie/вы/您/aap/Anda, "
                 "no polite request formulas (the equivalents of \"could you please\", \"would you mind\", \"I would like "
                 "to\", \"excuse me\", \"thank you very much\"), and no full textbook sentences where people would say half of it.\n"
-                "  - Shorten it the way speech is shortened: drop subjects, particles and words natives drop, use the "
-                "contracted and slurred forms, and start or end with the small filler words natives use.\n" +
+                "  - Shorten it the way speech is shortened: drop subjects, particles and words natives drop, and use the "
+                "contracted and slurred forms. A small filler word (like \"yeah\", \"like\", \"uh\") is fine where a "
+                "native would put one, at most one per line.\n"
+                "  - Say ONLY what they said. Loosen the wording, never the content: no added sentences, questions, "
+                "greetings, reactions, names, nicknames (\"bro\", \"dude\", \"girl\"), jokes or details, and nothing taken from "
+                "the recent conversation. If they said one short thing, you say one short thing.\n" +
                 (veryCasual
-                     ? "  - Slang is expected, not optional: wherever a slang word or a rougher everyday word exists for what "
-                       "they mean, use it instead of the dictionary word. Swear the way friends do when they're excited, "
-                       "annoyed or joking, as long as it fits what was said.\n"
+                     ? "  - Slang is expected, not optional: wherever an everyday slang word exists for what they mean, use it "
+                       "instead of the dictionary word. " +
+                       std::string(st.swear == 0 ? "If they swore, swear the same way. " : "Their swearing follows the swear-word rule below. ") +
+                       "But NEVER add swear words, insults, crude or sexual words they didn't say: in many languages (Arabic "
+                       "especially) a word that sounds \"rough\" in English is a real insult or vulgar there.\n"
                      : "  - Prefer the everyday word over the dictionary word, and use light slang where friends would.\n") +
-                (hint.empty() ? std::string() : "  - In " + target + " that means: " + hint + ".\n") +
+                (hint.empty() ? std::string()
+                             : "  - In " + target + " that means: " + hint +
+                                   (st.variety.empty() || st.varietyName.empty()
+                                        ? std::string(".\n")
+                                        : ", but always with " + st.varietyName + "'s own words and endings wherever they differ "
+                                          "from the standard language.\n")) +
                 "  - How far to go (shown in English, do the same in " + spoken + "): \"Could you tell me where the mirror "
-                "is?\" becomes " + (veryCasual ? "\"yo where's the mirror at\"" : "\"hey where's the mirror?\"") +
-                "; \"I am very tired today\" becomes " + (veryCasual ? "\"bro I'm so dead today\"" : "\"ugh I'm so tired today\"") +
-                "; \"Thank you very much, that was fun\" becomes " + (veryCasual ? "\"ayy thanks man, that was sick\"" : "\"thanks, that was fun!\"") +
+                "is?\" becomes " + (veryCasual ? "\"wait, where's the mirror at\"" : "\"where's the mirror?\"") +
+                "; \"I am very tired today\" becomes " + (veryCasual ? "\"ugh I'm so dead today\"" : "\"ugh I'm so tired today\"") +
+                "; \"Thank you very much, that was fun\" becomes " + (veryCasual ? "\"ayy thanks, that was sick\"" : "\"thanks, that was fun!\"") +
                 "; \"I do not understand\" becomes " + (veryCasual ? "\"wait what, I don't get it\"" : "\"huh? I don't get it\"") + ".";
         check = std::string("Before you answer, read your line again. Would a native really say this out loud to ") +
                 (veryCasual ? "their best friend" : "a friend") + "? If it could be a line from a textbook, a subtitle, "
                 "a customer service chat or a polite stranger, it is wrong: rewrite it shorter, looser and more " +
-                (veryCasual ? "slangy" : "relaxed") + " in the informal speech level, then answer.";
+                (veryCasual ? "slangy" : "relaxed") + " in the informal speech level. Then check you added nothing they "
+                "didn't say. Then answer.";
     }
     const std::string keep =
         st.swear == 1 ? "- Keep the meaning and the attitude (jokes, sarcasm, excitement), but say any swear word or insult "
@@ -818,11 +840,18 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         "- " + level + "\n" + dialect + genders + keep + st.wordNote +
         "- A text-to-speech voice will speak it: write only spoken words. No emoji, hashtags, texting abbreviations or "
         "laughter written as letters (no ㅋㅋ, lol, www, jaja, хаха), no quotation marks, no notes.\n"
+        "- Every word you say must be " + target + ". Don't keep words or phrases from the original language just "
+        "because they were there: someone who only speaks " + target +
+        " has to understand all of it. Names stay exactly as they are: people, places, games, apps, brands and "
+        "products (like VRChat, Discord, ElevenLabs, Claude), and any words you were told to keep.\n"
         "- If it is already in " + spoken + ", just make it sound natural in that style.\n"
-        "- If what they said is garbled or unclear, say your best guess of what they meant. Never explain or comment.\n";
+        "- If what they said is garbled or unclear, say your best guess of what they meant. Never explain or comment.\n"
+        "- If there is a word you won't say, just leave that word out and translate the rest as it is. Never replace "
+        "the line with a different, friendlier message: saying something the person never said is worse than a gap.\n";
     if (!st.context.empty())
-        s += std::string("\nRecent conversation, for context only (don't translate it). Use it to understand what's being talked "
-             "about and to reuse the words the others use. ") +
+        s += std::string("\nRecent conversation, for context only: don't translate it, don't answer it and don't take anything "
+             "from it into your line. Use it only to understand what's being talked about and to reuse the words the "
+             "others use. ") +
              (casual ? "Keep the style described above even if the others talk politely or formally: never become more "
                        "polite because of them. If they are even more casual than you, you may match them:\n"
               : polite ? "Keep the style described above: if the others are clearly more casual with you, you may move one "
@@ -993,6 +1022,72 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                    : st.service == kGemini ? gemini(http, st, instructions, source, sent, ms, o, err, why, geminiNoThinking_)
                                            : openai(http, st, instructions, source, sent, ms, o, err, why, openaiReasoning_);
         };
+        // Fills [[1]], [[2]]... in an AI answer with those words as DeepL (or Free) translates them.
+        // `fillBy` says which really did ("DeepL", "Free", or both), for the bottom strip.
+        std::string fillBy;
+        auto fillIn = [&](std::string masked, const std::vector<std::string>& found, std::string& filled) {
+            bool byDeepl = false, byFree = false;
+            for (size_t i = 0; i < found.size(); ++i)
+                if (masked.find("[[" + std::to_string(i + 1) + "]]") == std::string::npos) return false;  // a marker got lost
+            auto wordsIn = [](const std::string& t) {
+                int n = 0;
+                bool in = false;
+                for (unsigned char ch : t) {
+                    const bool sp = ch == ' ' || ch == '\n' || ch == '\t';
+                    if (!sp && !in) ++n;
+                    in = !sp;
+                }
+                return n;
+            };
+            tlContext = text;  // the whole sentence, so DeepL knows what each word means here
+            for (size_t i = 0; i < found.size(); ++i) {
+                std::string word = found[i], e;
+                bool refused = false;
+                if (!st.deeplKey.empty() && deepl(http, st.deeplKey, found[i], from, to, st.deeplVariant, word, e, refused)) byDeepl = true;
+                else if (from && myMemory(http, found[i], *from, to, word, e)) byFree = true;
+                else word.clear();  // neither could translate it: left out, never said as it was
+                // A word that comes back as a whole phrase wasn't translated, it was swapped for something
+                // else (DeepL does this with some words it won't translate). Like the AI, leave it out
+                // rather than put words in their mouth.
+                const int in = wordsIn(found[i]), got = wordsIn(word);
+                if (got >= in + 2 && got > in * 2) word.clear();
+                const std::string mark = "[[" + std::to_string(i + 1) + "]]";
+                for (size_t at = masked.find(mark); at != std::string::npos; at = masked.find(mark, at + word.size()))
+                    masked.replace(at, mark.size(), word);
+            }
+            tlContext.clear();
+            fillBy = byDeepl && byFree ? "DeepL and Free" : byFree ? "Free" : byDeepl ? "DeepL" : "nobody: left out";
+            for (size_t at = masked.find("  "); at != std::string::npos; at = masked.find("  ")) masked.erase(at, 1);
+            for (const char* p : {" ?", " !", " ,", " ."})
+                for (size_t at = masked.find(p); at != std::string::npos; at = masked.find(p)) masked.erase(at, 1);
+            while (!masked.empty() && masked.front() == ' ') masked.erase(masked.begin());
+            filled = masked;
+            return true;
+        };
+        const std::string markerNote = "\n\n(The [[1]], [[2]]... markers stand for words that get filled in later. "
+                                       "Keep every marker exactly as written, where it belongs in your sentence.)";
+        // "Words for DeepL": the person's own list of words the AI must never see or reword. The AI
+        // translates the line around markers, and DeepL (or Free) translates just those words.
+        if (!st.deeplWords.empty() && !st.faithful) {
+            std::vector<std::string> found;
+            const std::string marked = markListed(text, st.deeplWords, found);
+            if (!found.empty()) {
+                std::string masked;
+                int why = kFailOther;
+                if (call(marked, marked + markerNote, std::max(1200, left()), masked, why) && fillIn(masked, found, out)) {
+                    via = std::string(name) + " (your words by " + fillBy + ")";
+                    return true;
+                }
+                if (err == "cancelled") return false;
+                // The AI lost a marker or failed: the whole line goes to DeepL, so your words still never
+                // pass through the AI.
+                if (deeplOrFree(true)) {
+                    via += " (your words; " + std::string(name) + " couldn't keep them)";
+                    return true;
+                }
+                return false;
+            }
+        }
         for (int attempt = 0; attempt < 2 && !good; ++attempt) {
             const int ms = left();
             if (ms < 350) {  // not enough time for another try
@@ -1030,27 +1125,9 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             const std::string marked = markSwears(text, found);
             std::string masked;
             int why = kFailOther;
-            const std::string ask2 = marked + "\n\n(The [[1]], [[2]]... markers stand for words that get filled in later. "
-                                              "Keep every marker exactly as written, where it belongs in your sentence.)";
-            if (!found.empty() && call(marked, ask2, std::max(1200, st.timeoutMs), masked, why)) {
-                bool allThere = true;
-                for (size_t i = 0; i < found.size(); ++i)
-                    allThere = allThere && masked.find("[[" + std::to_string(i + 1) + "]]") != std::string::npos;
-                if (allThere) {
-                    for (size_t i = 0; i < found.size(); ++i) {
-                        std::string word = found[i], e;
-                        bool refused = false;
-                        if (!st.deeplKey.empty() && deepl(http, st.deeplKey, found[i], from, to, st.deeplVariant, word, e, refused)) {}
-                        else if (from && myMemory(http, found[i], *from, to, word, e)) {}
-                        else word = found[i];
-                        const std::string mark = "[[" + std::to_string(i + 1) + "]]";
-                        for (size_t at = masked.find(mark); at != std::string::npos; at = masked.find(mark, at + word.size()))
-                            masked.replace(at, mark.size(), word);
-                    }
-                    out = masked;
-                    via = std::string(name) + " (swear words by " + (st.deeplKey.empty() ? "Free" : "DeepL") + ")";
-                    return true;
-                }
+            if (!found.empty() && call(marked, marked + markerNote, std::max(1200, st.timeoutMs), masked, why) && fillIn(masked, found, out)) {
+                via = std::string(name) + " (swear words by " + fillBy + ")";
+                return true;
             }
         }
         if (!firstErr.empty() && firstErr != err && lowerCopy(err).find("timed out") == std::string::npos) err = firstErr;

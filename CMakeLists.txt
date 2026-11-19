@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CIMABox VERSION 2.8.2 LANGUAGES C CXX)
+project(CIMABox VERSION 2.8.3 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -160,7 +160,7 @@ if(UNIX AND NOT APPLE)
 endif()
 if(WIN32)
   # dark title bar, per-application audio capture, chatbox messages (UDP)
-  target_link_libraries(cimabox PRIVATE dwmapi mmdevapi ole32 ws2_32 bcrypt shell32)
+  target_link_libraries(cimabox PRIVATE dwmapi mmdevapi ole32 ws2_32 bcrypt shell32 comdlg32)
   # Screen translation reads text with Windows' own recognizer (C++/WinRT, part of the Windows SDK).
   # C++/WinRT wants C++20 with this compiler, so src/screen.cpp is built as its own small library.
   # Without the headers the build still works; only AI reading is offered then.
