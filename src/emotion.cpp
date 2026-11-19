@@ -340,12 +340,110 @@ bool voicePrint(const std::vector<int16_t>& pcm16k, float startS, float endS, Vo
     out.pitch = percentile(pitch, 0.5f);
     out.spread = percentile(pitch, 0.8f) - percentile(pitch, 0.2f);
     out.bright = tilt.empty() ? 0.f : percentile(tilt, 0.5f);
+    out.voiced = float(pitch.size()) * float(kHop) / float(kRate);
     return true;
 }
 
 float voiceDistance(const VoicePrint& a, const VoicePrint& b) {
     // Pitch in semitones matters most; how much it moves and the tone colour less (they change with mood).
     return std::fabs(a.pitch - b.pitch) / 2.5f + std::fabs(a.spread - b.spread) / 5.f + std::fabs(a.bright - b.bright) / 4.f;
+}
+
+int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep, std::vector<std::pair<int, int>>& renamed) {
+    auto kept = [&](int id) { return std::find(keep.begin(), keep.end(), id) != keep.end(); };
+    // Give up voices that went quiet: numbered ones after five minutes, unnumbered ones after one.
+    for (size_t i = 0; i < voices_.size();) {
+        const Known& v = voices_[i];
+        const double quiet = now - v.heard;
+        if ((v.id >= 100 && quiet > 60.0) || (v.id < 100 && quiet > 300.0 && !kept(v.id))) {
+            if (last_ == v.id) last_ = -1;
+            voices_.erase(voices_.begin() + long(i));
+        } else {
+            ++i;
+        }
+    }
+    // The two nearest voices. Whoever spoke within the last few seconds counts as a bit nearer.
+    int best = -1;
+    float bestD = 1e9f, secondD = 1e9f;
+    for (size_t i = 0; i < voices_.size(); ++i) {
+        float d = voiceDistance(p, voices_[i].mean);
+        if (voices_[i].id == last_ && now - voices_[i].heard < 8.0) d *= 0.7f;
+        if (d < bestD) { secondD = bestD; bestD = d; best = int(i); }
+        else if (d < secondD) secondD = d;
+    }
+    const bool brief = p.voiced < 1.0f;  // a word or two: too little to be sure of much
+    const float matchAt = brief ? 0.75f : 1.0f;
+    if (best >= 0 && bestD < matchAt) {
+        if (secondD < 1.0f && secondD - bestD < 0.25f && voices_[size_t(best)].id != last_) return -1;  // could be either of two
+        Known& v = voices_[size_t(best)];
+        if (!brief) {  // the average of what was heard, the newest counting most
+            const float w = 1.f / float(std::min(v.count + 1, 6));
+            v.mean.pitch += w * (p.pitch - v.mean.pitch);
+            v.mean.spread += w * (p.spread - v.mean.spread);
+            v.mean.bright += w * (p.bright - v.mean.bright);
+            ++v.count;
+        }
+        v.heard = now;
+        if (v.id >= 100 && v.count >= 3) {
+            // Heard three times. If its average has settled near a voice that already has a number, it
+            // was that person all along (in another mood): fold it into them.
+            for (size_t i = 0; i < voices_.size(); ++i) {
+                if (int(i) == best || voices_[i].id >= 100 || voiceDistance(voices_[i].mean, v.mean) > 1.3f) continue;
+                const int into = voices_[i].id;
+                renamed.push_back({v.id, into});
+                voices_[i].heard = now;
+                voices_[i].count += v.count;
+                voices_.erase(voices_.begin() + best);
+                last_ = into;
+                return into;
+            }
+        }
+        if (v.id >= 100 && v.count >= 3) {  // otherwise it gets a number, the lowest one free
+            for (int n = 0; n < kMax; ++n) {
+                bool taken = kept(n);
+                for (const Known& o : voices_) taken = taken || o.id == n;
+                if (!taken) {
+                    renamed.push_back({v.id, n});
+                    v.id = n;
+                    break;
+                }
+            }
+        }
+        int id = v.id;
+        // Two numbers that turned out to be one person: keep the lower number.
+        if (id < 100)
+            for (size_t i = 0; i < voices_.size(); ++i) {
+                if (int(i) == best || voices_[i].id >= 100) continue;
+                if (voiceDistance(voices_[i].mean, voices_[size_t(best)].mean) > 0.6f) continue;
+                const int keepId = std::min(voices_[i].id, id), dropId = std::max(voices_[i].id, id);
+                if (kept(dropId)) continue;
+                renamed.push_back({dropId, keepId});
+                voices_[size_t(best)].id = keepId;
+                voices_[size_t(best)].count += voices_[i].count;
+                id = keepId;
+                voices_.erase(voices_.begin() + long(i));  // `v` and `best` are not used after this
+                break;
+            }
+        last_ = id;
+        return id;
+    }
+    // Not close to anyone. Clearly someone else (and long enough to trust): remember them, without
+    // a number until they speak again. In between: can't say.
+    if (!brief && (best < 0 || bestD > 1.6f)) {
+        int unnamed = 0;
+        for (const Known& v : voices_) unnamed += v.id >= 100;
+        if (unnamed < 4) {
+            Known v;
+            v.mean = p;
+            v.count = 1;
+            v.heard = now;
+            v.id = nextTemp_++;
+            voices_.push_back(v);
+            last_ = v.id;
+            return v.id;  // 100 or more: remembered, but shown without a number for now
+        }
+    }
+    return -1;
 }
 
 Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& tokens, VoiceBaseline& base, int strength,

@@ -715,7 +715,6 @@
  "Key to switch click-through": "Клавиша прозрачности для кликов",
  "You type these a lot": "Вы часто это пишете",
  "Saved lines": "Сохранённые фразы",
- "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you.": "Кладёт на Рабочий стол файл со всем, что нужно для поиска проблемы (без ключей и без чьих-либо слов). Отправьте его тому, кто вам помогает.",
  "Or click Cancel on the bar at the bottom. Adds this wait to every phrase.": "Или нажмите «Отмена» на нижней панели. Добавляет эту паузу к каждой фразе.",
  "It only switches after they say two things in a row in that language, so one short word can't flip it. Pick a language yourself any time; it switches again when someone speaks another language.": "Переключается только после двух фраз подряд на этом языке, так что одно короткое слово ничего не изменит. Выберите язык сами в любой момент; он снова сменится, когда кто-то заговорит на другом языке.",
  "\"Detect automatically\" then sticks to these. Leave a list empty to allow every language.": "«Определить автоматически» тогда выбирает только из них. Оставьте список пустым, чтобы разрешить все языки.",
@@ -821,5 +820,7 @@
  "About costs and your keys": "О расходах и ваших ключах",
  "Got it": "Понятно",
  "Couldn't check right now": "Сейчас не удалось проверить",
- "Answering normally (checked from this PC)": "Отвечает нормально (проверено с этого ПК)"
+ "Answering normally (checked from this PC)": "Отвечает нормально (проверено с этого ПК)",
+ "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "Открывает новое сообщение на странице CIMA Box в GitHub с уже заполненными основными данными и кладёт на Рабочий стол файл, который нужно туда перетащить. Без ключей и без чьих-либо слов. Нужен бесплатный аккаунт GitHub; сообщения там видны всем.",
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Опишите на открывшейся странице, что случилось, перетащите туда «CIMA Box problem report.txt» с Рабочего стола и нажмите Submit."
 }

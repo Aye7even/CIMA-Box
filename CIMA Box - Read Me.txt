@@ -1,4 +1,4 @@
-CIMA Box 2.8.0
+CIMA Box 2.8.1
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -26,7 +26,7 @@ YOUR KEYS, YOUR COSTS
 
 CIMA Box is free, and it runs on your own accounts: ElevenLabs, and DeepL, Claude, Gemini or
 OpenAI if you add them. Whatever it uses is charged by those services to your keys. The app says
-this once, after the setup (or after updating to 2.8.0), and again any time from Settings >
+this once, after the setup (or after updating from a version before 2.8), and again any time from Settings >
 About > "About costs and your keys".
 
 - Voices, captions and translations use credits or tokens for as long as they're switched on.
@@ -195,7 +195,10 @@ Output
     Amount ................. How strongly it matches.
     Relearn my mic ......... Starts learning your mic again.
   Show in VRChat chatbox ... Shows your words above your avatar. Choose What I said, Spoken as
-                             (the translation) or Both. Turn on OSC in VRChat first (Action Menu
+                             (the translation) or Both. Both puts the translation on top and
+                             your own words under it in brackets; if the two don't fit in
+                             VRChat's 144 characters, your own words are shortened, never the
+                             translation. Turn on OSC in VRChat first (Action Menu
                              > Options > OSC > Enabled). In Changer mode this also transcribes
                              each phrase, which ElevenLabs bills.
   Rescan devices ........... Refreshes the device lists after plugging something in.
@@ -355,10 +358,16 @@ Hearing and reading
   Captions while they talk . Words show up while someone is still speaking, then the translation
                              replaces them. Uses more ElevenLabs credits.
   Captions ................. Hide swearing (f***), sound labels ([laughs], [music]), skip music
-                             and noise, big high-contrast captions, the same color for the same
-                             voice (right-click a line to mute that voice; it's a best guess),
-                             and guessing gender from their words (for languages where it
-                             changes how you answer).
+                             and noise, big high-contrast captions, and guessing gender from
+                             their words (for languages where it changes how you answer).
+  Same voice, same color ... Follows who is talking from one caption to the next: "Voice 1" keeps
+                             its number and color. It is careful on purpose, because a few
+                             seconds of speech only say so much: a voice gets its number after
+                             it has been heard a few times, there are at most six, and a line
+                             it can't place (very short, or between two similar voices) gets
+                             a plain grey bar instead of a guess. A voice is named once and
+                             then only when the speaker changes. Similar voices can still be
+                             mixed up. Right-click a line to mute that voice.
   Caption window over the game
                              A small see-through window of captions on top of your game. Games
                              must run in borderless windowed mode, not fullscreen. "Clicks go
@@ -538,8 +547,10 @@ If a headset or mic is unplugged, CIMA Box opens it again by itself when it's pl
 
 Settings > About > Open log file opens cimabox.log: what went wrong and when. It never contains
 your API keys, so it's safe to send to whoever is helping you. Report a problem (also in About)
-puts a file on your Desktop with the log, your settings (without keys) and your Windows version:
-send that one instead.
+opens a new report on CIMA Box's GitHub page with your version and setup filled in, and puts
+"CIMA Box problem report.txt" on your Desktop (the log, without keys, anything anyone said or your
+Windows user name). Say what happened, drag the file into the page and press Submit. It needs a
+free GitHub account, and reports there are public.
 
 If something stops working, first look at Settings > Service status. It shows, right in the app,
 whether ElevenLabs, Claude, Gemini, OpenAI and DeepL are working. For ElevenLabs, Claude and

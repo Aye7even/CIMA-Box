@@ -1345,11 +1345,17 @@ void muteMenu(UiModel& m, int voiceId) {
     ImGui::EndPopup();
 }
 
-void captionLine(UiModel& m, const CaptionLine& line, float fontSize, bool showOriginal, bool live = false) {
-    const bool person = line.voiceId >= 0 && m.cfg.fx.voiceIds;
+// `nameIt`: say whose line it is ("Voice 2"). Off for a line right after another by the same
+// voice: the coloured bar already says so, and a list of the same label over and over is noise.
+void captionLine(UiModel& m, const CaptionLine& line, float fontSize, bool showOriginal, bool live = false, bool nameIt = true) {
+    const bool people = m.cfg.fx.voiceIds;  // voices are followed across captions
+    const bool person = line.voiceId >= 0 && people;
     if (person && std::find(m.mutedVoices.begin(), m.mutedVoices.end(), line.voiceId) != m.mutedVoices.end()) return;
     const bool tagged = line.speaker >= 0 || person;
-    const ImVec4 color = person ? kPeople[line.voiceId % 8] : tagged ? kVoices[line.speaker % 4] : kText;
+    // Someone it can't name yet (too short, or between two voices): a quiet bar and no number,
+    // rather than a number that would be a guess.
+    const bool unnamed = people && !person;
+    const ImVec4 color = person ? kPeople[line.voiceId % 8] : unnamed ? kLine : tagged ? kVoices[line.speaker % 4] : kText;
     const bool contrast = m.cfg.fx.highContrast;
     if (contrast) fontSize *= 1.2f;
     const float indent = em() * 0.9f;
@@ -1358,7 +1364,7 @@ void captionLine(UiModel& m, const CaptionLine& line, float fontSize, bool showO
     if (contrast) dl->ChannelsSplit(2), dl->ChannelsSetCurrent(1);
     if (tagged) ImGui::Indent(indent);
     ImGui::BeginGroup();
-    if (tagged) {
+    if (tagged && !unnamed && nameIt) {
         ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
         ImGui::TextColored(color, TF("Voice %d"), (person ? line.voiceId : line.speaker) + 1);
         ImGui::PopFont();
@@ -1402,22 +1408,36 @@ void captionFeed(UiModel& m, float scale, const char* emptyHint) {
         note(emptyHint);
         return;
     }
+    // The language and time are said once and then only when they change, and a voice is named
+    // once per run of its lines: a conversation reads as a conversation, not as a list of labels.
+    std::string lastHead;
+    int lastVoice = -2;
     for (const Caption& c : m.captions) {
         ImGui::PushID(int(c.id & 0x7FFFFFFF));
-        ImGui::PushFont(nullptr, base * 0.85f);
-        ImGui::TextColored(kMuted, "%s", c.screen ? T("On screen") : c.pending ? T("Just heard") : c.language.c_str());
-        const float timeW = ImGui::CalcTextSize(c.time.c_str()).x;
-        ImGui::SameLine();
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, ImGui::GetContentRegionAvail().x - timeW));
-        ImGui::TextColored(kMuted, "%s", c.time.c_str());
-        ImGui::PopFont();
+        const std::string what = c.screen ? T("On screen") : c.pending ? T("Just heard") : c.language;
+        const std::string head = what + "|" + c.time;
+        if (head != lastHead) {
+            if (!lastHead.empty()) gap(0.35f);
+            ImGui::PushFont(nullptr, base * 0.85f);
+            ImGui::TextColored(kMuted, "%s", what.c_str());
+            const float timeW = ImGui::CalcTextSize(c.time.c_str()).x;
+            ImGui::SameLine();
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, ImGui::GetContentRegionAvail().x - timeW));
+            ImGui::TextColored(kMuted, "%s", c.time.c_str());
+            ImGui::PopFont();
+            lastHead = head;
+            lastVoice = -2;
+        }
         if (c.pending && !c.live) ImGui::TextColored(kBusy, TF("Translating%s"), dots().c_str());
         for (size_t i = 0; i < c.lines.size(); ++i) {
+            const CaptionLine& cl = c.lines[i];
+            const int voice = m.cfg.fx.voiceIds ? cl.voiceId : (cl.speaker >= 0 ? 1000 + int(c.id % 1000) * 8 + cl.speaker : -1);
             ImGui::PushID(int(i));
-            captionLine(m, c.lines[i], base * scale, l.showOriginal, c.live);
+            captionLine(m, cl, base * scale, l.showOriginal, c.live, voice != lastVoice);
             ImGui::PopID();
+            lastVoice = voice;
         }
-        gap(0.55f);
+        gap(0.45f);
         ImGui::PopID();
     }
     if (m.listen.hearing) ImGui::TextColored(kSignal, TF("Hearing speech%s"), dots().c_str());
@@ -1733,8 +1753,8 @@ void settingsPage(UiModel& m, UiActions& act) {
          "in it: send it to whoever helps you when something goes wrong.");
     gap(0.2f);
     if (button("Report a problem")) act.reportProblem = true;
-    note(m.reportPath.empty() ? "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you."
-                              : m.reportPath);
+    note(m.reportPath.empty() ? "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public."
+                              : "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.");
     ImGui::EndChild();
 
     ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));

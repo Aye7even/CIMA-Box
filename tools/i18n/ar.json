@@ -715,7 +715,6 @@
  "Key to switch click-through": "مفتاح تمرير النقرات",
  "You type these a lot": "تكتب هذا كثيرًا",
  "Saved lines": "أسطر محفوظة",
- "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you.": "يضع ملفًا على سطح المكتب فيه ما يلزم لإيجاد المشكلة (بلا مفاتيح، ولا شيء مما قاله أحد). أرسله لمن يساعدك.",
  "Or click Cancel on the bar at the bottom. Adds this wait to every phrase.": "أو انقر «إلغاء» في الشريط السفلي. يضيف هذا الانتظار إلى كل عبارة.",
  "It only switches after they say two things in a row in that language, so one short word can't flip it. Pick a language yourself any time; it switches again when someone speaks another language.": "لا يتغير إلا بعد أن يقولوا شيئين متتاليين بتلك اللغة، فلا تكفي كلمة قصيرة لتبديله. اختر لغة بنفسك متى شئت؛ وسيتغير مجددًا حين يتحدث أحد بلغة أخرى.",
  "\"Detect automatically\" then sticks to these. Leave a list empty to allow every language.": "يقتصر «الكشف التلقائي» حينها على هذه اللغات. اترك القائمة فارغة للسماح بكل اللغات.",
@@ -821,5 +820,7 @@
  "About costs and your keys": "عن التكاليف ومفاتيحك",
  "Got it": "فهمت",
  "Couldn't check right now": "تعذّر التحقق الآن",
- "Answering normally (checked from this PC)": "يستجيب بشكل طبيعي (فُحص من هذا الحاسوب)"
+ "Answering normally (checked from this PC)": "يستجيب بشكل طبيعي (فُحص من هذا الحاسوب)",
+ "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "يفتح بلاغًا جديدًا في صفحة CIMA Box على GitHub مع تعبئة الأساسيات، ويضع ملفًا على سطح المكتب لتسحبه إليها. بلا مفاتيح، ولا شيء مما قاله أحد. يحتاج إلى حساب GitHub مجاني؛ البلاغات هناك علنية.",
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "اكتب ما حدث في الصفحة التي فُتحت، واسحب إليها «CIMA Box problem report.txt» من سطح المكتب، ثم اضغط Submit."
 }

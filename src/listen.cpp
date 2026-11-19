@@ -78,7 +78,7 @@ struct Listener::Impl {
     std::condition_variable cv;
 
     // Voices heard this session, to keep the same colour for the same person across captions.
-    std::vector<VoicePrint> voices;   // guarded by mtx
+    VoiceBook voices;                 // guarded by mtx
     // Captions while they talk: the caption being spoken and the words so far.
     uint64_t liveId = 0;              // guarded by mtx; 0 = none
     std::thread liveThread;           // one transcription of the unfinished phrase at a time
@@ -416,23 +416,18 @@ struct Listener::Impl {
         });
     }
 
-    // Which voice this is, among the ones heard this session (a best guess). mtx held.
+    // Which voice this is, among the ones heard this session (a best guess; see VoiceBook). mtx held.
+    // Lines already in the feed follow when a voice gets its number or two turn out to be one.
     int voiceIdOf(const VoicePrint& p) {
-        int best = -1;
-        float bestD = 1e9f;
-        for (size_t i = 0; i < voices.size(); ++i) {
-            const float d = voiceDistance(p, voices[i]);
-            if (d < bestD) { bestD = d; best = int(i); }
-        }
-        if (best >= 0 && (bestD < 1.0f || voices.size() >= 12)) {
-            VoicePrint& v = voices[size_t(best)];  // drift a little toward the newest sample
-            v.pitch += 0.2f * (p.pitch - v.pitch);
-            v.spread += 0.2f * (p.spread - v.spread);
-            v.bright += 0.2f * (p.bright - v.bright);
-            return best;
-        }
-        voices.push_back(p);
-        return int(voices.size()) - 1;
+        const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        std::vector<std::pair<int, int>> renamed;
+        const int id = voices.who(p, now, cfg.keepVoices, renamed);
+        for (const auto& r : renamed)
+            for (Caption& c : feed)
+                for (CaptionLine& l : c.lines)
+                    if (l.voiceId == r.first) l.voiceId = r.second;
+        if (!renamed.empty()) ++version;
+        return id;
     }
 
     // ---------------------------------------------------------------- phrases out
@@ -648,6 +643,9 @@ void Listener::addScreenCaption(const std::string& text, const std::string& orig
 void Listener::captions(std::vector<Caption>& out) const {
     std::lock_guard<std::mutex> lk(p_->mtx);
     out.assign(p_->feed.begin(), p_->feed.end());
+    for (Caption& c : out)  // a voice without a number yet is shown as unnamed
+        for (CaptionLine& l : c.lines)
+            if (l.voiceId >= 100) l.voiceId = -1;
 }
 
 ListenState Listener::state() const {

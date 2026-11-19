@@ -6,6 +6,11 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 2.8.1
+- Captions are tidier: voices no longer run up to "Voice 10". A voice gets a number only once it has been heard a few times (six at most), a line it can't place gets a plain bar instead of a guess, a voice is named once until the speaker changes, and the language and time show only when they change.
+- VRChat chatbox on "Both": the translation on top with your own words under it in brackets, and when it's too long your words are shortened instead of the translation being cut off.
+- Report a problem (Settings > About) now opens a new report on the GitHub page with your version and setup filled in. Say what happened, drag in the file it puts on your Desktop, and submit.
+
 ## 2.8.0
 - OpenAI is now a translation choice next to Claude and Gemini (GPT-6 Luna: quick and cheap, and you can try it on OpenAI's free plan). The setup and Settings have a step-by-step guide with pictures, and Check key tells you if the key works or the account needs credit.
 - Casual and Very casual really are casual now. They no longer translate your sentence word for word: they say what you mean the way you'd say it to a friend (or your closest friend), however neatly you said it. Polite forms are ruled out, slang is expected on Very casual, each common language gets told what casual speech looks like in it, and polite people around you no longer pull you back to formal. DeepL, as your service or as the backup, now also uses informal words (du, tu, tú...) on the casual styles and polite ones on Polite, in the languages where it can.

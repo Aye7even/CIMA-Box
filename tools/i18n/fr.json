@@ -715,7 +715,6 @@
  "Key to switch click-through": "Touche du clic à travers",
  "You type these a lot": "Vous tapez souvent ceci",
  "Saved lines": "Phrases enregistrées",
- "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you.": "Met un fichier sur votre Bureau avec ce qu'il faut pour trouver le problème (aucune clé, rien de ce que quelqu'un a dit). Envoyez-le à la personne qui vous aide.",
  "Or click Cancel on the bar at the bottom. Adds this wait to every phrase.": "Ou cliquez sur Annuler dans la barre du bas. Ajoute cette attente à chaque phrase.",
  "It only switches after they say two things in a row in that language, so one short word can't flip it. Pick a language yourself any time; it switches again when someone speaks another language.": "Ça ne change qu'après deux phrases d'affilée dans cette langue, donc un mot court ne suffit pas. Choisissez vous-même une langue quand vous voulez ; ça rechange quand quelqu'un parle une autre langue.",
  "\"Detect automatically\" then sticks to these. Leave a list empty to allow every language.": "« Détection automatique » s'en tient alors à celles-ci. Laissez une liste vide pour autoriser toutes les langues.",
@@ -821,5 +820,7 @@
  "About costs and your keys": "À propos des coûts et de vos clés",
  "Got it": "Compris",
  "Couldn't check right now": "Vérification impossible pour l'instant",
- "Answering normally (checked from this PC)": "Répond normalement (vérifié depuis ce PC)"
+ "Answering normally (checked from this PC)": "Répond normalement (vérifié depuis ce PC)",
+ "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "Ouvre un nouveau rapport sur la page GitHub de CIMA Box avec l'essentiel déjà rempli, et met un fichier sur votre Bureau à y faire glisser. Aucune clé, rien de ce que quelqu'un a dit. Il faut un compte GitHub gratuit ; les rapports y sont publics.",
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Dites ce qui s'est passé sur la page qui s'est ouverte, faites-y glisser « CIMA Box problem report.txt » depuis votre Bureau, puis appuyez sur Submit."
 }

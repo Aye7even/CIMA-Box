@@ -715,7 +715,6 @@
  "Key to switch click-through": "Tombol klik tembus",
  "You type these a lot": "Kamu sering mengetik ini",
  "Saved lines": "Baris tersimpan",
- "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you.": "Menaruh satu file di Desktop berisi yang dibutuhkan untuk menemukan masalahnya (tanpa key, tanpa kata-kata siapa pun). Kirim ke orang yang membantumu.",
  "Or click Cancel on the bar at the bottom. Adds this wait to every phrase.": "Atau klik Batal di bar bawah. Menambah jeda ini ke setiap frasa.",
  "It only switches after they say two things in a row in that language, so one short word can't flip it. Pick a language yourself any time; it switches again when someone speaks another language.": "Hanya berganti setelah mereka mengucapkan dua hal berturut-turut dalam bahasa itu, jadi satu kata pendek tidak bisa menggantinya. Pilih bahasa sendiri kapan saja; akan berganti lagi saat seseorang bicara bahasa lain.",
  "\"Detect automatically\" then sticks to these. Leave a list empty to allow every language.": "\"Deteksi otomatis\" lalu hanya memakai ini. Biarkan daftar kosong untuk mengizinkan semua bahasa.",
@@ -821,5 +820,7 @@
  "About costs and your keys": "Tentang biaya dan key-mu",
  "Got it": "Mengerti",
  "Couldn't check right now": "Tidak bisa dicek sekarang",
- "Answering normally (checked from this PC)": "Merespons normal (dicek dari PC ini)"
+ "Answering normally (checked from this PC)": "Merespons normal (dicek dari PC ini)",
+ "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "Membuka laporan baru di halaman GitHub CIMA Box dengan data dasar sudah terisi, dan menaruh satu file di Desktop untuk diseret ke sana. Tanpa key, tanpa kata-kata siapa pun. Butuh akun GitHub gratis; laporan di sana bersifat publik.",
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Tulis apa yang terjadi di halaman yang terbuka, seret \"CIMA Box problem report.txt\" dari Desktop ke sana, lalu tekan Submit."
 }

@@ -715,7 +715,6 @@
  "Key to switch click-through": "Tecla para el clic a través",
  "You type these a lot": "Escribes mucho esto",
  "Saved lines": "Frases guardadas",
- "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you.": "Deja un archivo en tu Escritorio con lo necesario para encontrar el problema (sin claves, nada de lo que dijo nadie). Envíaselo a quien te ayude.",
  "Or click Cancel on the bar at the bottom. Adds this wait to every phrase.": "O haz clic en Cancelar en la barra de abajo. Añade esta espera a cada frase.",
  "It only switches after they say two things in a row in that language, so one short word can't flip it. Pick a language yourself any time; it switches again when someone speaks another language.": "Solo cambia después de que digan dos cosas seguidas en ese idioma, así una palabra corta no lo cambia. Elige un idioma tú cuando quieras; vuelve a cambiar cuando alguien hable otro idioma.",
  "\"Detect automatically\" then sticks to these. Leave a list empty to allow every language.": "\"Detectar automáticamente\" se limita entonces a estos. Deja una lista vacía para permitir todos.",
@@ -821,5 +820,7 @@
  "About costs and your keys": "Sobre los costes y tus claves",
  "Got it": "Entendido",
  "Couldn't check right now": "No se pudo comprobar ahora",
- "Answering normally (checked from this PC)": "Responde con normalidad (comprobado desde este PC)"
+ "Answering normally (checked from this PC)": "Responde con normalidad (comprobado desde este PC)",
+ "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "Abre un informe nuevo en la página de GitHub de CIMA Box con lo básico ya rellenado, y deja un archivo en tu Escritorio para arrastrarlo allí. Sin claves, nada de lo que dijo nadie. Necesita una cuenta gratis de GitHub; los informes allí son públicos.",
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Cuenta qué pasó en la página que se abrió, arrastra \"CIMA Box problem report.txt\" desde tu Escritorio y pulsa Submit."
 }

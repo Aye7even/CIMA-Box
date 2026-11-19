@@ -74,6 +74,7 @@ struct ListenConfig {
     bool ignoreNoise = true;             // drop captions that are only music or noise
     bool liveCaptions = false;           // words while they're still talking
     bool voiceIds = true;                // tell voices apart across captions
+    std::vector<int> keepVoices;         // voice numbers that must stay as they are (muted ones)
     bool maskSwears = false;             // f***
 };
 

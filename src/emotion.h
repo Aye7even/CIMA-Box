@@ -14,6 +14,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 // ---------------------------------------------------------------- measuring
@@ -35,9 +36,32 @@ int guessVoiceGender(const std::vector<int16_t>& pcm16k, float startS, float end
 
 // A rough fingerprint of a voice, to tell the same person apart across captions: typical pitch,
 // how much the pitch moves, and how bright the voice sounds. False when there's too little voice.
-struct VoicePrint { float pitch = 0, spread = 0, bright = 0; };
+struct VoicePrint { float pitch = 0, spread = 0, bright = 0, voiced = 0; };  // voiced: seconds of clear voice it came from
 bool voicePrint(const std::vector<int16_t>& pcm16k, float startS, float endS, VoicePrint& out);
 float voiceDistance(const VoicePrint& a, const VoicePrint& b);  // about 1 = probably not the same person
+
+// Keeps track of who is who among the voices heard (Listen's "Same voice, same color"). A voice
+// print from a few seconds of speech is a rough thing, so this is careful on purpose: it would
+// rather leave a line unnamed than give the same person three numbers.
+//  - A voice only gets a number once it has been heard three times.
+//  - A line that could be one of two people, or is too short to tell, stays unnamed (-1).
+//  - Whoever spoke a moment ago is the likeliest to be speaking now.
+//  - At most kMax numbers; one that has been quiet for a while is given up and can be used again.
+class VoiceBook {
+public:
+    static constexpr int kMax = 6;
+    // Which voice this is: 0..kMax-1; 100 or more = remembered but without a number yet (show it as
+    // unnamed); -1 = can't say. `now` in seconds (any steady clock).
+    // `keep`: numbers that must not be given up or reused (muted voices).
+    // `renamed`: (from, to) pairs for lines already shown; "from" >= 100 is a voice that had no number yet.
+    int who(const VoicePrint& p, double now, const std::vector<int>& keep, std::vector<std::pair<int, int>>& renamed);
+    void clear() { voices_.clear(); nextTemp_ = 100; last_ = -1; }
+
+private:
+    struct Known { VoicePrint mean; int count = 0; double heard = 0; int id = -1; };  // id >= 100: no number yet
+    std::vector<Known> voices_;
+    int nextTemp_ = 100, last_ = -1;
+};
 
 // The speaker's usual voice, learned from ordinary phrases and saved with the settings.
 struct VoiceBaseline {

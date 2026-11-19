@@ -715,7 +715,6 @@
  "Key to switch click-through": "点击穿透键",
  "You type these a lot": "你经常输入这句",
  "Saved lines": "已保存的句子",
- "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you.": "在桌面放一个文件，包含查找问题所需的内容（不含密钥，也不含任何人说的话）。发给帮你的人。",
  "Or click Cancel on the bar at the bottom. Adds this wait to every phrase.": "或者点底部栏的取消。每句话都会加上这段等待。",
  "It only switches after they say two things in a row in that language, so one short word can't flip it. Pick a language yourself any time; it switches again when someone speaks another language.": "只有在他们连续两次用那种语言说话后才会切换，所以一个短词不会改变它。你随时可以自己选语言；有人说别的语言时会再次切换。",
  "\"Detect automatically\" then sticks to these. Leave a list empty to allow every language.": "“自动检测”届时只在这些语言里选。留空则允许所有语言。",
@@ -821,5 +820,7 @@
  "About costs and your keys": "关于费用和你的密钥",
  "Got it": "知道了",
  "Couldn't check right now": "暂时无法检查",
- "Answering normally (checked from this PC)": "响应正常（从这台电脑检查）"
+ "Answering normally (checked from this PC)": "响应正常（从这台电脑检查）",
+ "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "在 CIMA Box 的 GitHub 页面打开一份已填好基本信息的新报告，并在桌面放一个文件供你拖进去。不含密钥，也不含任何人说的话。需要一个免费的 GitHub 账户；那里的报告是公开的。",
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "在打开的页面上写下发生了什么，把桌面上的“CIMA Box problem report.txt”拖进去，然后按 Submit。"
 }

@@ -1333,7 +1333,7 @@ static void workerLoop() {
             std::string text;
             if (s.chatboxShow == kShowSaid) text = said;
             else if (s.chatboxShow == kShowSpoken) text = voiced;
-            else text = (said == voiced || voiced.empty()) ? said : said + "\n" + voiced;
+            else text = chatboxPair(voiced.empty() ? said : voiced, said);  // what the voice said, your own words under it
             if (!text.empty()) {
                 std::lock_guard<std::mutex> lk(g.mtx);
                 g.chatText = text;
@@ -2498,21 +2498,42 @@ int main() {
             }
         }
         if (act.reportProblem) {
-            // One file to send: what CIMA Box is, the settings (no keys) and the recent log.
-            std::string text = std::string("CIMA Box ") + CIMA_FULL_VERSION + " on " + windowsVersion() + "\n" + usingLine(ui.cfg) + "\n";
-            if (!ui.lastError.empty()) text += "My voice problem: " + ui.lastError + "\n";
-            if (!ui.listen.error.empty()) text += "Listen problem: " + ui.listen.error + "\n";
-            text += "\n---- cimabox.log (the end) ----\n";
+            // A file with what's needed to find the problem (no keys, nothing anyone said), and a new
+            // report on the project's GitHub page with the basics filled in. Reports there are public,
+            // so the Windows user name is taken out of any folder paths too.
+            auto withoutName = [](std::string t) {
+                const char* home = std::getenv("USERPROFILE");
+                const char* user = std::getenv("USERNAME");
+                auto swap = [&t](const std::string& what, const std::string& with) {
+                    if (what.size() < 3) return;
+                    for (size_t at = t.find(what); at != std::string::npos; at = t.find(what, at + with.size())) t.replace(at, what.size(), with);
+                };
+                if (home) swap(home, "%USERPROFILE%");
+                if (user) swap(std::string("\\Users\\") + user, "\\Users\\(you)");
+                return t;
+            };
+            std::string basics = std::string("CIMA Box ") + CIMA_FULL_VERSION + " on " + windowsVersion() + "\n" + usingLine(ui.cfg) + "\n";
+            if (!ui.lastError.empty()) basics += "My voice problem: " + ui.lastError + "\n";
+            if (!ui.listen.error.empty()) basics += "Listen problem: " + ui.listen.error + "\n";
+            basics = withoutName(logRedact(basics));
+            std::string text = basics + "\n---- cimabox.log (the end) ----\n";
             std::ifstream lf(logPath(), std::ios::binary);
             std::string all((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
             if (all.size() > 60000) all = all.substr(all.size() - 60000);
-            text += logRedact(all);  // keys were never written, but just in case
+            text += withoutName(logRedact(all));  // keys were never written, but just in case
             const fs::path file = desktopDir() / "CIMA Box problem report.txt";
             std::ofstream rf(file, std::ios::binary);
             rf << text;
             rf.close();
             ui.reportPath = file.u8string();
-            openPath(file);
+            // The web address has to stay short (Windows opens at most about 2,000 characters), so the
+            // page gets the basics and the file carries the rest.
+            if (basics.size() > 450) basics = clipUtf8(basics, 450) + "...";
+            const std::string body = "**What happened?**\n(write here: what you did, and what went wrong)\n\n"
+                                     "**Report file**\nDrag \"CIMA Box problem report.txt\" from your Desktop into this box.\n\n"
+                                     "**Basics**\n```\n" + basics + "```\n";
+            openPath(fs::u8path("https://github.com/Aye7even/CIMA-Box/issues/new?title=" +
+                                Http::urlEncode(std::string("Problem report (") + CIMA_FULL_VERSION + ")") + "&body=" + Http::urlEncode(body)));
         }
         // ---- Features page: typed lines, trying styles, learning mode, history, the caption window
         if (!act.sendText.empty()) countSentLine(ui.cfg.fx, act.sendText);
@@ -2784,6 +2805,7 @@ int main() {
             lc.ignoreNoise = ui.cfg.fx.ignoreNoise;
             lc.liveCaptions = ui.cfg.fx.liveCaptions;
             lc.voiceIds = ui.cfg.fx.voiceIds;
+            lc.keepVoices = ui.mutedVoices;
             lc.maskSwears = ui.cfg.fx.maskCaptions;
             gListen.configure(lc);
         }

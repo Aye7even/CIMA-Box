@@ -715,7 +715,6 @@
  "Key to switch click-through": "Taste für Durchklicken",
  "You type these a lot": "Das tippst du oft",
  "Saved lines": "Gespeicherte Sätze",
- "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you.": "Legt eine Datei auf deinen Desktop mit allem, was man zum Finden des Problems braucht (keine Schlüssel, nichts, was jemand gesagt hat). Schick sie dem, der dir hilft.",
  "Or click Cancel on the bar at the bottom. Adds this wait to every phrase.": "Oder klick unten in der Leiste auf Abbrechen. Fügt diese Wartezeit jedem Satz hinzu.",
  "It only switches after they say two things in a row in that language, so one short word can't flip it. Pick a language yourself any time; it switches again when someone speaks another language.": "Es wechselt erst, wenn zwei Sätze hintereinander in dieser Sprache kommen, also kann ein kurzes Wort nichts umschalten. Wähl jederzeit selbst eine Sprache; es wechselt wieder, wenn jemand eine andere Sprache spricht.",
  "\"Detect automatically\" then sticks to these. Leave a list empty to allow every language.": "„Automatisch erkennen“ bleibt dann bei diesen. Lass eine Liste leer, um alle Sprachen zu erlauben.",
@@ -821,5 +820,7 @@
  "About costs and your keys": "Über Kosten und deine Schlüssel",
  "Got it": "Alles klar",
  "Couldn't check right now": "Gerade nicht prüfbar",
- "Answering normally (checked from this PC)": "Antwortet normal (von diesem PC aus geprüft)"
+ "Answering normally (checked from this PC)": "Antwortet normal (von diesem PC aus geprüft)",
+ "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "Öffnet eine neue Meldung auf der GitHub-Seite von CIMA Box, das Wichtigste ist schon ausgefüllt, und legt eine Datei auf deinen Desktop, die du dort hineinziehst. Keine Schlüssel, nichts, was jemand gesagt hat. Braucht ein kostenloses GitHub-Konto; Meldungen dort sind öffentlich.",
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Schreib auf der geöffneten Seite, was passiert ist, zieh „CIMA Box problem report.txt“ von deinem Desktop hinein und drück auf Submit."
 }

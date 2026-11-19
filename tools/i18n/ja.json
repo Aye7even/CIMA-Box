@@ -715,7 +715,6 @@
  "Key to switch click-through": "クリック透過キー",
  "You type these a lot": "よく入力する文",
  "Saved lines": "保存した行",
- "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you.": "問題を見つけるのに必要なものをまとめたファイルをデスクトップに置きます(キーも、誰かの発言も含みません)。手伝ってくれる人に送ってください。",
  "Or click Cancel on the bar at the bottom. Adds this wait to every phrase.": "または下のバーのキャンセルをクリック。この待ち時間がすべてのフレーズに加わります。",
  "It only switches after they say two things in a row in that language, so one short word can't flip it. Pick a language yourself any time; it switches again when someone speaks another language.": "その言語で2回続けて話されたときだけ切り替わるので、短い一言では変わりません。いつでも自分で言語を選べます。誰かが別の言語を話すとまた切り替わります。",
  "\"Detect automatically\" then sticks to these. Leave a list empty to allow every language.": "「自動検出」はこの中だけから選びます。空にするとすべての言語を許可します。",
@@ -821,5 +820,7 @@
  "About costs and your keys": "費用とキーについて",
  "Got it": "わかりました",
  "Couldn't check right now": "今は確認できません",
- "Answering normally (checked from this PC)": "正常に応答中(このPCから確認)"
+ "Answering normally (checked from this PC)": "正常に応答中(このPCから確認)",
+ "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "CIMA BoxのGitHubページで、基本情報が入った新しい報告を開き、そこにドラッグするファイルをデスクトップに置きます。キーも、誰かの発言も含みません。無料のGitHubアカウントが必要で、報告は公開されます。",
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "開いたページに何が起きたかを書き、デスクトップの「CIMA Box problem report.txt」をドラッグして、Submitを押してください。"
 }

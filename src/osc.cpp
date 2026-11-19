@@ -29,6 +29,43 @@ std::string clipUtf8(const std::string& s, size_t maxChars) {
     return s.substr(0, i);
 }
 
+namespace {
+size_t utf8Chars(const std::string& s) {
+    size_t n = 0;
+    for (unsigned char c : s) n += (c & 0xC0) != 0x80;
+    return n;
+}
+// One tidy line: no line breaks or doubled spaces, nothing at the ends.
+std::string oneLine(const std::string& s) {
+    std::string o;
+    for (char c : s) {
+        const bool space = c == ' ' || c == '\n' || c == '\r' || c == '\t';
+        if (space && (o.empty() || o.back() == ' ')) continue;
+        o += space ? ' ' : c;
+    }
+    while (!o.empty() && o.back() == ' ') o.pop_back();
+    return o;
+}
+std::string shortened(const std::string& s, size_t maxChars) {  // with "..." when cut
+    if (utf8Chars(s) <= maxChars) return s;
+    if (maxChars < 2) return std::string();
+    std::string cut = clipUtf8(s, maxChars - 1);
+    while (!cut.empty() && cut.back() == ' ') cut.pop_back();
+    return cut + "\xE2\x80\xA6";
+}
+}  // namespace
+
+std::string chatboxPair(const std::string& topIn, const std::string& underIn, size_t maxChars) {
+    const std::string top = oneLine(topIn), under = oneLine(underIn);
+    if (top.empty()) return shortened(under, maxChars);
+    if (under.empty() || under == top) return shortened(top, maxChars);
+    const size_t topN = utf8Chars(top);
+    if (topN >= maxChars) return shortened(top, maxChars);
+    const size_t room = maxChars - topN;  // for: line break, "(", the words, ")"
+    if (room < 3 + 12) return top;       // a few letters in brackets would only be clutter
+    return top + "\n(" + shortened(under, room - 3) + ")";
+}
+
 std::string oscChatboxPacket(const std::string& text) {
     std::string p;
     oscString(p, "/chatbox/input");
