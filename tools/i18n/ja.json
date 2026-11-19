@@ -822,5 +822,10 @@
  "Couldn't check right now": "今は確認できません",
  "Answering normally (checked from this PC)": "正常に応答中(このPCから確認)",
  "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "CIMA BoxのGitHubページで、基本情報が入った新しい報告を開き、そこにドラッグするファイルをデスクトップに置きます。キーも、誰かの発言も含みません。無料のGitHubアカウントが必要で、報告は公開されます。",
- "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "開いたページに何が起きたかを書き、デスクトップの「CIMA Box problem report.txt」をドラッグして、Submitを押してください。"
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "開いたページに何が起きたかを書き、デスクトップの「CIMA Box problem report.txt」をドラッグして、Submitを押してください。",
+ "People hear your own voice. Hold the key for a line in the new voice: your mic goes quiet from the press until that line has played.": "あなた自身の声が聞こえます。キーを押している間に話した一文が新しい声になります。押した瞬間から、その一文の再生が終わるまでマイクは無音です。",
+ "People hear nothing until you hold the key, then only the new voice.": "キーを押すまで何も聞こえず、押したときは新しい声だけが聞こえます。",
+ "Silent": "無音",
+ "My real voice": "本当の声",
+ "While not holding the key": "キーを押していないとき"
 }

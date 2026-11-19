@@ -661,6 +661,12 @@ void inputPanel(UiModel& m, UiActions& act) {
         keyBinder(m, 0, c.pttKey);
         note(kGlobalHotkey ? "Works while another window has focus. Recording runs a moment past release so the last word isn't cut."
                            : "Works while this window has focus. Recording runs a moment past release so the last word isn't cut.");
+        fieldLabel("While not holding the key");
+        static const char* const kUp[] = {"Silent", "My real voice"};
+        int up = c.pttRealVoice ? 1 : 0;
+        if (segmented("##pttup", kUp, 2, &up)) c.pttRealVoice = up == 1;
+        note(c.pttRealVoice ? "People hear your own voice. Hold the key for a line in the new voice: your mic goes quiet from the press until that line has played."
+                            : "People hear nothing until you hold the key, then only the new voice.");
     }
     sliderI("Longest phrase", &c.maxSeconds, 3, 30, "%d s");
 }
@@ -1123,6 +1129,7 @@ void header(UiModel& m, UiActions& act) {
     } else if (on) {
         if (m.recording) { state = "Recording"; color = kSignal; }
         else if (m.busy) { state = "Converting"; color = kBusy; }
+        else if (m.passing) { state = "Your mic"; color = kText; }  // push to talk, real voice between presses
         else { state = "Listening"; color = kText; }
     }
     state = T(state);

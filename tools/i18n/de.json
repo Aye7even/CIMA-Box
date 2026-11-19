@@ -822,5 +822,10 @@
  "Couldn't check right now": "Gerade nicht prüfbar",
  "Answering normally (checked from this PC)": "Antwortet normal (von diesem PC aus geprüft)",
  "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "Öffnet eine neue Meldung auf der GitHub-Seite von CIMA Box, das Wichtigste ist schon ausgefüllt, und legt eine Datei auf deinen Desktop, die du dort hineinziehst. Keine Schlüssel, nichts, was jemand gesagt hat. Braucht ein kostenloses GitHub-Konto; Meldungen dort sind öffentlich.",
- "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Schreib auf der geöffneten Seite, was passiert ist, zieh „CIMA Box problem report.txt“ von deinem Desktop hinein und drück auf Submit."
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Schreib auf der geöffneten Seite, was passiert ist, zieh „CIMA Box problem report.txt“ von deinem Desktop hinein und drück auf Submit.",
+ "People hear your own voice. Hold the key for a line in the new voice: your mic goes quiet from the press until that line has played.": "Man hört deine eigene Stimme. Halte die Taste für einen Satz mit der neuen Stimme: Dein Mikro ist vom Drücken an still, bis dieser Satz abgespielt ist.",
+ "People hear nothing until you hold the key, then only the new voice.": "Man hört nichts, bis du die Taste hältst, dann nur die neue Stimme.",
+ "Silent": "Stumm",
+ "My real voice": "Meine echte Stimme",
+ "While not holding the key": "Wenn du die Taste nicht hältst"
 }

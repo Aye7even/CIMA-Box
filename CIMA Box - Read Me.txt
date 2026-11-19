@@ -1,4 +1,4 @@
-CIMA Box 2.8.1
+CIMA Box 2.8.2
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -85,6 +85,12 @@ Input
   Pause that ends a phrase . How long a pause sends what you said. Shorter = less delay, but
                              it may cut you off between words.
   Key ...................... (Push to talk) Click it, then press the key you want to use.
+  While not holding the key  (Push to talk) Silent: people hear nothing until you hold the key,
+                             then only the new voice. My real voice: people hear your own voice
+                             normally, and a line said while holding the key comes out in the
+                             new voice (or translated). Your mic goes quiet from the moment you
+                             press until that line has finished playing, so the two never
+                             overlap. Needs the voice changer switch on.
   Longest phrase ........... If you talk without pausing, it is sent after this many seconds.
 
 Voice

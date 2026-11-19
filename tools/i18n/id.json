@@ -822,5 +822,10 @@
  "Couldn't check right now": "Tidak bisa dicek sekarang",
  "Answering normally (checked from this PC)": "Merespons normal (dicek dari PC ini)",
  "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "Membuka laporan baru di halaman GitHub CIMA Box dengan data dasar sudah terisi, dan menaruh satu file di Desktop untuk diseret ke sana. Tanpa key, tanpa kata-kata siapa pun. Butuh akun GitHub gratis; laporan di sana bersifat publik.",
- "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Tulis apa yang terjadi di halaman yang terbuka, seret \"CIMA Box problem report.txt\" dari Desktop ke sana, lalu tekan Submit."
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Tulis apa yang terjadi di halaman yang terbuka, seret \"CIMA Box problem report.txt\" dari Desktop ke sana, lalu tekan Submit.",
+ "People hear your own voice. Hold the key for a line in the new voice: your mic goes quiet from the press until that line has played.": "Orang mendengar suaramu sendiri. Tahan tombol untuk satu kalimat dengan suara baru: mikrofonmu diam sejak ditekan sampai kalimat itu selesai diputar.",
+ "People hear nothing until you hold the key, then only the new voice.": "Orang tidak mendengar apa-apa sampai kamu menahan tombol, lalu hanya suara baru.",
+ "Silent": "Senyap",
+ "My real voice": "Suara asliku",
+ "While not holding the key": "Saat tidak menahan tombol"
 }

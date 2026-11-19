@@ -822,5 +822,10 @@
  "Couldn't check right now": "暂时无法检查",
  "Answering normally (checked from this PC)": "响应正常（从这台电脑检查）",
  "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "在 CIMA Box 的 GitHub 页面打开一份已填好基本信息的新报告，并在桌面放一个文件供你拖进去。不含密钥，也不含任何人说的话。需要一个免费的 GitHub 账户；那里的报告是公开的。",
- "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "在打开的页面上写下发生了什么，把桌面上的“CIMA Box problem report.txt”拖进去，然后按 Submit。"
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "在打开的页面上写下发生了什么，把桌面上的“CIMA Box problem report.txt”拖进去，然后按 Submit。",
+ "People hear your own voice. Hold the key for a line in the new voice: your mic goes quiet from the press until that line has played.": "别人听到你自己的声音。按住按键说的那句会用新声音说出：从按下那一刻起，直到那句播放完，你的麦克风都会静音。",
+ "People hear nothing until you hold the key, then only the new voice.": "在你按住按键之前别人什么也听不到，按住后只听到新声音。",
+ "Silent": "静音",
+ "My real voice": "我的真声",
+ "While not holding the key": "没有按住按键时"
 }

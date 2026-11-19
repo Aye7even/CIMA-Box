@@ -83,6 +83,7 @@ struct Settings {
     bool monitor = false;
     bool enabled = true;
     int activation = kVoiceActivity;
+    bool pttRealVoice = false;         // push to talk: while the key is up, your own mic goes out (off = silence)
     float thresholdDb = -40.f;
     int holdMs = 350;
     int maxSeconds = 12;

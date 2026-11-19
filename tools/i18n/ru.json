@@ -822,5 +822,10 @@
  "Couldn't check right now": "Сейчас не удалось проверить",
  "Answering normally (checked from this PC)": "Отвечает нормально (проверено с этого ПК)",
  "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "Открывает новое сообщение на странице CIMA Box в GitHub с уже заполненными основными данными и кладёт на Рабочий стол файл, который нужно туда перетащить. Без ключей и без чьих-либо слов. Нужен бесплатный аккаунт GitHub; сообщения там видны всем.",
- "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Опишите на открывшейся странице, что случилось, перетащите туда «CIMA Box problem report.txt» с Рабочего стола и нажмите Submit."
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "Опишите на открывшейся странице, что случилось, перетащите туда «CIMA Box problem report.txt» с Рабочего стола и нажмите Submit.",
+ "People hear your own voice. Hold the key for a line in the new voice: your mic goes quiet from the press until that line has played.": "Слышен ваш настоящий голос. Удерживайте клавишу, чтобы сказать фразу новым голосом: микрофон молчит с момента нажатия, пока эта фраза не прозвучит.",
+ "People hear nothing until you hold the key, then only the new voice.": "Ничего не слышно, пока вы не удерживаете клавишу, а потом только новый голос.",
+ "Silent": "Тишина",
+ "My real voice": "Мой настоящий голос",
+ "While not holding the key": "Пока клавиша не нажата"
 }

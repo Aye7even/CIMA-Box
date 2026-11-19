@@ -822,5 +822,10 @@
  "Couldn't check right now": "지금은 확인할 수 없음",
  "Answering normally (checked from this PC)": "정상 응답 중(이 PC에서 확인)",
  "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "CIMA Box의 GitHub 페이지에 기본 정보가 채워진 새 신고를 열고, 거기에 끌어다 놓을 파일을 바탕 화면에 둬요. 키도, 누가 한 말도 없어요. 무료 GitHub 계정이 필요하고, 신고는 공개돼요.",
- "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "열린 페이지에 무슨 일이 있었는지 적고, 바탕 화면의 \"CIMA Box problem report.txt\"를 끌어다 놓은 뒤 Submit을 누르세요."
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "열린 페이지에 무슨 일이 있었는지 적고, 바탕 화면의 \"CIMA Box problem report.txt\"를 끌어다 놓은 뒤 Submit을 누르세요.",
+ "People hear your own voice. Hold the key for a line in the new voice: your mic goes quiet from the press until that line has played.": "내 목소리가 그대로 들려요. 키를 누르고 말한 문장은 새 목소리로 나가요. 누른 순간부터 그 문장이 다 나올 때까지 마이크는 조용해요.",
+ "People hear nothing until you hold the key, then only the new voice.": "키를 누르기 전에는 아무것도 안 들리고, 누르면 새 목소리만 들려요.",
+ "Silent": "무음",
+ "My real voice": "내 진짜 목소리",
+ "While not holding the key": "키를 누르고 있지 않을 때"
 }

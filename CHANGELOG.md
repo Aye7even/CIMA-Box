@@ -6,6 +6,9 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 2.8.2
+- Push to talk can now leave your real voice on between presses (My voice > Input > While not holding the key > My real voice). Talk normally, and hold the key when you want a line translated or in the new voice. Your mic goes quiet from the press until that line has played, so people never hear both at once. Silent, the way it worked before, stays the default.
+
 ## 2.8.1
 - Captions are tidier: voices no longer run up to "Voice 10". A voice gets a number only once it has been heard a few times (six at most), a line it can't place gets a plain bar instead of a guess, a voice is named once until the speaker changes, and the language and time show only when they change.
 - VRChat chatbox on "Both": the translation on top with your own words under it in brackets, and when it's too long your words are shortened instead of the translation being cut off.

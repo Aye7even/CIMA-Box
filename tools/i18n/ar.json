@@ -822,5 +822,10 @@
  "Couldn't check right now": "تعذّر التحقق الآن",
  "Answering normally (checked from this PC)": "يستجيب بشكل طبيعي (فُحص من هذا الحاسوب)",
  "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public.": "يفتح بلاغًا جديدًا في صفحة CIMA Box على GitHub مع تعبئة الأساسيات، ويضع ملفًا على سطح المكتب لتسحبه إليها. بلا مفاتيح، ولا شيء مما قاله أحد. يحتاج إلى حساب GitHub مجاني؛ البلاغات هناك علنية.",
- "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "اكتب ما حدث في الصفحة التي فُتحت، واسحب إليها «CIMA Box problem report.txt» من سطح المكتب، ثم اضغط Submit."
+ "Say what happened on the page that opened, drag \"CIMA Box problem report.txt\" from your Desktop into it, and press Submit.": "اكتب ما حدث في الصفحة التي فُتحت، واسحب إليها «CIMA Box problem report.txt» من سطح المكتب، ثم اضغط Submit.",
+ "People hear your own voice. Hold the key for a line in the new voice: your mic goes quiet from the press until that line has played.": "يسمع الناس صوتك الحقيقي. اضغط مطولًا على المفتاح لتقول جملة بالصوت الجديد: يصمت ميكروفونك من لحظة الضغط حتى ينتهي تشغيل تلك الجملة.",
+ "People hear nothing until you hold the key, then only the new voice.": "لا يسمع الناس شيئًا حتى تضغط على المفتاح، ثم الصوت الجديد فقط.",
+ "Silent": "صامت",
+ "My real voice": "صوتي الحقيقي",
+ "While not holding the key": "عندما لا تضغط على المفتاح"
 }

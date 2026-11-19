@@ -250,6 +250,7 @@ static void settingsFromJson(const json& j, Settings& s) {
         }
         s.matchAmount = j.value("match_amount", s.matchAmount);
         s.passthrough = j.value("passthrough", s.passthrough);
+        s.pttRealVoice = j.value("ptt_real_voice", s.pttRealVoice);
         s.chatbox = j.value("voice_chatbox", s.chatbox);
         s.chatboxShow = j.value("voice_chatbox_show", s.chatboxShow);
         s.textTranslate = j.value("text_translate", s.textTranslate);
@@ -468,7 +469,7 @@ static std::string settingsJson(const Settings& s) {
         {"hold_ms", s.holdMs}, {"max_seconds", s.maxSeconds}, {"ptt_key", s.pttKey},
         {"page", s.page},
         {"emotion", s.emotion}, {"emotion_strength", s.emotionStrength},
-        {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough},
+        {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough}, {"ptt_real_voice", s.pttRealVoice},
         {"voice_chatbox", s.chatbox}, {"voice_chatbox_show", s.chatboxShow},
         {"text_translate", s.textTranslate}, {"text_speak", s.textSpeak}, {"setup_done", s.setupDone},
         {"setup_at", s.setupAt}, {"setup_use", s.setupUse}, {"setup_route", s.setupRoute}, {"setup_ai", s.setupAi},
@@ -967,6 +968,7 @@ static void captureLoop() {
     const bool convOk = ma_data_converter_init(&cc, nullptr, &conv) == MA_SUCCESS;
     float convOut[kIn];
     bool wasOpen = false;
+    bool voiceTurn = false;  // push to talk with your real voice between presses: the new voice's turn
     while (g.running) {
         if (!convOk || g.capRing.size() < size_t(kIn)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -975,13 +977,15 @@ static void captureLoop() {
         g.capRing.pop(in, kIn);
 
         GateParams p;
-        bool enabled, passthrough, matchMic;
+        bool enabled, passthrough, matchMic, realBetween, jobsWaiting;
         {
             std::lock_guard<std::mutex> lk(g.mtx);
             enabled = g.cfg.enabled && !g.realVoice;   // "my real voice" key: your own mic goes out instead
             passthrough = g.cfg.passthrough || g.realVoice;
             matchMic = g.cfg.matchMic;
             p.pushToTalk = g.cfg.activation == kPushToTalk;
+            realBetween = p.pushToTalk && g.cfg.pttRealVoice;
+            jobsWaiting = !g.jobs.empty();
             p.thresholdDb = g.cfg.thresholdDb;
             p.holdMs = g.cfg.holdMs;
             p.maxSeconds = g.cfg.maxSeconds;
@@ -990,7 +994,18 @@ static void captureLoop() {
 
         // Your real voice to the output, kept short so it stays in sync (drops 10 ms when the two
         // devices' clocks have drifted 150 ms apart).
-        const bool passing = !enabled && passthrough && g.out.on;
+        bool passing = !enabled && passthrough && g.out.on;
+        // Push to talk with "my real voice" between presses: your own mic goes out whenever the key is
+        // up, except during the new voice's turn. That turn starts the moment you press (so nothing is
+        // heard twice) and lasts until the phrase was recorded, translated and fully played, so people
+        // never hear you and the new voice on top of each other.
+        if (enabled && realBetween && g.out.on) {
+            if (g.pttDown || g.recording || g.busy || jobsWaiting) voiceTurn = true;
+            else if (voiceTurn && g.out.ring.size() < size_t(kDeviceRate) / 50) voiceTurn = false;  // played out
+            passing = !voiceTurn;
+        } else {
+            voiceTurn = false;
+        }
         for (int i = 0; i < kIn; ++i) pass[i] = int16_t(std::max(-1.f, std::min(1.f, in[i])) * 32767.f);
         fullQ.insert(fullQ.end(), pass, pass + kIn);
         if (passing) {
@@ -1081,6 +1096,7 @@ static void workerLoop() {
                 testJob = g.jobs.front().test;
                 g.jobs.pop_front();
                 haveJob = true;
+                g.busy = true;  // in the same moment the queue empties, so nothing sees "no job and not busy" in between
             }
             for (const Voice& v : g.voices) professional = professional || (v.id == s.voiceId && v.category == "professional");
         }
@@ -1823,7 +1839,8 @@ static std::string usingLine(const Settings& c) {
                        engines[std::max(0, std::min(2, c.engine))] + " (" + (c.engine == kVoiceChanger ? c.stsModel : c.ttsModel) + ")";
     if (c.engine == kTranslate) line += ", " + (c.spokenLang.empty() ? std::string("auto") : c.spokenLang) + " to " + c.targetLang;
     line += std::string(", translation ") + services[std::max(0, std::min(4, c.translateService))];
-    line += ", quality " + std::to_string(c.quality) + (c.matchMic ? ", match my mic" : "") + (c.passthrough ? ", passthrough" : "");
+    line += ", quality " + std::to_string(c.quality) + (c.matchMic ? ", match my mic" : "") + (c.passthrough ? ", passthrough" : "") +
+            (c.activation == kPushToTalk && c.pttRealVoice ? ", real voice between presses" : "");
     line += std::string(". Listen ") + (c.listen.on ? "on" : "off") + " (" + sources[std::max(0, std::min(2, c.listen.source))] +
             (c.listen.source == kSrcApp ? " " + c.listen.app : "") + ", to " + c.listen.toLang + "). VR " + (c.vr.on ? "on" : "off") +
             ". Chatbox " + (c.chatbox || c.listen.chatbox ? "on" : "off") + ". App language " + c.uiLanguage + ".";
