@@ -117,6 +117,14 @@ texts and broken `%` codes, and writes `src/i18n_data.h`.
 How people add their own language without rebuilding (a file in a `lang` folder) is explained in
 `CIMA Box - Read Me.txt`.
 
+## Key guide pictures
+
+The pictures in the setup's "how do I get this key?" guides live in `assets/guide/*.jpg` (already
+cropped, with personal details blurred and the clicks marked). They're built into the program
+through `src/guide_data.h`; after changing a picture, run `python tools/guide/make_header.py`.
+They're decoded with [stb_image](https://github.com/nothings/stb) (public domain), in
+`src/third_party/`.
+
 ## The app icon
 
 The picture in `assets/icon.png` is built into the program: the window and taskbar icon, the logo

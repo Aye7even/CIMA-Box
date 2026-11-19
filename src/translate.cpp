@@ -703,3 +703,49 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
     if (ok && !st.varietyName.empty()) via += " (standard " + std::string(to.name) + ")";
     return ok;
 }
+
+bool checkServiceKey(int service, const std::string& rawKey, std::string& msg) {
+    std::string key = rawKey;
+    while (!key.empty() && std::isspace(static_cast<unsigned char>(key.back()))) key.pop_back();
+    while (!key.empty() && std::isspace(static_cast<unsigned char>(key.front()))) key.erase(key.begin());
+    if (key.empty()) { msg = "Paste a key first."; return false; }
+    Http http;
+    HttpRequest r;
+    std::string payload;
+    if (service == kDeepL) {
+        r.url = deeplHost(key) + "/v2/usage";
+        r.headers = {"Authorization: DeepL-Auth-Key " + key};
+    } else if (service == kClaude) {  // one tiny message: also tells whether there are credits on the account
+        payload = json({{"model", "claude-haiku-5-5"}, {"max_tokens", 1},
+                        {"messages", json::array({{{"role", "user"}, {"content", "Hi"}}})}}).dump();
+        r.url = "https://api.anthropic.com/v1/messages";
+        r.headers = {"x-api-key: " + key, "anthropic-version: 2023-06-01", "content-type: application/json"};
+        r.body = &payload;
+    } else {
+        r.url = "https://generativelanguage.googleapis.com/v1beta/models";
+        r.headers = {"x-goog-api-key: " + key};
+    }
+    r.timeoutSec = 20;
+    long status = 0;
+    std::string body, err;
+    if (!http.perform(r, status, body, err)) {
+        msg = "Couldn't reach the service. Check your internet connection.";
+        return false;
+    }
+    const std::string low = lowerCopy(body);
+    if (status == 200) {
+        msg = "It works.";
+        return true;
+    }
+    if (service == kClaude && low.find("credit balance") != std::string::npos)
+        msg = "The key is right, but the account has no credits yet. Buy credits in the Claude Console (Billing).";
+    else if (status == 401 || status == 403 || (service == kGemini && status == 400))
+        msg = "That key was refused. Copy it again, the whole thing.";
+    else if (status == 456)
+        msg = "The key works, but this month's DeepL characters are used up.";
+    else if (status == 429)
+        msg = "The key works, but it's busy or out of credit right now.";
+    else
+        msg = "The service answered with an error (" + std::to_string(status) + "). Try again in a minute.";
+    return false;
+}

@@ -6,6 +6,12 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 2.7.3
+- The setup now walks you through getting every key, with pictures showing exactly where to click: ElevenLabs (required), then DeepL and Claude or Gemini (highly recommended, with what you'd miss without them). Each has a button that opens the right page and a Check key button that tells you if the key works, or what's wrong (like a Claude account with no credits yet).
+- The same guides are in Settings > Accounts: click "How do I get this?" under any key. Click a picture to see it bigger.
+- Getting the voice into a game or Discord is much clearer: a little drawing of how the virtual cable works, step-by-step install help for VB-CABLE, and where to pick it in Discord and in games.
+- If the setup asks you to restart your PC (VB-CABLE does), it continues where you left off.
+
 ## 2.7.2
 - CIMABox.exe is now the whole program: VR captions no longer need openvr_api.dll next to it, so downloading just the exe works for everything. (The old openvr_api.dll can be deleted.)
 - Spending limit (Settings > Accounts): a notice when one session uses more ElevenLabs credits, or more money on Claude or Gemini, than you set. It can also switch off talking and listening until you press OK.

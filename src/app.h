@@ -45,6 +45,7 @@ struct Settings {
     bool textTranslate = true;         // Text page: translate what you type (else read it as typed)
     bool textSpeak = true;
     bool setupDone = false;            // went through (or skipped) the setup walkthrough
+    int setupAt = 0, setupUse = 0, setupRoute = -1, setupAi = 1;  // where the walkthrough was (it continues after a restart)
     // Spending limit, per session (from when CIMA Box starts).
     bool spendWarn = true;
     int spendCredits = 20000;          // ElevenLabs credits
@@ -94,6 +95,15 @@ struct ChatLine {
     std::string language;  // theirs
     int speaker = -1;      // "Voice 1/2"
 };
+
+// The "how do I get this key?" guides, and their pictures (in this order in guide_data.h).
+enum KeyGuide { kGuideEleven = 0, kGuideDeepL, kGuideGemini, kGuideClaude, kGuideCount };
+enum GuidePicture { kPicEleven1 = 0, kPicEleven2, kPicEleven3, kPicDeepL, kPicGemini, kPicClaude, kPicCount };
+struct GuidePic {
+    uint64_t texture = 0;
+    int width = 0, height = 0;
+};
+enum KeyCheck { kCheckNone = 0, kChecking, kCheckGood, kCheckBad };
 
 // One entry of the small usage line at the bottom of the window.
 enum UsageLevel { kUsageOk = 0, kUsageLow, kUsageOut, kUsageUnknown };
@@ -159,6 +169,12 @@ struct UiModel {
     int setupStep = -1;                      // the walkthrough's screen, -1 = not showing
     int setupUse = 0;                        // SetupUse bits
     int setupRoute = kRouteNone;
+    int setupAi = kGuideGemini;              // the AI picked in setup (kGuideGemini or kGuideClaude)
+    GuidePic guidePics[kPicCount];
+    int bigPicture = -1;                     // a guide picture shown large
+    int guideOpen = -1;                      // Settings: a key guide shown in a window (KeyGuide)
+    int keyCheck[kGuideCount] = {};          // KeyCheck, for DeepL / Gemini / Claude ("Check key")
+    std::string keyCheckMsg[kGuideCount];
 
     // interface-only state
     std::string voiceFilter;
@@ -179,6 +195,7 @@ struct UiActions {
     std::string sendText;       // Text page: say this
     std::string testSound;      // setup: say this once, nowhere but the output
     bool openLog = false;
+    int checkKey = -1;          // KeyGuide whose key to try (DeepL, Gemini, Claude)
     bool spendOk = false;       // the spending notice was read: count the next limit from now
     std::string openUrl;        // a status page
 };

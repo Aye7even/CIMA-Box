@@ -40,6 +40,7 @@
 #include "listen.h"
 #include "micmatch.h"
 #include "applog.h"
+#include "guidepics.h"
 #include "servicestatus.h"
 #include "usage.h"
 #include "voiceout.h"
@@ -245,6 +246,10 @@ static void loadSettings(Settings& s) {
             // People who used CIMA Box before the walkthrough existed don't need it.
             s.setupDone = j.value("setup_done", !s.apiKey.empty());
             s.spendWarn = j.value("spend_warn", s.spendWarn);
+            s.setupAt = j.value("setup_at", s.setupAt);
+            s.setupUse = j.value("setup_use", s.setupUse);
+            s.setupRoute = j.value("setup_route", s.setupRoute);
+            s.setupAi = j.value("setup_ai", s.setupAi);
             s.spendCredits = std::max(500, j.value("spend_credits", s.spendCredits));
             s.spendDollars = std::max(0.05f, j.value("spend_dollars", s.spendDollars));
             s.spendStop = j.value("spend_stop", s.spendStop);
@@ -339,6 +344,7 @@ static std::string settingsJson(const Settings& s) {
         {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough},
         {"voice_chatbox", s.chatbox}, {"voice_chatbox_show", s.chatboxShow},
         {"text_translate", s.textTranslate}, {"text_speak", s.textSpeak}, {"setup_done", s.setupDone},
+        {"setup_at", s.setupAt}, {"setup_use", s.setupUse}, {"setup_route", s.setupRoute}, {"setup_ai", s.setupAi},
         {"spend_warn", s.spendWarn}, {"spend_credits", s.spendCredits}, {"spend_dollars", s.spendDollars}, {"spend_stop", s.spendStop},
         {"set_clone_strength", s.vs.setCloneStrength}, {"clone_strength", s.vs.cloneStrength},
         {"dialects", s.variety}, {"custom_dialects", s.customVariety}, {"voice_for_language", s.voiceFor},
@@ -1188,6 +1194,25 @@ static void setupLogo(GLFWwindow* win, UiModel& ui, float scale) {
     ui.logoSize = float(pick->size);
 }
 
+// The pictures in the "how do I get this key?" guides, as textures the window can draw.
+static void setupGuidePictures(UiModel& ui) {
+    for (int i = 0; i < kPicCount && i < guidePicCount(); ++i) {
+        std::vector<uint8_t> rgba;
+        int w = 0, h = 0;
+        if (!decodeGuidePic(i, rgba, w, h)) continue;
+        GLuint tex = 0;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        ui.guidePics[i] = {uint64_t(tex), w, h};
+    }
+}
+
 // ---------------------------------------------------------------- log, usage line
 
 static std::string windowsVersion() {
@@ -1321,7 +1346,12 @@ int main() {
         ui.changesSince = ui.cfg.lastSeenVersion.empty() ? "2.5.99" : ui.cfg.lastSeenVersion;  // from before 2.6: just this one
     }
     ui.cfg.lastSeenVersion = CIMA_FULL_VERSION;
-    if (!ui.cfg.setupDone) ui.setupStep = 0;  // a new person: language first, then the walkthrough
+    if (!ui.cfg.setupDone) {  // a new person: language first, then the walkthrough (or where they left it)
+        ui.setupStep = std::max(0, ui.cfg.setupAt);
+        ui.setupUse = ui.cfg.setupUse;
+        ui.setupRoute = ui.cfg.setupRoute;
+        ui.setupAi = ui.cfg.setupAi == kGuideClaude ? kGuideClaude : kGuideGemini;
+    }
     double lastAutosave = 0;
     Updater updater(CIMA_FULL_VERSION);
     Updater::removeOldVersion();  // what the last update replaced
@@ -1404,6 +1434,7 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(win, true);
     ImGui_ImplOpenGL3_Init(glsl);
     setupLogo(win, ui, scale);
+    setupGuidePictures(ui);
 
     int catalogVersion = -1;
     uint64_t captionVersion = 0;
@@ -1420,6 +1451,7 @@ int main() {
     std::string lastCatalogMsg, lastVrStatus, lastListenStatus;
     long long spendStartUsed = -1, spendBaseCredits = 0;  // ElevenLabs "used" when this session began
     std::string spendStartKey;
+    std::future<std::pair<bool, std::string>> keyJobs[kGuideCount];
     double spendBaseDollars = 0;
     std::string lastErrorSeen, lastListenErrorSeen;  // a new problem: look at the status pages again
     bool vrSentShowMe = true;
@@ -1747,6 +1779,32 @@ int main() {
             lastListenErrorSeen = ui.listen.error;
         }
         if (!act.openUrl.empty()) openPath(fs::u8path(act.openUrl));
+        if (ui.setupStep >= 0) {  // remember the walkthrough's place, in case the PC restarts (VB-CABLE asks for that)
+            ui.cfg.setupAt = ui.setupStep;
+            ui.cfg.setupUse = ui.setupUse;
+            ui.cfg.setupRoute = ui.setupRoute;
+            ui.cfg.setupAi = ui.setupAi;
+        }
+        // "Check key" for DeepL, Gemini and Claude: a tiny request in the background.
+        if (act.checkKey >= kGuideDeepL && act.checkKey < kGuideCount && ui.keyCheck[act.checkKey] != kChecking) {
+            const int g = act.checkKey;
+            const int service = g == kGuideDeepL ? kDeepL : g == kGuideClaude ? kClaude : kGemini;
+            const std::string key = g == kGuideDeepL ? ui.cfg.deeplKey : g == kGuideClaude ? ui.cfg.claudeKey : ui.cfg.geminiKey;
+            ui.keyCheck[g] = kChecking;
+            ui.keyCheckMsg[g].clear();
+            keyJobs[g] = std::async(std::launch::async, [service, key] {
+                std::string msg;
+                const bool ok = checkServiceKey(service, key, msg);
+                return std::make_pair(ok, msg);
+            });
+        }
+        for (int g = 0; g < kGuideCount; ++g)
+            if (keyJobs[g].valid() && keyJobs[g].wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+                const auto r = keyJobs[g].get();
+                ui.keyCheck[g] = r.first ? kCheckGood : kCheckBad;
+                ui.keyCheckMsg[g] = r.second;
+                logLine(std::string(g == kGuideDeepL ? "DeepL" : g == kGuideClaude ? "Claude" : "Gemini") + " key check: " + r.second);
+            }
         if (act.openLog) {
             logLine("Log opened from Settings.");  // makes sure the file exists
             openPath(fs::u8path(ui.logPath));

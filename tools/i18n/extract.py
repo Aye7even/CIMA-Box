@@ -48,7 +48,7 @@ def balanced(text, start):
             if depth==0: return text[start+1:i]
         i+=1
     return ''
-calls = ['buttonPair','setupTitle','setupStepLine','setupCard','setupPageRow','T','TF','fieldLabel','note','heading','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
+calls = ['chip','keyBox','guideLink','buttonPair','setupTitle','setupStepLine','setupCard','setupPageRow','T','TF','fieldLabel','note','heading','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
 found=[]
 def scan_file(name, which):
     text=open(src+name).read()
@@ -61,6 +61,11 @@ def scan_file(name, which):
         end=text.index('};', m.end()); 
         for s in literals(text[m.end():end]): found.append(s)
 scan_file('ui.cpp', calls)
+_ui=open(src+'ui.cpp').read()
+for _name in ['const KeyGuideText kKeyGuides', 'const char* top[]', 'const char* sub[]', 'for (const char* miss : {']:
+    _i=_ui.index(_name); _j=_ui.index('};' if not _name.startswith('for') else '})', _i)
+    for _s in literals(_ui[_i:_j]):
+        if not _s.startswith('http') and '.com' not in _s and '.io' not in _s: found.append(_s)
 scan_file('main.cpp', ['T','TF','quotaItem'])
 # dialect names, overlay/listen statuses
 txt=open(src+'translate.cpp').read()
@@ -82,12 +87,16 @@ def keep(s):
     if s in ('%s','%.2f','%.0f','%d','%.0f dB','%d ms','%.1fx','%.2f s','%s%s %.2f s',', ','.'): return False
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
-drop={'ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','SteamVR: ','Waiting for ',' to start.',
+drop={'Google Gemini','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','SteamVR: ','Waiting for ',' to start.',
       'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
           'Working','Some problems','Outage','Maintenance','See its page','All Systems Operational','Problems reported',
           'Open the status page to check',"This key isn't allowed to read usage (it needs User: Read access).",
           'The DeepL key was refused.','Couldn\'t check','Hi! This is how my new voice sounds.','Stopped at your spending limit. Press OK on the notice at the top to keep going.',
+          'Paste a key first.','Couldn\'t reach the service. Check your internet connection.','It works.',
+          'The key is right, but the account has no credits yet. Buy credits in the Claude Console (Billing).',
+          'That key was refused. Copy it again, the whole thing.','The key works, but this month\'s DeepL characters are used up.',
+          'The key works, but it\'s busy or out of credit right now.',
           'Change my voice','Talk into your mic and others hear a different voice, or your words in another language.',
           'Type and be heard','Type instead of talking. A voice says it for you, translated if you like.',
           'Read what others say','Live captions of what people say in a game or call, translated into your language.',

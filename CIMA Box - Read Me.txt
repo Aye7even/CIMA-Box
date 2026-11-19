@@ -1,4 +1,4 @@
-CIMA Box 2.7.2
+CIMA Box 2.7.3
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -23,7 +23,15 @@ GETTING STARTED
 ---------------
 
 The first time you open CIMA Box, a short setup asks for your language and then walks you
-through the steps below one screen at a time (Settings > About > Run setup again to see it again).
+through everything one screen at a time, with pictures of where to click: your keys
+(ElevenLabs, then DeepL and Claude or Gemini), what you want to do, your voice and where it
+goes, including VB-CABLE for games and Discord. If it asks you to restart your PC, it continues
+where you left off. Settings > About > Run setup again shows it again.
+
+Already set up and need a key later? In Settings > Accounts, click "How do I get this?" under
+it for the same step-by-step guide.
+
+Doing it by hand instead:
 
 1. Put CIMABox.exe anywhere you like (Desktop, Documents...) and run it. Your settings save by
    themselves, so you can move or update the program any time without losing them.

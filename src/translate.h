@@ -64,6 +64,10 @@ const std::vector<Language>& languages();
 const Language* findLanguage(const std::string& code);
 
 // Use one Translator per thread.
+// Tries a key with the smallest possible request. msg says what happened, in plain words.
+// service: kDeepL, kClaude or kGemini. Blocks for up to ~20 s, so run it off the UI thread.
+bool checkServiceKey(int service, const std::string& key, std::string& msg);
+
 // DeepL's server for this key (free keys end in ":fx").
 std::string deeplHost(const std::string& key);
 // Tokens Claude (kClaude) or Gemini (kGemini) used so far in this run of the program.

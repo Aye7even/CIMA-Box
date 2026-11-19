@@ -49,6 +49,8 @@ const ImVec4 kVoices[] = {kSignal, kBusy, rgb(0x7FD6A4), rgb(0xE59AD0)};  // spe
 
 ImFont* gSemibold = nullptr;
 
+void guideLink(UiModel& m, int which);
+
 ImU32 col(const ImVec4& c) { return ImGui::GetColorU32(c); }  // applies the disabled alpha
 ImVec4 mix(const ImVec4& a, const ImVec4& b, float t) {
     return ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
@@ -1654,18 +1656,21 @@ void settingsPage(UiModel& m, UiActions& act) {
 
     ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));
     beginPanel("setkeys", ImVec2(colW, avail.y), "Accounts");
-    apiKeyField("ElevenLabs API key", "##apikey", c.apiKey, m.showKey,
-                "Needed for everything. elevenlabs.io: your profile, then API keys.");
+    apiKeyField("ElevenLabs API key", "##apikey", c.apiKey, m.showKey, "Required: every voice and caption comes from ElevenLabs.");
+    guideLink(m, kGuideEleven);
     ImGui::BeginDisabled(m.loading || c.apiKey.empty());
     if (button(m.loading ? "Loading voices" : "Load voices and models", true)) act.loadCatalog = true;
     ImGui::EndDisabled();
     if (!m.catalogMsg.empty()) note(T(m.catalogMsg));
-    apiKeyField("Claude API key", "##claudekey", c.claudeKey, m.showKey,
-                "For natural translation with slang. console.anthropic.com: API keys.");
-    apiKeyField("Gemini API key", "##geminikey", c.geminiKey, m.showKey,
-                "The other AI choice. aistudio.google.com: Get API key.");
     apiKeyField("DeepL API key", "##deeplkey", c.deeplKey, m.showKey,
-                "Accurate textbook translation, and the backup when the AI is slow. deepl.com: API plan.");
+                "Recommended: fast translations, and the backup when the AI is slow or busy.");
+    guideLink(m, kGuideDeepL);
+    apiKeyField("Claude API key", "##claudekey", c.claudeKey, m.showKey,
+                "Recommended (or Gemini): natural translations with dialects and slang.");
+    guideLink(m, kGuideClaude);
+    apiKeyField("Gemini API key", "##geminikey", c.geminiKey, m.showKey,
+                "Recommended (or Claude): the same, free to start.");
+    guideLink(m, kGuideGemini);
     gap(0.2f);
     toggleRow("Show keys", &m.showKey);
     subheading("Spending limit");
@@ -1946,7 +1951,7 @@ void voicePage(UiModel& m, UiActions& act) {
 // ---------------------------------------------------------------- setup walkthrough
 // Language first (before a single other word), then one question per screen.
 
-enum SetupScreen { kStepLanguage = 0, kStepWelcome, kStepKey, kStepUse, kStepVoice, kStepRoute, kStepRead, kStepDone, kStepCount };
+enum SetupScreen { kStepLanguage = 0, kStepWelcome, kStepKey, kStepDeepL, kStepAi, kStepUse, kStepVoice, kStepRoute, kStepRead, kStepDone, kStepCount };
 
 bool setupShows(const UiModel& m, int step) {
     const bool speaks = (m.setupUse & (kUseVoice | kUseText)) != 0;
@@ -1961,7 +1966,7 @@ int setupNext(const UiModel& m, int step, int dir) {
     return step;
 }
 
-enum SetupIcon { kIconMic, kIconKeys, kIconBubbles, kIconHeadphones, kIconGame, kIconSliders };
+enum SetupIcon { kIconMic, kIconKeys, kIconBubbles, kIconHeadphones, kIconGame, kIconSliders, kIconSpark };
 
 // Small line drawings for the choice cards.
 void setupIcon(ImDrawList* dl, int icon, ImVec2 c, float s, ImU32 color) {
@@ -2001,6 +2006,13 @@ void setupIcon(ImDrawList* dl, int icon, ImVec2 c, float s, ImU32 color) {
         dl->AddCircleFilled(ImVec2(c.x + s * 0.18f, c.y - s * 0.03f), t * 0.9f, color, 10);
         dl->AddCircleFilled(ImVec2(c.x + s * 0.29f, c.y + s * 0.07f), t * 0.9f, color, 10);
         break;
+    case kIconSpark: {  // a four-pointed star
+        const float o = s * 0.46f, i = s * 0.12f;
+        const ImVec2 pts[8] = {{c.x, c.y - o}, {c.x + i, c.y - i}, {c.x + o, c.y}, {c.x + i, c.y + i},
+                               {c.x, c.y + o}, {c.x - i, c.y + i}, {c.x - o, c.y}, {c.x - i, c.y - i}};
+        dl->AddPolyline(pts, 8, color, ImDrawFlags_Closed, t);
+        break;
+    }
     default:  // sliders
         for (int i = 0; i < 3; ++i) {
             const float y = c.y - s * 0.3f + i * s * 0.3f, kx = c.x + (i == 1 ? s * 0.18f : -s * 0.14f);
@@ -2088,6 +2100,239 @@ void setupStepLine(int n, const char* text) {
     gap(0.25f);
 }
 
+// ---------------------------------------------------------------- key guides ("how do I get this?")
+
+struct KeyGuideText {
+    const char* name;
+    const char* page;       // opens with "Open the page"
+    const char* pageShown;  // the same, as shown
+    const char* extraUrl;   // a second button (sign up, buy credits), or null
+    const char* extraLabel;
+    const char* steps[5];
+    int pics[3];
+    int picAfter[3];        // each picture goes right after this step
+};
+
+const KeyGuideText kKeyGuides[kGuideCount] = {
+    {"ElevenLabs", "https://elevenlabs.io/app/settings/api-keys", "elevenlabs.io/app/settings/api-keys", nullptr, nullptr,
+     {"Sign in (or make a free account), then click Developers at the bottom of the left menu.",
+      "Open the API Keys tab.",
+      "Click Create Key.",
+      "Turn Restrict Key off, so CIMA Box can use everything it needs.",
+      "Click Create Key, then copy the key it shows. It's shown only once."},
+     {kPicEleven1, kPicEleven2, kPicEleven3}, {2, 3, 5}},
+    {"DeepL", "https://www.deepl.com/your-account/keys", "deepl.com/your-account/keys", "https://www.deepl.com/pro-api",
+     "Sign up (free)",
+     {"Sign up for the free DeepL API plan. Already have a DeepL account for the translator? Log out and make a new "
+      "one for the API. It may ask for a card to check you're a real person; the free plan doesn't charge it.",
+      "Open your account and the API Keys & Limits tab.",
+      "Click Create key, if there's no key yet.",
+      "Click the copy button next to the key.",
+      nullptr},
+     {kPicDeepL, -1, -1}, {4, 0, 0}},
+    {"Google Gemini", "https://aistudio.google.com/apikey", "aistudio.google.com/apikey", nullptr, nullptr,
+     {"Sign in with your Google account (you need to be 18 or older) and accept the terms.",
+      "Click Create API key.",
+      "Click the copy button next to your new key.",
+      nullptr, nullptr},
+     {kPicGemini, -1, -1}, {3, 0, 0}},
+    {"Claude", "https://platform.claude.com/settings/keys", "platform.claude.com/settings/keys",
+     "https://platform.claude.com/settings/billing", "Buy credits",
+     {"Sign in (or make an account), then buy a few dollars of credits under Billing. Claude doesn't work without them.",
+      "Click Keys in the left menu.",
+      "Click Create key and give it a name.",
+      "Copy the key it shows. It's shown only once.",
+      nullptr},
+     {kPicClaude, -1, -1}, {3, 0, 0}},
+};
+
+// A small rounded label, like "Required" or "Highly recommended".
+void chip(const char* text, const ImVec4& c) {
+    const char* t = T(text);
+    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 0.85f);
+    const ImVec2 ts = ImGui::CalcTextSize(t), p = ImGui::GetCursorScreenPos();
+    const ImVec2 pad(em() * 0.6f, em() * 0.22f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + ts.x + pad.x * 2, p.y + ts.y + pad.y * 2), col(ImVec4(c.x, c.y, c.z, 0.16f)), ts.y);
+    dl->AddText(ImVec2(p.x + pad.x, p.y + pad.y), col(c), t);
+    ImGui::Dummy(ImVec2(ts.x + pad.x * 2, ts.y + pad.y * 2));
+    ImGui::PopFont();
+    gap(0.35f);
+}
+
+// One guide picture, as wide as there is room (and not too tall). Click it to see it big.
+void guidePicture(UiModel& m, int pic) {
+    if (pic < 0 || pic >= kPicCount) return;
+    const GuidePic& g = m.guidePics[pic];
+    if (!g.texture || g.width <= 0) return;
+    float w = std::min(ImGui::GetContentRegionAvail().x, float(g.width));
+    float h = w * float(g.height) / float(g.width);
+    const float maxH = em() * 30.f;
+    if (h > maxH) { h = maxH; w = h * float(g.width) / float(g.height); }
+    const ImVec2 a = ImGui::GetCursorScreenPos();
+    ImGui::PushID(pic);
+    if (ImGui::InvisibleButton("##pic", ImVec2(w, h))) m.bigPicture = pic;
+    const bool hot = ImGui::IsItemHovered();
+    ImGui::PopID();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = em() * 0.4f;
+    dl->AddImageRounded(ImTextureRef(ImTextureID(g.texture)), a, ImVec2(a.x + w, a.y + h), ImVec2(0, 0), ImVec2(1, 1),
+                        IM_COL32_WHITE, r);
+    dl->AddRect(a, ImVec2(a.x + w, a.y + h), col(hot ? kSignal : kLine), r, 0, hot ? 2.f : 1.f);
+    if (hot) ImGui::SetTooltip("%s", T("Click to see it bigger"));
+    gap(0.5f);
+}
+
+// The picture, as big as the window allows. Click anywhere or press Esc to close.
+void bigPictureWindow(UiModel& m) {
+    if (m.bigPicture < 0 || m.bigPicture >= kPicCount) { m.bigPicture = -1; return; }
+    const GuidePic& g = m.guidePics[m.bigPicture];
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), IM_COL32(0, 0, 0, 200));
+    const float s = std::min({vp->Size.x * 0.94f / float(g.width), vp->Size.y * 0.9f / float(g.height), 1.0f});
+    const ImVec2 size(float(g.width) * s, float(g.height) * s);
+    const ImVec2 a(vp->Pos.x + (vp->Size.x - size.x) * 0.5f, vp->Pos.y + (vp->Size.y - size.y) * 0.5f);
+    dl->AddImageRounded(ImTextureRef(ImTextureID(g.texture)), a, ImVec2(a.x + size.x, a.y + size.y), ImVec2(0, 0), ImVec2(1, 1),
+                        IM_COL32_WHITE, em() * 0.4f);
+    const char* hint = T("Click anywhere to close");
+    const ImVec2 hs = ImGui::CalcTextSize(hint);
+    dl->AddText(ImVec2(vp->Pos.x + (vp->Size.x - hs.x) * 0.5f, a.y + size.y + em() * 0.4f), col(kMuted), hint);
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Escape)) m.bigPicture = -1;
+}
+
+// Where to go and what to click, for one service: the page, numbered steps, the pictures.
+void keyGuide(UiModel& m, UiActions& act, int which, bool inSetup) {
+    const KeyGuideText& g = kKeyGuides[which];
+    // The website, and buttons that open it.
+    ImGui::TextColored(kMuted, "%s", T("Website:"));
+    ImGui::SameLine();
+    ImGui::TextUnformatted(g.pageShown);
+    const float sp = ImGui::GetStyle().ItemSpacing.x;
+    if (g.extraUrl) {
+        const float half = (ImGui::GetContentRegionAvail().x - sp) * 0.5f;
+        if (button(g.extraLabel, false, half)) act.openUrl = g.extraUrl;
+        ImGui::SameLine();
+        if (button("Open the keys page", true, half)) act.openUrl = g.page;
+    } else {
+        if (button("Open the page", true)) act.openUrl = g.page;
+    }
+    note("Then follow these steps. Click a picture to see it bigger.");
+    gap(0.3f);
+    int n = 1;
+    for (const char* s : g.steps) {
+        if (!s) continue;
+        setupStepLine(n, s);
+        bool shown = false;
+        for (int i = 0; i < 3; ++i)  // the picture for what was just said
+            if (g.pics[i] >= 0 && g.picAfter[i] == n) {
+                if (!shown) gap(0.1f);
+                guidePicture(m, g.pics[i]);
+                shown = true;
+            }
+        ++n;
+    }
+    setupStepLine(n, inSetup ? "Paste the key in the box below." : "Paste the key in its box under Accounts.");
+    gap(0.3f);
+}
+
+// The key box with "Check key" and what the check found, for DeepL, Gemini or Claude.
+void keyBox(UiModel& m, UiActions& act, int which, std::string& key, const char* id) {
+    fieldLabel(which == kGuideDeepL ? "DeepL API key" : which == kGuideClaude ? "Claude API key" : "Gemini API key");
+    const float checkW = std::max(em() * 7.f, ImGui::CalcTextSize(T("Check key")).x + em() * 1.6f);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - checkW - ImGui::GetStyle().ItemSpacing.x);
+    if (ImGui::InputTextWithHint(id, T("Paste it here"), &key, m.showKey ? 0 : ImGuiInputTextFlags_Password))
+        m.keyCheck[which] = kCheckNone;  // a different key: not checked yet
+    ImGui::SameLine();
+    const bool checking = m.keyCheck[which] == kChecking;
+    ImGui::BeginDisabled(checking || key.find_first_not_of(" \t\r\n") == std::string::npos);
+    if (button(checking ? "Checking" : "Check key", true, checkW)) act.checkKey = which;
+    ImGui::EndDisabled();
+    if (checking) note(std::string(T("Checking")) + dots(), kBusy);
+    else if (m.keyCheck[which] == kCheckGood) note(T(m.keyCheckMsg[which]), kVoices[2]);
+    else if (m.keyCheck[which] == kCheckBad) note(T(m.keyCheckMsg[which]), kDanger);
+}
+
+// Settings: the same guide in a window, from "How do I get this?".
+void guideWindow(UiModel& m, UiActions& act) {
+    if (m.guideOpen < 0 || m.guideOpen >= kGuideCount) return;
+    if (!ImGui::IsPopupOpen("##keyguide")) ImGui::OpenPopup("##keyguide");
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowSize(ImVec2(std::min(em() * 38.f, vp->Size.x * 0.92f), vp->Size.y * 0.86f));
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.3f, em() * 1.1f));
+    if (ImGui::BeginPopupModal("##keyguide", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        char title[160];
+        std::snprintf(title, sizeof(title), TF("Get your %s key"), kKeyGuides[m.guideOpen].name);
+        ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.4f);
+        ImGui::TextUnformatted(title);
+        ImGui::PopFont();
+        gap(0.4f);
+        const bool pictureOpen = m.bigPicture >= 0;
+        if (pictureOpen) ImGui::BeginDisabled();
+        ImGui::BeginChild("guidebody", ImVec2(0, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight() - em() * 0.6f), 0,
+                          ImGuiWindowFlags_NoBackground);
+        keyGuide(m, act, m.guideOpen, false);
+        ImGui::EndChild();
+        const bool close = button("Close", true, em() * 7.f) || (ImGui::IsKeyPressed(ImGuiKey_Escape) && !pictureOpen);
+        if (pictureOpen) ImGui::EndDisabled();
+        if (close) {
+            m.guideOpen = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+}
+
+// A quiet link under a key field.
+void guideLink(UiModel& m, int which) {
+    ImGui::PushID(which);
+    ImGui::PushStyleColor(ImGuiCol_Text, kSignal);
+    const char* t = T("How do I get this?");
+    if (ImGui::Selectable(t, false, 0, ImGui::CalcTextSize(t))) m.guideOpen = which;
+    ImGui::PopStyleColor();
+    ImGui::PopID();
+}
+
+// CIMA Box -> CABLE Input == CABLE Output -> your game's mic, as four boxes.
+void cableDiagram() {
+    const float w = ImGui::GetContentRegionAvail().x, h = em() * 3.4f, arrow = em() * 1.4f;
+    const float bw = (w - arrow * 3) / 4.f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const char* top[] = {"CIMA Box", "CABLE Input", "CABLE Output", "Your mic in the game"};
+    const char* sub[] = {"makes the voice", "the cable's start", "the cable's end", "Discord, VRChat..."};
+    for (int i = 0; i < 4; ++i) {
+        const float x = p.x + i * (bw + arrow);
+        const bool cable = i == 1 || i == 2;
+        dl->AddRectFilled(ImVec2(x, p.y), ImVec2(x + bw, p.y + h), col(cable ? ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.14f) : kField), em() * 0.4f);
+        dl->AddRect(ImVec2(x, p.y), ImVec2(x + bw, p.y + h), col(cable ? kSignal : kLine), em() * 0.4f);
+        ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 0.86f);
+        const char* t = i == 3 ? T(top[i]) : top[i];  // the others are names
+        ImVec2 ts = ImGui::CalcTextSize(t, nullptr, false, bw - em() * 0.4f);
+        dl->AddText(nullptr, 0.f, ImVec2(x + (bw - std::min(ts.x, bw - em() * 0.4f)) * 0.5f, p.y + em() * 0.45f), col(kText), t, nullptr, bw - em() * 0.4f);
+        ImGui::PopFont();
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.78f);
+        const char* s = T(sub[i]);
+        ts = ImGui::CalcTextSize(s, nullptr, false, bw - em() * 0.4f);
+        dl->AddText(nullptr, 0.f, ImVec2(x + (bw - std::min(ts.x, bw - em() * 0.4f)) * 0.5f, p.y + h - ts.y - em() * 0.35f), col(kMuted), s, nullptr, bw - em() * 0.4f);
+        ImGui::PopFont();
+        if (i < 3) {  // the arrow (a double line for the cable itself)
+            const float ax = x + bw + em() * 0.25f, bx = x + bw + arrow - em() * 0.25f, ay = p.y + h * 0.5f;
+            if (i == 1) {
+                dl->AddLine(ImVec2(ax, ay - 3), ImVec2(bx, ay - 3), col(kSignal), 2.f);
+                dl->AddLine(ImVec2(ax, ay + 3), ImVec2(bx, ay + 3), col(kSignal), 2.f);
+            } else {
+                dl->AddLine(ImVec2(ax, ay), ImVec2(bx - 2, ay), col(kMuted), 2.f);
+                dl->AddTriangleFilled(ImVec2(bx, ay), ImVec2(bx - em() * 0.4f, ay - em() * 0.3f), ImVec2(bx - em() * 0.4f, ay + em() * 0.3f), col(kMuted));
+            }
+        }
+    }
+    ImGui::Dummy(ImVec2(w, h));
+    gap(0.4f);
+}
+
 bool hasCable(const UiModel& m, std::string* name) {
     for (const std::string& d : m.outputDevices)
         if (d.find("CABLE Input") != std::string::npos || d.find("VB-Audio") != std::string::npos) {
@@ -2127,27 +2372,27 @@ void setupLanguage(UiModel& m) {
 
 void setupWelcome() {
     setupTitle("Welcome to CIMA Box", "Let's get you set up. It takes about two minutes, and you can change everything later.");
-    setupStepLine(1, "Connect your ElevenLabs account, where the voices come from.");
+    setupStepLine(1, "Connect ElevenLabs, where the voices come from, plus DeepL and Claude or Gemini for great translations.");
     setupStepLine(2, "Choose what you want to do: talk, type, or read what others say.");
     setupStepLine(3, "Choose where the voice goes, then play a test.");
+    gap(0.4f);
+    note("Every step shows you exactly where to click, with pictures.");
 }
 
 void setupKey(UiModel& m, UiActions& act) {
-    setupTitle("Connect ElevenLabs", "Every voice comes from ElevenLabs. CIMA Box needs an API key: a password made just for apps.");
-    setupStepLine(1, "Go to elevenlabs.io and sign in (or make a free account).");
-    setupStepLine(2, "Open your profile, then API keys, and create a key.");
-    setupStepLine(3, "Copy the key and paste it here.");
-    gap(0.5f);
+    chip("Required", kSignal);
+    setupTitle("Connect ElevenLabs", "Every voice comes from ElevenLabs. CIMA Box needs an API key: a password made just for apps. "
+                                     "The free plan is enough to try everything.");
+    keyGuide(m, act, kGuideEleven, true);
     fieldLabel("ElevenLabs API key");
-    const float checkW = em() * 7.f;
+    const float checkW = std::max(em() * 7.f, ImGui::CalcTextSize(T("Check key")).x + em() * 1.6f);
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - checkW - ImGui::GetStyle().ItemSpacing.x);
     ImGui::InputTextWithHint("##setupkey", T("Paste it here"), &m.cfg.apiKey, m.showKey ? 0 : ImGuiInputTextFlags_Password);
     ImGui::SameLine();
     ImGui::BeginDisabled(m.loading || m.cfg.apiKey.empty());
     if (button(m.loading ? "Checking" : "Check key", true, checkW)) act.loadCatalog = true;
     ImGui::EndDisabled();
-    toggleRow("Show key", &m.showKey);
-    gap(0.2f);
+    toggleRow("Show keys", &m.showKey);
     if (m.loading) {
         note(std::string(T("Checking")) + dots(), kBusy);
     } else if (!m.voices.empty()) {
@@ -2158,8 +2403,46 @@ void setupKey(UiModel& m, UiActions& act) {
         note(T(m.catalogMsg), kDanger);
     }
     gap(0.3f);
-    note("The key stays on this PC. If you make a key with limited access, allow User (read) too, so CIMA Box can "
-         "show how many credits are left.");
+    note("Keys stay on this PC.");
+}
+
+void setupDeepL(UiModel& m, UiActions& act) {
+    chip("Highly recommended", kBusy);
+    setupTitle("Add DeepL", "Fast, reliable translations, and the backup CIMA Box uses whenever the AI is slow or busy. "
+                            "The free plan is plenty for chatting.");
+    note("Without it, the backup is a free translator with a small daily limit and rougher wording.", kText);
+    gap(0.4f);
+    keyGuide(m, act, kGuideDeepL, true);
+    keyBox(m, act, kGuideDeepL, m.cfg.deeplKey, "##setupdeepl");
+    toggleRow("Show keys", &m.showKey);
+}
+
+void setupAi(UiModel& m, UiActions& act) {
+    chip("Highly recommended", kBusy);
+    setupTitle("Make translations sound real", "Claude or Gemini translate the way people actually talk. You only need one.");
+    ImGui::TextColored(kText, "%s", T("Without one, you'd miss:"));
+    for (const char* miss : {"Dialects, like Mexican Spanish, Kansai Japanese or Kuwaiti Arabic",
+                             "Slang and casual speech, instead of textbook wording",
+                             "Matching how people talk to you",
+                             "Words that change with who's speaking and who you're talking to"}) {
+        ImGui::TextColored(kSignal, "  -");
+        ImGui::SameLine();
+        ImGui::PushTextWrapPos(0.f);
+        ImGui::TextColored(kMuted, "%s", T(miss));
+        ImGui::PopTextWrapPos();
+    }
+    gap(0.7f);
+    if (setupCard("##gemini", kIconSpark, "Google Gemini", "Free to start, with a daily limit. Needs a Google account (18 or older).",
+                  m.setupAi == kGuideGemini, false))
+        m.setupAi = kGuideGemini;
+    if (setupCard("##claude", kIconBubbles, "Claude", "The most natural. Pay as you go: a few cents for an evening of chatting, from credits you buy first.",
+                  m.setupAi == kGuideClaude, false))
+        m.setupAi = kGuideClaude;
+    gap(0.3f);
+    keyGuide(m, act, m.setupAi, true);
+    if (m.setupAi == kGuideClaude) keyBox(m, act, kGuideClaude, m.cfg.claudeKey, "##setupclaude");
+    else keyBox(m, act, kGuideGemini, m.cfg.geminiKey, "##setupgemini");
+    toggleRow("Show keys", &m.showKey);
 }
 
 void setupUseStep(UiModel& m) {
@@ -2219,21 +2502,31 @@ void setupRouteStep(UiModel& m, UiActions& act) {
     gap(0.4f);
     std::string cable;
     if (m.setupRoute == kRouteApps && !hasCable(m, &cable)) {
-        heading("You need a virtual microphone", 1.1f);
-        note("Games and Discord only take sound from a microphone. VB-CABLE is a free program that adds a pretend one: "
-             "CIMA Box plays the voice into it, and the game hears it as you.", kText);
+        heading("You need a free virtual microphone", 1.1f);
+        note("Discord and games only listen to microphones. VB-CABLE adds a pretend microphone to your PC: CIMA Box plays "
+             "the voice into it, and the game hears it as if you were talking.", kText);
         gap(0.3f);
+        cableDiagram();
+        note("Think of it as a cable from CIMA Box into your game's microphone jack, except it's inside your PC.");
+        gap(0.4f);
+        setupStepLine(1, "Click Get VB-CABLE below and download the ZIP file from their page.");
+        setupStepLine(2, "Open the ZIP and click Extract all.");
+        setupStepLine(3, "In the extracted folder, right-click VBCABLE_Setup_x64 and choose Run as administrator.");
+        setupStepLine(4, "Click Install Driver, then restart your PC.");
+        setupStepLine(5, "Open CIMA Box again (it continues here) and press Look again. It finds the cable and picks it for you.");
+        gap(0.2f);
         const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
         if (button("Get VB-CABLE (free)", true, half)) act.openUrl = "https://vb-audio.com/Cable/";
         ImGui::SameLine();
         if (button("Look again", false, half)) act.rescanDevices = true;
-        note("Install it (restart your PC if it asks), then press Look again. Can't install it? Pick Just me for now; "
-             "you can switch later.");
+        note("Can't install it right now? Pick Just me for now; you can switch any time.");
     } else if (m.setupRoute == kRouteApps) {
         note("VB-CABLE is installed and picked.", kVoices[2]);
-        gap(0.1f);
-        setupStepLine(1, "Open your game, Discord or call app.");
-        setupStepLine(2, "In its voice or audio settings, set the microphone (input device) to CABLE Output.");
+        gap(0.2f);
+        cableDiagram();
+        heading("Last step: tell your game to use it", 1.05f);
+        setupStepLine(1, "In Discord: Settings > Voice & Video > Input Device, choose CABLE Output.");
+        setupStepLine(2, "In a game: open its audio or voice settings and set the microphone to CABLE Output.");
         setupStepLine(3, "Leave CIMA Box running while you play.");
         if (toggleRow("Hear it yourself too", &c.monitor)) act.reopenMonitor = true;
     } else {
@@ -2299,6 +2592,13 @@ void setupDone(UiModel& m) {
 void finishSetup(UiModel& m) {
     m.cfg.setupDone = true;
     m.setupStep = -1;
+    // Translate with the best service that has a key.
+    auto has = [](const std::string& k) { return k.find_first_not_of(" \t\r\n") != std::string::npos; };
+    if (m.setupAi == kGuideClaude && has(m.cfg.claudeKey)) m.cfg.translateService = kClaude;
+    else if (m.setupAi == kGuideGemini && has(m.cfg.geminiKey)) m.cfg.translateService = kGemini;
+    else if (has(m.cfg.claudeKey)) m.cfg.translateService = kClaude;
+    else if (has(m.cfg.geminiKey)) m.cfg.translateService = kGemini;
+    else if (has(m.cfg.deeplKey)) m.cfg.translateService = kDeepL;
     if (m.setupUse & kUseVoice) m.cfg.page = kPageVoice;
     else if (m.setupUse & kUseText) m.cfg.page = kPageText;
     else if (m.setupUse & kUseRead) m.cfg.page = kPageListen;
@@ -2356,6 +2656,8 @@ void setupView(UiModel& m, UiActions& act) {
     case kStepLanguage: setupLanguage(m); break;
     case kStepWelcome: setupWelcome(); break;
     case kStepKey: setupKey(m, act); break;
+    case kStepDeepL: setupDeepL(m, act); break;
+    case kStepAi: setupAi(m, act); break;
     case kStepUse: setupUseStep(m); break;
     case kStepVoice: setupVoice(m, act); break;
     case kStepRoute: setupRouteStep(m, act); break;
@@ -2374,6 +2676,8 @@ void setupView(UiModel& m, UiActions& act) {
     const char* next = step == kStepDone ? "Start" : step == kStepLanguage ? "Continue" : "Next";
     bool canGo = true;
     if (step == kStepKey && m.cfg.apiKey.empty()) next = "Skip for now";
+    if (step == kStepDeepL && m.cfg.deeplKey.empty()) next = "Skip for now";
+    if (step == kStepAi && (m.setupAi == kGuideClaude ? m.cfg.claudeKey : m.cfg.geminiKey).empty()) next = "Skip for now";
     if (step == kStepUse) canGo = m.setupUse != 0;
     if (step == kStepRoute) canGo = m.setupRoute != kRouteNone;
     ImGui::SetCursorScreenPos(ImVec2(colX + colW - bw, by));
@@ -2455,6 +2759,8 @@ UiActions uiDraw(UiModel& m) {
                      ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleVar();
 
+    const bool pictureOpen = m.bigPicture >= 0;  // a picture shown big: nothing underneath reacts to clicks
+    if (pictureOpen) ImGui::BeginDisabled();
     if (m.captionsOnly) {
         captionsOnlyView(m, act);
     } else if (m.setupStep >= 0) {
@@ -2478,6 +2784,9 @@ UiActions uiDraw(UiModel& m) {
     }
 
     changesWindow(m);
+    if (pictureOpen) ImGui::EndDisabled();
+    guideWindow(m, act);
+    bigPictureWindow(m);
     ImGui::End();
     return act;
 }
