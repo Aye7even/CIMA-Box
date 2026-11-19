@@ -180,7 +180,7 @@ bool Eleven::transcribe(const std::vector<int16_t>& pcm, const std::string& lang
 }
 
 bool Eleven::transcribeTurns(const std::vector<int16_t>& pcm, const std::string& languageCode, bool tellSpeakersApart,
-                             Transcript& out, std::string& err) {
+                             Transcript& out, std::string& err, bool events, bool labels) {
     out = Transcript();
     std::vector<int16_t> padded(pcm);
     padded.resize(padded.size() + 16000 * 3 / 10, 0);  // room for the last word to end
@@ -197,7 +197,7 @@ bool Eleven::transcribeTurns(const std::vector<int16_t>& pcm, const std::string&
             parts.push_back({"file", makeWav(padded, 16000), "audio.wav", "audio/wav"});
         }
         parts.push_back({"model_id", "scribe_v2", "", ""});
-        parts.push_back({"tag_audio_events", "false", "", ""});
+        parts.push_back({"tag_audio_events", events ? "true" : "false", "", ""});
         parts.push_back({"diarize", tellSpeakersApart ? "true" : "false", "", ""});
         if (!languageCode.empty()) parts.push_back({"language_code", languageCode, "", ""});
         HttpRequest r;
@@ -217,12 +217,40 @@ bool Eleven::transcribeTurns(const std::vector<int16_t>& pcm, const std::string&
     if (!j.is_object() || !j.contains("text") || !j["text"].is_string()) { err = "Unexpected speech-to-text response"; return false; }
     out.text = trimmed(j["text"].get<std::string>());
     out.language = str(j, "language_code");
+    if (j.contains("language_probability") && j["language_probability"].is_number())
+        out.languageSure = j["language_probability"].get<float>();
+    // Sounds: "(laughter)" -> "laughter". Without labels they're taken out of the text again.
+    auto eventName = [](std::string t) {
+        while (!t.empty() && (t.front() == '(' || t.front() == '[' || t.front() == ' ')) t.erase(t.begin());
+        while (!t.empty() && (t.back() == ')' || t.back() == ']' || t.back() == ' ')) t.pop_back();
+        return t;
+    };
+    if (j.contains("words") && j["words"].is_array()) {
+        std::string clean;
+        for (const json& w : j["words"]) {
+            const std::string type = str(w, "type"), text = str(w, "text");
+            if (type == "audio_event") {
+                out.events.push_back(eventName(text));
+                if (labels) clean += "[" + eventName(text) + "]";
+                continue;
+            }
+            if (type == "word") ++out.words;
+            clean += text;
+        }
+        if (events) out.text = trimmed(clean);
+    }
 
     if (tellSpeakersApart && j.contains("words") && j["words"].is_array()) {
         std::vector<std::string> ids;  // speaker ids in the order they first speak
         for (const json& w : j["words"]) {
-            const std::string type = str(w, "type"), text = str(w, "text");
-            if (type == "audio_event" || text.empty()) continue;
+            const std::string type = str(w, "type");
+            std::string text = str(w, "text");
+            if (type == "audio_event") {
+                if (!labels || out.turns.empty()) continue;
+                out.turns.back().text += " [" + eventName(text) + "] ";
+                continue;
+            }
+            if (text.empty()) continue;
             if (type == "spacing") {
                 if (!out.turns.empty()) out.turns.back().text += text;
                 continue;

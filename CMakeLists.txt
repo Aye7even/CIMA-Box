@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CIMABox VERSION 2.7.3 LANGUAGES C CXX)
+project(CIMABox VERSION 2.8.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -53,6 +53,18 @@ endif()
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
+# ImGui draws text left to right only. A copy of imgui_draw.cpp gets a small hook so Arabic, Persian,
+# Urdu and Hebrew are joined and drawn right to left (cmake/imgui_rtl.inl, src/bidi.cpp).
+set(IMGUI_DRAW_RTL ${CMAKE_BINARY_DIR}/imgui_draw_rtl.cpp)
+execute_process(
+  COMMAND ${CMAKE_COMMAND} -DIN=${imgui_SOURCE_DIR}/imgui_draw.cpp -DOUT=${IMGUI_DRAW_RTL}
+          -DINL=${CMAKE_CURRENT_SOURCE_DIR}/cmake/imgui_rtl.inl -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_imgui.cmake
+  RESULT_VARIABLE imgui_patch_result)
+if(NOT imgui_patch_result EQUAL 0)
+  message(FATAL_ERROR "Couldn't add the right-to-left text hook to ImGui")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${imgui_SOURCE_DIR}/imgui_draw.cpp ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_imgui.cmake)
+
 add_executable(cimabox
   src/main.cpp
   src/ui.cpp
@@ -74,8 +86,10 @@ add_executable(cimabox
   src/usage.cpp
   src/guidepics.cpp
   src/vroverlay.cpp
+  src/bidi.cpp
+  src/extras.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
-  ${imgui_SOURCE_DIR}/imgui_draw.cpp
+  ${IMGUI_DRAW_RTL}
   ${imgui_SOURCE_DIR}/imgui_tables.cpp
   ${imgui_SOURCE_DIR}/imgui_widgets.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
@@ -133,13 +147,40 @@ target_compile_definitions(cimabox PRIVATE CIMA_HAS_CHANGELOG)
 if(CIMA_UPDATE_REPO AND CIMA_UPDATE_KEY)
   message(STATUS "Updates from github.com/${CIMA_UPDATE_REPO}")
 endif()
-target_link_libraries(cimabox PRIVATE glfw CURL::libcurl OpenGL::GL Threads::Threads ${CMAKE_DL_LIBS})
+# Screen translation's picture and text-reading code (see the Windows part below).
+add_library(cima_screen STATIC src/screen.cpp)
+target_include_directories(cima_screen PRIVATE src)
+if(MSVC)
+  target_compile_options(cima_screen PRIVATE /utf-8 /EHsc)
+  target_compile_definitions(cima_screen PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+target_link_libraries(cimabox PRIVATE cima_screen glfw CURL::libcurl OpenGL::GL Threads::Threads ${CMAKE_DL_LIBS})
 if(UNIX AND NOT APPLE)
   target_link_libraries(cimabox PRIVATE m)
 endif()
 if(WIN32)
   # dark title bar, per-application audio capture, chatbox messages (UDP)
   target_link_libraries(cimabox PRIVATE dwmapi mmdevapi ole32 ws2_32 bcrypt shell32)
+  # Screen translation reads text with Windows' own recognizer (C++/WinRT, part of the Windows SDK).
+  # C++/WinRT wants C++20 with this compiler, so src/screen.cpp is built as its own small library.
+  # Without the headers the build still works; only AI reading is offered then.
+  include(CheckIncludeFileCXX)
+  if(MSVC)
+    set(CMAKE_REQUIRED_FLAGS "/std:c++20 /EHsc")
+  endif()
+  check_include_file_cxx("winrt/base.h" CIMA_HAVE_CPPWINRT)
+  unset(CMAKE_REQUIRED_FLAGS)
+  if(CIMA_HAVE_CPPWINRT)
+    set_target_properties(cima_screen PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+    target_link_libraries(cima_screen PRIVATE windowsapp)
+    if(MSVC)
+      target_compile_options(cima_screen PRIVATE /bigobj)
+    endif()
+  else()
+    message(STATUS "C++/WinRT headers not found: screen translation will offer AI reading only")
+    target_compile_definitions(cima_screen PRIVATE CIMA_NO_WINRT)
+  endif()
+  target_compile_definitions(cima_screen PRIVATE NOMINMAX)
   # The .exe's icon (Explorer, taskbar, title bar) and its version details.
   configure_file(assets/cimabox.rc.in "${CMAKE_CURRENT_BINARY_DIR}/cimabox.rc" @ONLY)
   target_sources(cimabox PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/cimabox.rc")

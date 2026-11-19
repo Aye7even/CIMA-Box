@@ -1,5 +1,5 @@
 // How much is left: ElevenLabs credits and DeepL characters, read from their accounts now and then.
-// Claude and Gemini have no way to ask that with a normal key, so for them the app counts what
+// Claude, Gemini and OpenAI have no way to ask that with a normal key, so for them the app counts what
 // it used itself in this run (tokens, and the price that comes to).
 #pragma once
 #include <cstdint>
@@ -37,8 +37,9 @@ private:
     std::unique_ptr<Impl> p_;
 };
 
-// Tokens Claude and Gemini used in this run, as counted from their answers (see translate.cpp).
-AiSpend aiSpend(bool claude, const std::string& model);
+// Tokens an AI service (kClaude, kGemini, kOpenAI) used in this run, as counted from its answers
+// (see translate.cpp).
+AiSpend aiSpend(int service, const std::string& model);
 
 bool parseElevenSubscription(const std::string& json, Quota& q);
 bool parseDeeplUsage(const std::string& json, Quota& q);

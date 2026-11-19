@@ -60,14 +60,18 @@ bool parseDeeplUsage(const std::string& text, Quota& q) {
 bool priceOf(const std::string& model, double& in, double& out) {
     if (model.empty() || model.find("claude-haiku-5-5") == 0) { in = 0.10; out = 0.50; return true; }
     if (model.find("gemini-3.5-flash-lite") == 0) { in = 0.30; out = 2.50; return true; }
+    if (model.find("gpt-6-luna") == 0) { in = 0.10; out = 0.50; return true; }
     return false;
 }
 
-AiSpend aiSpend(bool claude, const std::string& model) {
+AiSpend aiSpend(int service, const std::string& model) {
     AiSpend s;
-    aiTokens(claude ? kClaude : kGemini, s.tokensIn, s.tokensOut);
+    aiTokens(service, s.tokensIn, s.tokensOut);
     double in, out;
-    const std::string m = model.empty() ? (claude ? "claude-haiku-5-5" : "gemini-3.5-flash-lite") : model;
+    const std::string m = !model.empty()        ? model
+                          : service == kClaude ? "claude-haiku-5-5"
+                          : service == kGemini ? "gemini-3.5-flash-lite"
+                                               : "gpt-6-luna";
     s.dollars = priceOf(m, in, out) ? (double(s.tokensIn) * in + double(s.tokensOut) * out) / 1e6 : -1.0;
     return s;
 }

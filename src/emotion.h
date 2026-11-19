@@ -33,6 +33,12 @@ VoiceTrack trackVoice(const std::vector<int16_t>& pcm16k);
 // little voiced sound. Voice changers and avatars' voices fool it, so it's only ever a hint.
 int guessVoiceGender(const std::vector<int16_t>& pcm16k, float startS, float endS, float* medianHz = nullptr);
 
+// A rough fingerprint of a voice, to tell the same person apart across captions: typical pitch,
+// how much the pitch moves, and how bright the voice sounds. False when there's too little voice.
+struct VoicePrint { float pitch = 0, spread = 0, bright = 0; };
+bool voicePrint(const std::vector<int16_t>& pcm16k, float startS, float endS, VoicePrint& out);
+float voiceDistance(const VoicePrint& a, const VoicePrint& b);  // about 1 = probably not the same person
+
 // The speaker's usual voice, learned from ordinary phrases and saved with the settings.
 struct VoiceBaseline {
     float loudDb = -30, pitch = 6, range = 4, tilt = -12, rate = 3;

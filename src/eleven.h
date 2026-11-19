@@ -31,7 +31,10 @@ struct SpeakerTurn {
 struct Transcript {
     std::string text;      // everything that was said
     std::string language;  // code the service reports (2 or 3 letters)
+    float languageSure = 0;  // how sure it is of the language, 0..1 (0 = not reported)
     int speakers = 1;      // how many different voices it told apart
+    std::vector<std::string> events;  // with `events`: sounds it heard ("laughter", "music"), in order
+    int words = 0;         // how many words were said
     std::vector<SpeakerTurn> turns;  // in spoken order; empty when nothing was said
 };
 
@@ -67,8 +70,9 @@ public:
     bool transcribe(const std::vector<int16_t>& pcm, const std::string& languageCode, std::string& text,
                     std::string& detectedLanguage, std::string& err, std::vector<HeardToken>* tokens = nullptr);
     // Listen path: like transcribe(), but split into who said what when `tellSpeakersApart` is set.
+    // `events`: also listen for sounds (laughs, music); with `labels` they're written into the turns as [laughter].
     bool transcribeTurns(const std::vector<int16_t>& pcm, const std::string& languageCode, bool tellSpeakersApart,
-                         Transcript& out, std::string& err);
+                         Transcript& out, std::string& err, bool events = false, bool labels = false);
     bool textToSpeech(const std::string& voiceId, const std::string& modelId, const VoiceSettings& vs,
                       const std::string& text, const std::string& languageCode, const AudioSink& sink,
                       std::string& err, const std::string& outputFormat = "pcm_24000");

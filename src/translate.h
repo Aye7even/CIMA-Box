@@ -5,9 +5,12 @@
 
 #include "http.h"
 
-enum TranslateService { kMyMemory = 0, kDeepL = 1, kClaude = 2, kGemini = 3 };
+enum TranslateService { kMyMemory = 0, kDeepL = 1, kClaude = 2, kGemini = 3, kOpenAI = 4 };
+// Claude, Gemini or OpenAI: the services that word things like a person (styles, dialects, slang).
+inline bool isAiService(int s) { return s == kClaude || s == kGemini || s == kOpenAI; }
 // How the AI services word things on My voice. (Listen always translates faithfully.)
-enum SpeechLevel { kLevelPolite = 0, kLevelCasual = 1, kLevelVeryCasual = 2 };
+// kLevelCustom: the person describes it in their own words (TranslateSetup::customStyle).
+enum SpeechLevel { kLevelPolite = 0, kLevelCasual = 1, kLevelVeryCasual = 2, kLevelCustom = 3 };
 
 // Gender, for languages whose words change with it. Who is speaking:
 enum Gender { kGenderUnknown = 0, kGenderMan = 1, kGenderWoman = 2, kGenderNonbinary = 3 };
@@ -30,17 +33,23 @@ const Variety* findVariety(const std::string& id);
 // Everything a translation needs besides the text itself.
 struct TranslateSetup {
     int service = kMyMemory;
-    std::string deeplKey, claudeKey, geminiKey;
+    std::string deeplKey, claudeKey, geminiKey, openaiKey;
     std::string claudeModel = "claude-haiku-5-5";
     std::string geminiModel = "gemini-3.5-flash-lite";
+    std::string openaiModel = "gpt-6-luna";
     int level = kLevelCasual;
+    std::string customStyle;    // kLevelCustom: e.g. "laid back, a bit sarcastic, like a gamer friend"
     std::string persona;        // optional, e.g. "a guy in his 20s from Seoul"
     bool faithful = false;      // Listen: for understanding what others say, not for speaking
     int timeoutMs = 2000;       // AI services: after this, use DeepL (or Free) for this phrase instead
+                                // (a dialect gets a little longer: its answers take more work)
     std::string context;        // recent lines of the conversation, oldest first ("Them: ...", "Me: ...")
     std::string variety;        // the dialect to speak (AI services), e.g. "Kuwaiti Arabic, as spoken in Kuwait"
     std::string varietyName;    // short, for the status line: "Kuwaiti"
     std::string deeplVariant;   // DeepL's regional target for it ("ES-419"), empty = standard
+    int swear = 0;              // SwearMode (extras.h): what to do with your swearing (My voice)
+    std::string wordNote;       // "- Keep these names and words exactly as written: ..." (personal word list)
+    bool readGender = false;    // Listen: ask whether the words show the speaker's gender (-> Translator::wordsGender)
     int speaker = kGenderUnknown;     // My voice: you. Listen: the guess from the speaker's voice.
     int listener = kListenerUnknown;  // Addressee. My voice: who you are talking to
 };
@@ -65,12 +74,12 @@ const Language* findLanguage(const std::string& code);
 
 // Use one Translator per thread.
 // Tries a key with the smallest possible request. msg says what happened, in plain words.
-// service: kDeepL, kClaude or kGemini. Blocks for up to ~20 s, so run it off the UI thread.
+// service: kDeepL, kClaude, kGemini or kOpenAI. Blocks for up to ~20 s, so run it off the UI thread.
 bool checkServiceKey(int service, const std::string& key, std::string& msg);
 
 // DeepL's server for this key (free keys end in ":fx").
 std::string deeplHost(const std::string& key);
-// Tokens Claude (kClaude) or Gemini (kGemini) used so far in this run of the program.
+// Tokens an AI service (kClaude, kGemini, kOpenAI) used so far in this run of the program.
 void aiTokens(int service, long long& in, long long& out);
 
 class Translator {
@@ -78,6 +87,7 @@ public:
     Http http;
 
     std::string via;  // after translate(): which service did it, e.g. "Claude" or "DeepL (Claude too slow)"
+    int wordsGender = 0;  // after translate() with readGender: Gender the speaker's own words showed (0 = they didn't)
 
     void warm(const TranslateSetup& setup);
 
@@ -86,10 +96,21 @@ public:
     bool translate(const TranslateSetup& setup, const std::string& text, const Language* from, const Language& to,
                    std::string& out, std::string& err);
 
+    // Learning mode: how to read `text` (in `language`, e.g. "Japanese") in Latin letters: romaji,
+    // pinyin with tone marks, Revised Romanization... Needs an AI service.
+    bool romanize(const TranslateSetup& setup, const std::string& text, const std::string& language, std::string& out,
+                  std::string& err);
+
+    // Screen translation with AI reading: every line of text in the picture (a PNG file, as base64)
+    // and its translation into `to`, in one request.
+    bool readPicture(const TranslateSetup& setup, const std::string& pngBase64, const Language& to,
+                     std::vector<std::pair<std::string, std::string>>& lines, std::string& err);
+
     // The instructions an AI service gets (exposed for testing).
     static std::string aiInstructions(const TranslateSetup& setup, const Language* from, const Language& to);
 
 private:
     bool claudeNoEffort_ = false;    // the chosen Claude model refused the effort setting
     bool geminiNoThinking_ = false;  // the chosen Gemini model refused the thinking setting
+    int openaiReasoning_ = 0;        // 0: ask for no reasoning, 1: "low", 2: leave it out (the model refused the others)
 };

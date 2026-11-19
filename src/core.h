@@ -145,6 +145,7 @@ public:
     void reset() { open_ = false; cur_.clear(); pre_.clear(); curFull_.clear(); preFull_.clear(); }
     bool open() const { return open_; }
     float levelDb() const { return db_; }
+    const std::vector<int16_t>& current() const { return cur_; }  // the phrase so far, while open
 
 private:
     std::vector<int16_t> cur_, curFull_;

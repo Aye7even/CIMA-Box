@@ -1,7 +1,8 @@
 // Is ElevenLabs (or Claude, Gemini, DeepL) having problems right now? Reads each company's public
 // status page now and then, so a failing request can be told apart from a problem in the app.
-// Two status page systems are understood: Atlassian Statuspage (/api/v2/status.json) and
-// incident.io (/api/v1/summary). A page that can't be read shows as "unknown", never as fine.
+// The usual status page systems are understood (Statuspage, incident.io, Instatus, Better Stack).
+// DeepL and Gemini are also asked directly whether they answer, and Google's incident feed is read
+// for Gemini. A service that can't be checked shows as "unknown", never as fine.
 #pragma once
 #include <memory>
 #include <string>
@@ -36,3 +37,6 @@ private:
 // The two formats, exposed for testing. False if the text isn't that format.
 bool parseStatuspage(const std::string& json, int& health, std::string& detail);
 bool parseIncidentIo(const std::string& json, int& health, std::string& detail);
+bool parseInstatus(const std::string& json, int& health, std::string& detail);
+bool parseBetterStack(const std::string& json, int& health, std::string& detail);
+bool parseGoogleIncidents(const std::string& json, int& health, std::string& detail);

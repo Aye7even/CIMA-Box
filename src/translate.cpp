@@ -1,8 +1,12 @@
 #include "translate.h"
 
+#include "extras.h"
+
 #include <atomic>
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <cctype>
 #include <cstdlib>
 #include <nlohmann/json.hpp>
@@ -223,7 +227,7 @@ std::string deeplHost(const std::string& key) {
 }
 
 namespace {
-std::atomic<long long> gTokens[2][2];  // [claude, gemini][in, out] used in this run
+std::atomic<long long> gTokens[3][2];  // [claude, gemini, openai][in, out] used in this run
 void countTokens(int which, long long in, long long out) {
     if (in > 0) gTokens[which][0] += in;
     if (out > 0) gTokens[which][1] += out;
@@ -234,18 +238,25 @@ long long tokenField(const json& j, const char* key) {
 }  // namespace
 
 void aiTokens(int service, long long& in, long long& out) {
-    const int w = service == kClaude ? 0 : 1;
+    const int w = service == kClaude ? 0 : service == kGemini ? 1 : 2;
     in = gTokens[w][0];
     out = gTokens[w][1];
 }
 
 namespace {
 
+// DeepL can't do slang, but it does know polite from informal in many languages ("du" or "Sie").
+// Set for the phrase being translated: "prefer_less" (Casual, Very casual), "prefer_more" (Polite)
+// or empty. The "prefer_" forms are simply ignored for languages without the choice.
+thread_local std::string tlFormality;
+
 bool deeplOnce(Http& http, const std::string& key, const std::string& text, const Language* from, const std::string& target,
-               std::string& out, std::string& err, bool& languageRefused) {
+               std::string& out, std::string& err, bool& languageRefused, bool formality = true) {
     languageRefused = false;
     json req = {{"text", json::array({text})}, {"target_lang", target}};
     if (from) req["source_lang"] = from->deeplSource;
+    const bool formal = formality && !tlFormality.empty();
+    if (formal) req["formality"] = tlFormality;
     const std::string payload = req.dump();
     HttpRequest r;
     r.url = deeplHost(key) + "/v2/translate";
@@ -260,6 +271,8 @@ bool deeplOnce(Http& http, const std::string& key, const std::string& text, cons
         std::string msg = j.is_object() && j.contains("message") && j["message"].is_string() ? j["message"].get<std::string>() : "";
         std::string lower;
         for (char c : msg) lower += char(std::tolower(static_cast<unsigned char>(c)));
+        if (status == 400 && formal && lower.find("formality") != std::string::npos)  // not for this language after all
+            return deeplOnce(http, key, text, from, target, out, err, languageRefused, false);
         if (status == 400 && lower.find("lang") != std::string::npos) languageRefused = true;
         if (status == 403) msg = "the API key was rejected";
         else if (status == 456) msg = "this month's character quota is used up";
@@ -289,7 +302,7 @@ bool deepl(Http& http, const std::string& key, const std::string& text, const La
 
 }  // namespace
 
-// ---------------------------------------------------------------- AI services (Claude, Gemini)
+// ---------------------------------------------------------------- AI services (Claude, Gemini, OpenAI)
 
 namespace {
 
@@ -319,6 +332,12 @@ std::string cleanAnswer(std::string s) {
 // explanation of a garbled transcript) is dropped. Without the tags, an answer that quotes the
 // original and runs long is an explanation, not a line to say or show: refused, so the phrase goes
 // to DeepL / Free instead of putting a paragraph in the caption or the voice.
+std::string lowerCopy(const std::string& s) {
+    std::string r;
+    for (char c : s) r += char(std::tolower(static_cast<unsigned char>(c)));
+    return r;
+}
+
 bool extractAnswer(const std::string& raw, const std::string& source, std::string& out) {
     const size_t a = raw.find("<line>");
     if (a != std::string::npos) {
@@ -328,6 +347,17 @@ bool extractAnswer(const std::string& raw, const std::string& source, std::strin
     }
     out = cleanAnswer(raw);
     const std::string src = trimText(source);
+    // A refusal instead of a line ("I'm sorry, but I can't help with that"): not something to say.
+    {
+        const std::string low = lowerCopy(out), lowSrc = lowerCopy(src);
+        for (const char* r : {"i'm sorry", "i am sorry", "i can't help", "i cannot help", "i can't assist", "i cannot assist",
+                              "i can't translate", "i cannot translate", "i won't", "i'm not able to", "i am not able to",
+                              "i'm unable to", "i am unable to"})
+            if (low.find(r) != std::string::npos && lowSrc.find(r) == std::string::npos) {
+                out.clear();
+                return false;
+            }
+    }
     const bool quotesSource = src.size() >= 4 && raw.find(src) != std::string::npos && out != src;
     const bool long_ = out.size() > src.size() * 3 + 80;
     const bool severalLines = trimText(raw).find('\n') != std::string::npos;
@@ -338,11 +368,6 @@ bool extractAnswer(const std::string& raw, const std::string& source, std::strin
     return !out.empty();
 }
 
-std::string lowerCopy(const std::string& s) {
-    std::string r;
-    for (char c : s) r += char(std::tolower(static_cast<unsigned char>(c)));
-    return r;
-}
 
 std::string httpProblem(const char* service, long status, const std::string& message) {
     std::string why = message;
@@ -352,8 +377,22 @@ std::string httpProblem(const char* service, long status, const std::string& mes
     return std::string(service) + " " + std::to_string(status) + (why.empty() ? "" : ": " + why);
 }
 
-bool claude(Http& http, const TranslateSetup& st, const std::string& instructions, const std::string& text, std::string& out,
-            std::string& err, bool& noEffort) {
+thread_local std::string tlRaw;  // the last AI answer as it came (for the <g> gender note)
+
+// Why an AI call failed, to decide whether one more try is worth it.
+enum AiFail { kFailOther = 0, kFailRejected, kFailBusy };
+
+std::string errorMessage(const json& j) {
+    if (j.is_object() && j.contains("error") && j["error"].is_object() && j["error"].contains("message") &&
+        j["error"]["message"].is_string())
+        return j["error"]["message"].get<std::string>();
+    return {};
+}
+
+// `source`: what was said (to tell an explanation from a translation); `text`: what is sent.
+bool claude(Http& http, const TranslateSetup& st, const std::string& instructions, const std::string& source,
+            const std::string& text, int timeoutMs, std::string& out, std::string& err, int& why, bool& noEffort) {
+    why = kFailOther;
     if (st.claudeKey.empty()) { err = "Add your Claude (Anthropic) API key"; return false; }
     for (int attempt = 0; attempt < 2; ++attempt) {
         json req = {{"model", st.claudeModel.empty() ? "claude-haiku-5-5" : st.claudeModel},
@@ -366,22 +405,21 @@ bool claude(Http& http, const TranslateSetup& st, const std::string& instruction
         r.url = "https://api.anthropic.com/v1/messages";
         r.headers = {"x-api-key: " + st.claudeKey, "anthropic-version: 2023-06-01", "content-type: application/json"};
         r.body = &payload;
-        r.timeoutMs = st.timeoutMs;
+        r.timeoutMs = timeoutMs;
         long status = 0;
         std::string body;
         if (!http.perform(r, status, body, err)) return false;
         json j = json::parse(body, nullptr, false);
         if (status != 200) {
-            std::string msg;
-            if (j.is_object() && j.contains("error") && j["error"].is_object() && j["error"].contains("message") &&
-                j["error"]["message"].is_string())
-                msg = j["error"]["message"].get<std::string>();
+            const std::string msg = errorMessage(j);
             // An older model that doesn't know the effort setting: ask again without it.
             if (status == 400 && !noEffort && (lowerCopy(msg).find("effort") != std::string::npos ||
                                                lowerCopy(msg).find("output_config") != std::string::npos)) {
                 noEffort = true;
                 continue;
             }
+            if ((status == 429 && lowerCopy(msg).find("credit") == std::string::npos) || status == 529 || status == 503)
+                why = kFailBusy;
             err = httpProblem("Claude", status, msg);
             return false;
         }
@@ -392,7 +430,9 @@ bool claude(Http& http, const TranslateSetup& st, const std::string& instruction
             for (const json& block : j["content"])
                 if (block.is_object() && block.value("type", "") == "text" && block.contains("text") && block["text"].is_string())
                     text2 += block["text"].get<std::string>();
-        if (!extractAnswer(text2, text, out)) {
+        tlRaw = text2;
+        if (!extractAnswer(text2, source, out)) {
+            why = kFailRejected;
             err = out.empty() && trimText(text2).empty() ? "Claude gave an empty answer" : "Claude explained instead of translating";
             return false;
         }
@@ -401,16 +441,19 @@ bool claude(Http& http, const TranslateSetup& st, const std::string& instruction
     return false;
 }
 
-bool gemini(Http& http, const TranslateSetup& st, const std::string& instructions, const std::string& text, std::string& out,
-            std::string& err, bool& noThinkingLevel) {
+bool gemini(Http& http, const TranslateSetup& st, const std::string& instructions, const std::string& source,
+            const std::string& text, int timeoutMs, std::string& out, std::string& err, int& why, bool& noThinkingLevel) {
+    why = kFailOther;
     if (st.geminiKey.empty()) { err = "Add your Gemini (Google AI Studio) API key"; return false; }
     for (int attempt = 0; attempt < 2; ++attempt) {
         json gen = {{"maxOutputTokens", 1024}};
         if (!noThinkingLevel) gen["thinkingConfig"] = {{"thinkingLevel", "low"}};  // as little thinking as allowed
-        json safety = json::array();  // swearing and rough talk are part of casual speech: only block the worst
+        // Swearing, insults between friends and rough talk are part of real speech, and the person
+        // chose to say them: Google's filters are turned off so a line isn't silently dropped.
+        json safety = json::array();
         for (const char* cat : {"HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT",
                                 "HARM_CATEGORY_DANGEROUS_CONTENT"})
-            safety.push_back({{"category", cat}, {"threshold", "BLOCK_ONLY_HIGH"}});
+            safety.push_back({{"category", cat}, {"threshold", "BLOCK_NONE"}});
         json req = {{"systemInstruction", {{"parts", json::array({{{"text", instructions}}})}}},
                     {"contents", json::array({{{"role", "user"}, {"parts", json::array({{{"text", text}}})}}})},
                     {"generationConfig", gen},
@@ -421,20 +464,18 @@ bool gemini(Http& http, const TranslateSetup& st, const std::string& instruction
                 (st.geminiModel.empty() ? std::string("gemini-3.5-flash-lite") : st.geminiModel) + ":generateContent";
         r.headers = {"x-goog-api-key: " + st.geminiKey, "Content-Type: application/json"};
         r.body = &payload;
-        r.timeoutMs = st.timeoutMs;
+        r.timeoutMs = timeoutMs;
         long status = 0;
         std::string body;
         if (!http.perform(r, status, body, err)) return false;
         json j = json::parse(body, nullptr, false);
         if (status != 200) {
-            std::string msg;
-            if (j.is_object() && j.contains("error") && j["error"].is_object() && j["error"].contains("message") &&
-                j["error"]["message"].is_string())
-                msg = j["error"]["message"].get<std::string>();
+            const std::string msg = errorMessage(j);
             if (status == 400 && !noThinkingLevel && lowerCopy(msg).find("thinking") != std::string::npos) {
                 noThinkingLevel = true;  // a model without thinking levels: ask again without the setting
                 continue;
             }
+            if (status == 429 || status == 503) why = kFailBusy;  // the free plan's per-minute limit, or busy
             err = httpProblem("Gemini", status, msg);
             return false;
         }
@@ -451,9 +492,85 @@ bool gemini(Http& http, const TranslateSetup& st, const std::string& instruction
                     if (part.is_object() && !part.value("thought", false) && part.contains("text") && part["text"].is_string())
                         text2 += part["text"].get<std::string>();
         }
-        if (!extractAnswer(text2, text, out)) {
+        tlRaw = text2;
+        if (!extractAnswer(text2, source, out)) {
+            why = kFailRejected;
             err = trimText(text2).empty() ? "Gemini gave no answer (it may have blocked the line)"
                                           : "Gemini explained instead of translating";
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+// OpenAI's Responses API. `reasoning`: 0 asks for none (fastest), 1 for "low", 2 leaves it out; it
+// moves up when a model refuses the setting.
+bool openai(Http& http, const TranslateSetup& st, const std::string& instructions, const std::string& source,
+            const std::string& text, int timeoutMs, std::string& out, std::string& err, int& why, int& reasoning) {
+    why = kFailOther;
+    if (st.openaiKey.empty()) { err = "Add your OpenAI API key"; return false; }
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        json req = {{"model", st.openaiModel.empty() ? "gpt-6-luna" : st.openaiModel},
+                    {"instructions", instructions},
+                    {"input", text},
+                    {"max_output_tokens", 1024},
+                    {"store", false}};  // nothing kept on OpenAI's side for later
+        if (reasoning < 2) req["reasoning"] = {{"effort", reasoning == 0 ? "none" : "low"}};
+        const std::string payload = req.dump();
+        HttpRequest r;
+        r.url = "https://api.openai.com/v1/responses";
+        r.headers = {"Authorization: Bearer " + st.openaiKey, "Content-Type: application/json"};
+        r.body = &payload;
+        r.timeoutMs = timeoutMs;
+        long status = 0;
+        std::string body;
+        if (!http.perform(r, status, body, err)) return false;
+        json j = json::parse(body, nullptr, false);
+        if (status != 200) {
+            const std::string msg = errorMessage(j), low = lowerCopy(msg);
+            std::string code;
+            if (j.is_object() && j.contains("error") && j["error"].is_object() && j["error"].contains("code") &&
+                j["error"]["code"].is_string())
+                code = j["error"]["code"].get<std::string>();
+            if (status == 400 && reasoning < 2 && (low.find("reasoning") != std::string::npos || low.find("effort") != std::string::npos)) {
+                ++reasoning;  // this model doesn't take that reasoning setting: try the next one
+                continue;
+            }
+            if (code == "insufficient_quota" || low.find("quota") != std::string::npos)
+                err = "OpenAI: no credit left on the account (add credits in Billing)";
+            else if (status == 404 || code == "model_not_found")
+                err = "OpenAI: your plan can't use " + (st.openaiModel.empty() ? std::string("gpt-6-luna") : st.openaiModel) +
+                      " (adding credit usually unlocks it)";
+            else {
+                if (status == 429 || status == 503 || status == 500) why = kFailBusy;
+                err = httpProblem("OpenAI", status, msg);
+            }
+            return false;
+        }
+        if (j.is_object() && j.contains("usage"))  // output_tokens includes any reasoning
+            countTokens(2, tokenField(j["usage"], "input_tokens"), tokenField(j["usage"], "output_tokens"));
+        std::string text2;
+        bool refused = false;
+        if (j.is_object() && j.contains("output") && j["output"].is_array())
+            for (const json& item : j["output"]) {
+                if (!item.is_object() || item.value("type", "") != "message" || !item.contains("content") ||
+                    !item["content"].is_array())
+                    continue;
+                for (const json& part : item["content"]) {
+                    if (!part.is_object()) continue;
+                    const std::string type = part.value("type", "");
+                    if (type == "output_text" && part.contains("text") && part["text"].is_string())
+                        text2 += part["text"].get<std::string>();
+                    else if (type == "refusal")
+                        refused = true;
+                }
+            }
+        tlRaw = text2;
+        if (!extractAnswer(text2, source, out)) {
+            why = kFailRejected;
+            err = refused || trimText(text2).empty() ? "OpenAI gave no answer (it may have refused the line)"
+                                                     : "OpenAI explained instead of translating";
             return false;
         }
         return true;
@@ -545,6 +662,40 @@ const Variety* findVariety(const std::string& id) {
     return nullptr;
 }
 
+namespace {
+// What casual speech actually looks like, for languages where the models tend to stay textbook.
+std::string casualHint(const std::string& code) {
+    static const std::pair<const char*, const char*> kHints[] = {
+        {"es", "tú (or vos where the dialect uses it), dropped subject pronouns, short forms like pa' and the dialect's "
+               "everyday fillers and slang"},
+        {"pt", "a gente instead of nós, tá, tô, cê, pra, and everyday fillers like tipo and né"},
+        {"fr", "drop the ne in negations, on instead of nous, t'es, y'a, ouais, and everyday words like trop and grave"},
+        {"de", "du, dropped endings (hab, ist's), ne instead of eine, and fillers like halt, echt and krass"},
+        {"it", "tu, and everyday fillers like tipo, cioè, dai and boh"},
+        {"ja", "タメ口: no です/ます, contractions like じゃん and てる, and particles like よ, ね, な at the end"},
+        {"ko", "반말: no 요, endings like -야, -어, -냐, -지, and words friends really use"},
+        {"zh", "no 您, particles like 啊, 吧, 呢, 嘛, and short everyday words"},
+        {"yue", "everyday spoken Cantonese with particles like 啦, 喎, 囉, not written Chinese"},
+        {"ru", "ты, short forms like щас, чё, ну, короче, and everyday slang"},
+        {"uk", "ти, short everyday forms and fillers like ну, короче"},
+        {"pl", "ty, and everyday words like spoko, no, serio"},
+        {"nl", "je instead of u, and everyday words like gewoon, echt, man"},
+        {"tr", "sen, and everyday words like ya, kanka, falan"},
+        {"ar", "the spoken dialect's everyday words and grammar instead of fusha (unless Modern Standard was chosen)"},
+        {"id", "aku/kamu or gue/lo, nggak, udah, banget, and particles like sih, dong, kok"},
+        {"ms", "aku/kau, tak, dah, and particles like lah, kot"},
+        {"fil", "everyday Tagalog with the English words people mix in, and particles like naman, kasi, eh"},
+        {"hi", "tu or tum (never aap), the English words people really mix in, and words like yaar"},
+        {"vi", "pronouns friends use (tao/mày between close friends, mình/bạn otherwise) and particles like nhé, nha, á"},
+        {"th", "pronouns friends use (เรา, แก, มึง/กู only for very close friends) and particles like อะ, ว่ะ, นะ"},
+        {"en", "contractions, dropped words, and everyday slang and fillers like gonna, kinda, like, bro"},
+    };
+    for (const auto& h : kHints)
+        if (code == h.first) return h.second;
+    return {};
+}
+}  // namespace
+
 std::string Translator::aiInstructions(const TranslateSetup& st, const Language* from, const Language& to) {
     const std::string target = to.name;
     const std::string source = from ? std::string(from->name) : std::string("another language");
@@ -582,8 +733,13 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
             target + ", and keep the tone (jokes, sarcasm, excitement, swearing).\n"
             "If the transcript is garbled, unclear or cut off, translate your best guess of what was said (or the words as "
             "they are). Never explain, comment, give alternatives or talk about the transcript." + genders;
+        if (!st.wordNote.empty()) s += "\n" + st.wordNote;
         if (!st.context.empty())
             s += "\n\nEarlier lines of the conversation, for context only (don't translate them):\n" + st.context;
+        if (st.readGender)
+            return s + "\n\nAnswer with only the translation, inside <line></line>. Then, only if the speaker's own words in "
+                       "the original clearly show their gender (like Spanish \"estoy cansada\", or \"I'm a girl\"), add "
+                       "<g>f</g> or <g>m</g>. Nothing else outside the tags.";
         return s + "\n\nAnswer with only the translation, inside <line></line>, and nothing outside it.";
     }
     // A dialect replaces the language name everywhere below ("Kuwaiti Arabic, the dialect spoken in Kuwait").
@@ -594,34 +750,188 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         st.variety.empty() ? std::string()
                            : "- Speak that variety, not the textbook standard: its own everyday words, expressions and grammar, "
                              "written the way people from there normally type it.\n";
-    std::string level;
-    if (st.level == kLevelPolite)
-        level = "Polite but natural spoken " + target + ": the polite speech level you'd use with someone you just met "
-                "(for example Korean 해요체, Japanese です/ます, or vous/usted/Sie/вы where the language has them). Relaxed, "
-                "never stiff or like written text.";
-    else if (st.level == kLevelVeryCasual)
-        level = "Very casual, like close friends gaming together: the casual speech level, current everyday slang, filler "
-                "words, and swearing where the original has that energy. Still exactly what a real native would say, never "
-                "a parody or a pile of slang.";
-    else
-        level = "Casual everyday speech between friends: the casual speech level (for example Korean 반말, Japanese タメ口, "
-                "or tu/tú/du/ты where the language has them), the contractions and dropped words people really use when "
-                "talking, and the common slang and filler words a native would naturally say. Natural, not forced.";
+    // The style is the part people notice most, and models drift back to neat, polite sentences
+    // unless it is spelled out: who you're talking to, what that sounds like in this language, what
+    // is not allowed, examples, and a last check right before the answer. A neatly worded original
+    // must not pull the result back to polite: the setting decides, not the source sentence.
+    const std::string hint = casualHint(to.code);
+    const bool custom = st.level == kLevelCustom && !trimText(st.customStyle).empty();
+    const bool polite = !custom && st.level == kLevelPolite;
+    const bool veryCasual = !custom && st.level == kLevelVeryCasual;
+    const bool casual = !custom && !polite;  // Casual and Very casual
+    std::string level, check;
+    if (custom) {
+        level = "HOW TO SOUND (the most important rule): exactly the way they describe it: \"" + trimText(st.customStyle) +
+                "\". Follow that closely; it matters more than sounding neutral, and more than how the original was worded.";
+        check = "Before you answer, check the line against their description (\"" + trimText(st.customStyle) +
+                "\"). If it sounds more neutral or more polite than that, rewrite it.";
+    } else if (polite) {
+        level = "HOW TO SOUND: you're talking to someone you just met in a lobby and want to come across as friendly and "
+                "respectful. Use the polite speech level (for example Korean 해요체, Japanese です/ます, or vous/usted/Sie/вы "
+                "where the language has them). Warm and relaxed, like a friendly stranger in a game: never stiff, never "
+                "like written text, and no slang or swearing the original didn't have.";
+    } else {
+        level = std::string("HOW TO SOUND (the most important rule, it outranks staying close to the original wording): ") +
+                (veryCasual
+                     ? "VERY CASUAL. You're talking to your closest friend, someone you've known for years, joking around "
+                       "with no filter. Talk the loosest way young native speakers talk to their best friend: slang, "
+                       "shortened and slurred words, filler words, teasing, and swearing where the mood fits."
+                     : "CASUAL. You're talking to a friend you hang out with a lot. Talk the relaxed way friends talk to "
+                       "each other: contractions, dropped words, everyday slang and filler words.") +
+                "\n  - Do NOT translate the sentence as it is worded. First get what they mean, then say that the way a "
+                "native would say it to " + (veryCasual ? "their best friend" : "a friend") + ". A tidy, complete or polite "
+                "original does NOT make the result tidy or polite: the style setting decides, not the original's wording.\n"
+                "  - Use the informal speech level and informal \"you\" (Korean 반말, Japanese タメ口, tu/tú/du/ты and so on). "
+                "Polite and formal forms are forbidden: no 요/습니다 endings, no です/ます, no usted/vous/Sie/вы/您/aap/Anda, "
+                "no polite request formulas (the equivalents of \"could you please\", \"would you mind\", \"I would like "
+                "to\", \"excuse me\", \"thank you very much\"), and no full textbook sentences where people would say half of it.\n"
+                "  - Shorten it the way speech is shortened: drop subjects, particles and words natives drop, use the "
+                "contracted and slurred forms, and start or end with the small filler words natives use.\n" +
+                (veryCasual
+                     ? "  - Slang is expected, not optional: wherever a slang word or a rougher everyday word exists for what "
+                       "they mean, use it instead of the dictionary word. Swear the way friends do when they're excited, "
+                       "annoyed or joking, as long as it fits what was said.\n"
+                     : "  - Prefer the everyday word over the dictionary word, and use light slang where friends would.\n") +
+                (hint.empty() ? std::string() : "  - In " + target + " that means: " + hint + ".\n") +
+                "  - How far to go (shown in English, do the same in " + spoken + "): \"Could you tell me where the mirror "
+                "is?\" becomes " + (veryCasual ? "\"yo where's the mirror at\"" : "\"hey where's the mirror?\"") +
+                "; \"I am very tired today\" becomes " + (veryCasual ? "\"bro I'm so dead today\"" : "\"ugh I'm so tired today\"") +
+                "; \"Thank you very much, that was fun\" becomes " + (veryCasual ? "\"ayy thanks man, that was sick\"" : "\"thanks, that was fun!\"") +
+                "; \"I do not understand\" becomes " + (veryCasual ? "\"wait what, I don't get it\"" : "\"huh? I don't get it\"") + ".";
+        check = std::string("Before you answer, read your line again. Would a native really say this out loud to ") +
+                (veryCasual ? "their best friend" : "a friend") + "? If it could be a line from a textbook, a subtitle, "
+                "a customer service chat or a polite stranger, it is wrong: rewrite it shorter, looser and more " +
+                (veryCasual ? "slangy" : "relaxed") + " in the informal speech level, then answer.";
+    }
+    const std::string keep =
+        st.swear == 1 ? "- Keep the meaning and the attitude (jokes, sarcasm, excitement), but say any swear word or insult "
+                        "with a milder word that keeps the feeling. Don't add new information or explain anything.\n"
+      : st.swear == 2 ? "- Keep the meaning and the attitude (jokes, sarcasm, excitement), but say the word \"beep\" instead "
+                        "of each swear word. Don't add new information or explain anything.\n"
+      : casual        ? "- Keep what they mean and their attitude (jokes, sarcasm, excitement, swearing). Don't add new "
+                        "information, don't explain, don't soften or censor. The wording is yours to loosen; the meaning is not.\n"
+                      : "- Keep the meaning and the attitude (jokes, sarcasm, excitement, swearing). Don't add, explain, soften "
+                        "or censor anything, and keep it about as long as the original.\n";
     s = "You are the voice of a person in live voice chat (for example in VRChat or a game). They said something in " +
         source + "; you say it for them in " + spoken + ".\n"
         "Write exactly what " + who + " would actually say out loud here.\n"
-        "- " + level + "\n" + dialect + genders +
-        "- Keep the meaning and the attitude (jokes, sarcasm, excitement, swearing). Don't add, explain, soften or censor "
-        "anything, and keep it about as long as the original.\n"
+        "- " + level + "\n" + dialect + genders + keep + st.wordNote +
         "- A text-to-speech voice will speak it: write only spoken words. No emoji, hashtags, texting abbreviations or "
         "laughter written as letters (no ㅋㅋ, lol, www, jaja, хаха), no quotation marks, no notes.\n"
-        "- If it is already in " + spoken + ", just make it sound natural at that level.\n"
+        "- If it is already in " + spoken + ", just make it sound natural in that style.\n"
         "- If what they said is garbled or unclear, say your best guess of what they meant. Never explain or comment.\n";
     if (!st.context.empty())
-        s += "\nRecent conversation, for tone only (don't translate it). Match how the others talk to you: if they "
-             "speak casually or politely to you, use the same level, and reuse their words when it fits:\n" +
+        s += std::string("\nRecent conversation, for context only (don't translate it). Use it to understand what's being talked "
+             "about and to reuse the words the others use. ") +
+             (casual ? "Keep the style described above even if the others talk politely or formally: never become more "
+                       "polite because of them. If they are even more casual than you, you may match them:\n"
+              : polite ? "Keep the style described above: if the others are clearly more casual with you, you may move one "
+                         "small step toward them, never further:\n"
+                       : "Keep the style described above:\n") +
              st.context;
+    if (!check.empty()) s += "\n" + check;
     return s + "\nAnswer with only the line to say, inside <line></line>, and nothing outside it.";
+}
+
+bool Translator::readPicture(const TranslateSetup& st, const std::string& png64, const Language& to,
+                             std::vector<std::pair<std::string, std::string>>& lines, std::string& err) {
+    lines.clear();
+    if (!isAiService(st.service)) { err = "AI reading needs Claude, Gemini or OpenAI as the translation service."; return false; }
+    const std::string prompt =
+        "This is a picture of a game or app window. Read every line of text people wrote or that the game shows "
+        "(chat messages, signs, menus), top to bottom. Keep a chat line whole, with the name in front if there is one. "
+        "Translate each line into natural " + std::string(to.name) + ", keeping slang and swearing. If a line is already in " +
+        to.name + ", repeat it. Skip single interface words like buttons and numbers. Answer with only JSON: "
+        "{\"lines\": [{\"text\": \"as written\", \"translation\": \"...\"}]}";
+    json req;
+    HttpRequest r;
+    std::string payload;
+    if (st.service == kClaude) {
+        req = {{"model", st.claudeModel.empty() ? "claude-haiku-5-5" : st.claudeModel},
+               {"max_tokens", 2048},
+               {"messages", json::array({{{"role", "user"},
+                                          {"content", json::array({{{"type", "image"},
+                                                                    {"source", {{"type", "base64"}, {"media_type", "image/png"}, {"data", png64}}}},
+                                                                   {{"type", "text"}, {"text", prompt}}})}}})}};
+        r.url = "https://api.anthropic.com/v1/messages";
+        r.headers = {"x-api-key: " + st.claudeKey, "anthropic-version: 2023-06-01", "content-type: application/json"};
+    } else if (st.service == kGemini) {
+        req = {{"contents", json::array({{{"role", "user"},
+                                          {"parts", json::array({{{"inline_data", {{"mime_type", "image/png"}, {"data", png64}}}},
+                                                                 {{"text", prompt}}})}}})},
+               {"generationConfig", {{"maxOutputTokens", 2048}, {"responseMimeType", "application/json"}}}};
+        r.url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+                (st.geminiModel.empty() ? std::string("gemini-3.5-flash-lite") : st.geminiModel) + ":generateContent";
+        r.headers = {"x-goog-api-key: " + st.geminiKey, "Content-Type: application/json"};
+    } else {
+        req = {{"model", st.openaiModel.empty() ? "gpt-6-luna" : st.openaiModel},
+               {"input", json::array({{{"role", "user"},
+                                       {"content", json::array({{{"type", "input_text"}, {"text", prompt}},
+                                                                {{"type", "input_image"}, {"image_url", "data:image/png;base64," + png64}}})}}})},
+               {"max_output_tokens", 2048},
+               {"store", false}};
+        if (openaiReasoning_ < 2) req["reasoning"] = {{"effort", openaiReasoning_ == 0 ? "none" : "low"}};
+        r.url = "https://api.openai.com/v1/responses";
+        r.headers = {"Authorization: Bearer " + st.openaiKey, "Content-Type: application/json"};
+    }
+    payload = req.dump();
+    r.body = &payload;
+    r.timeoutSec = 40;
+    long status = 0;
+    std::string body;
+    if (!http.perform(r, status, body, err)) return false;
+    const json j = json::parse(body, nullptr, false);
+    const char* name = st.service == kClaude ? "Claude" : st.service == kGemini ? "Gemini" : "OpenAI";
+    if (status != 200) { err = httpProblem(name, status, errorMessage(j)); return false; }
+    std::string text;
+    if (st.service == kClaude) {
+        if (j.contains("usage")) countTokens(0, tokenField(j["usage"], "input_tokens"), tokenField(j["usage"], "output_tokens"));
+        if (j.contains("content") && j["content"].is_array())
+            for (const json& b : j["content"])
+                if (b.is_object() && b.value("type", "") == "text") text += b.value("text", "");
+    } else if (st.service == kGemini) {
+        if (j.contains("usageMetadata"))
+            countTokens(1, tokenField(j["usageMetadata"], "promptTokenCount"),
+                        tokenField(j["usageMetadata"], "candidatesTokenCount") + tokenField(j["usageMetadata"], "thoughtsTokenCount"));
+        if (j.contains("candidates") && j["candidates"].is_array() && !j["candidates"].empty()) {
+            const json& c = j["candidates"][0];
+            if (c.contains("content") && c["content"].contains("parts") && c["content"]["parts"].is_array())
+                for (const json& part : c["content"]["parts"])
+                    if (part.is_object() && !part.value("thought", false)) text += part.value("text", "");
+        }
+    } else {
+        if (j.contains("usage")) countTokens(2, tokenField(j["usage"], "input_tokens"), tokenField(j["usage"], "output_tokens"));
+        if (j.contains("output") && j["output"].is_array())
+            for (const json& item : j["output"])
+                if (item.is_object() && item.value("type", "") == "message" && item.contains("content") && item["content"].is_array())
+                    for (const json& part : item["content"])
+                        if (part.is_object() && part.value("type", "") == "output_text") text += part.value("text", "");
+    }
+    const size_t a = text.find('{'), b = text.rfind('}');
+    const json out = a == std::string::npos || b == std::string::npos ? json() : json::parse(text.substr(a, b - a + 1), nullptr, false);
+    if (!out.is_object() || !out.contains("lines") || !out["lines"].is_array()) {
+        err = std::string(name) + " didn't read the picture";
+        return false;
+    }
+    for (const json& l : out["lines"])
+        if (l.is_object() && l.contains("text") && l["text"].is_string() && !l["text"].get<std::string>().empty())
+            lines.emplace_back(l["text"].get<std::string>(), l.value("translation", std::string()));
+    return true;
+}
+
+bool Translator::romanize(const TranslateSetup& st, const std::string& text, const std::string& language, std::string& out,
+                          std::string& err) {
+    if (!isAiService(st.service)) { err = "Needs Claude, Gemini or OpenAI"; return false; }
+    const std::string instructions =
+        "Write how to read this " + (language.empty() ? std::string("text") : language + " text") +
+        " in Latin letters, for a learner: Hepburn romaji for Japanese, pinyin with tone marks for Chinese, Jyutping for "
+        "Cantonese, Revised Romanization for Korean, a simple common transliteration for Arabic, Russian, Hindi, Thai and "
+        "others. Keep names and punctuation. Don't translate or explain. Answer with only the reading, inside <line></line>.";
+    int why = kFailOther;
+    const int ms = std::max(4000, st.timeoutMs * 2);
+    return st.service == kClaude   ? claude(http, st, instructions, text, text, ms, out, err, why, claudeNoEffort_)
+           : st.service == kGemini ? gemini(http, st, instructions, text, text, ms, out, err, why, geminiNoThinking_)
+                                   : openai(http, st, instructions, text, text, ms, out, err, why, openaiReasoning_);
 }
 
 void Translator::warm(const TranslateSetup& st) {
@@ -634,6 +944,8 @@ void Translator::warm(const TranslateSetup& st) {
         r.url = "https://api.anthropic.com/v1/messages";
     } else if (st.service == kGemini) {
         r.url = "https://generativelanguage.googleapis.com/v1beta/models";
+    } else if (st.service == kOpenAI) {
+        r.url = "https://api.openai.com/v1/models";
     } else {
         r.url = "https://api.mymemory.translated.net/";
     }
@@ -647,6 +959,7 @@ void Translator::warm(const TranslateSetup& st) {
 bool Translator::translate(const TranslateSetup& st, const std::string& text, const Language* from, const Language& to,
                            std::string& out, std::string& err) {
     via.clear();
+    tlFormality = st.faithful || st.level == kLevelCustom ? "" : st.level == kLevelPolite ? "prefer_more" : "prefer_less";
     auto deeplOrFree = [&](bool deeplFirst) {
         if (deeplFirst && !st.deeplKey.empty()) {
             bool refused = false;
@@ -661,16 +974,89 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
         return false;
     };
 
-    if (st.service == kClaude || st.service == kGemini) {
-        const char* name = st.service == kClaude ? "Claude" : "Gemini";
+    if (isAiService(st.service)) {
+        const char* name = st.service == kClaude ? "Claude" : st.service == kGemini ? "Gemini" : "OpenAI";
         const std::string instructions = aiInstructions(st, from, to);
-        const bool good = st.service == kClaude ? claude(http, st, instructions, text, out, err, claudeNoEffort_)
-                                                : gemini(http, st, instructions, text, out, err, geminiNoThinking_);
-        if (good) { via = name; return true; }
+        // A dialect takes the model more work: allow it half again as long (up to 1.5 s more).
+        const int budget = st.timeoutMs + (st.variety.empty() ? 0 : std::min(1500, st.timeoutMs / 2));
+        const auto started = std::chrono::steady_clock::now();
+        auto left = [&] {
+            return budget - int(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count());
+        };
+        bool good = false;
+        std::string firstErr;
+        std::string ask = text;
+        int lastWhy = kFailOther;
+        wordsGender = 0;
+        auto call = [&](const std::string& source, const std::string& sent, int ms, std::string& o, int& why) {
+            return st.service == kClaude   ? claude(http, st, instructions, source, sent, ms, o, err, why, claudeNoEffort_)
+                   : st.service == kGemini ? gemini(http, st, instructions, source, sent, ms, o, err, why, geminiNoThinking_)
+                                           : openai(http, st, instructions, source, sent, ms, o, err, why, openaiReasoning_);
+        };
+        for (int attempt = 0; attempt < 2 && !good; ++attempt) {
+            const int ms = left();
+            if (ms < 350) {  // not enough time for another try
+                if (attempt == 0) err = "timed out";
+                break;
+            }
+            int why = kFailOther;
+            good = call(text, ask, ms, out, why);
+            lastWhy = why;
+            if (good || err == "cancelled") break;
+            if (attempt == 0) firstErr = err;
+            // One more try, while there's time, when it's likely to work: the model answered with
+            // something other than the line (asked again, more firmly), or it was busy for a moment.
+            if (why == kFailRejected)
+                ask = text + "\n\n(Say this line in " + std::string(st.variety.empty() ? to.name : st.variety) +
+                      ". Answer with only the line, inside <line></line>. No notes, no refusal.)";
+            else if (why == kFailBusy)
+                std::this_thread::sleep_for(std::chrono::milliseconds(std::min(400, std::max(0, left() - 600))));
+            else
+                break;
+        }
+        if (good) {
+            via = name;
+            if (st.readGender) {  // the speaker's own words showed their gender
+                if (tlRaw.find("<g>f</g>") != std::string::npos) wordsGender = kGenderWoman;
+                else if (tlRaw.find("<g>m</g>") != std::string::npos) wordsGender = kGenderMan;
+            }
+            return true;
+        }
+        if (err == "cancelled") return false;
+        // The AI declined the line twice, and it has swearing in it: the AI translates the rest with
+        // markers where the swear words were, and DeepL (or the free service) translates just those.
+        if (lastWhy == kFailRejected) {
+            std::vector<std::string> found;
+            const std::string marked = markSwears(text, found);
+            std::string masked;
+            int why = kFailOther;
+            const std::string ask2 = marked + "\n\n(The [[1]], [[2]]... markers stand for words that get filled in later. "
+                                              "Keep every marker exactly as written, where it belongs in your sentence.)";
+            if (!found.empty() && call(marked, ask2, std::max(1200, st.timeoutMs), masked, why)) {
+                bool allThere = true;
+                for (size_t i = 0; i < found.size(); ++i)
+                    allThere = allThere && masked.find("[[" + std::to_string(i + 1) + "]]") != std::string::npos;
+                if (allThere) {
+                    for (size_t i = 0; i < found.size(); ++i) {
+                        std::string word = found[i], e;
+                        bool refused = false;
+                        if (!st.deeplKey.empty() && deepl(http, st.deeplKey, found[i], from, to, st.deeplVariant, word, e, refused)) {}
+                        else if (from && myMemory(http, found[i], *from, to, word, e)) {}
+                        else word = found[i];
+                        const std::string mark = "[[" + std::to_string(i + 1) + "]]";
+                        for (size_t at = masked.find(mark); at != std::string::npos; at = masked.find(mark, at + word.size()))
+                            masked.replace(at, mark.size(), word);
+                    }
+                    out = masked;
+                    via = std::string(name) + " (swear words by " + (st.deeplKey.empty() ? "Free" : "DeepL") + ")";
+                    return true;
+                }
+            }
+        }
+        if (!firstErr.empty() && firstErr != err && lowerCopy(err).find("timed out") == std::string::npos) err = firstErr;
         // DeepL and Free only know the standard language (or DeepL's few regional spellings).
         const std::string standardNote =
             st.varietyName.empty() || !st.deeplVariant.empty() ? std::string() : "; standard " + std::string(to.name);
-        if (err == "cancelled") return false;
         // Too slow or failed: this phrase goes through DeepL (or Free) so the conversation keeps going.
         const bool slow = lowerCopy(err).find("timed out") != std::string::npos || lowerCopy(err).find("timeout") != std::string::npos;
         const std::string why = slow ? std::string(name) + " too slow" : err;
@@ -721,6 +1107,12 @@ bool checkServiceKey(int service, const std::string& rawKey, std::string& msg) {
         r.url = "https://api.anthropic.com/v1/messages";
         r.headers = {"x-api-key: " + key, "anthropic-version: 2023-06-01", "content-type: application/json"};
         r.body = &payload;
+    } else if (service == kOpenAI) {  // one tiny answer: also tells whether the plan can use the model
+        payload = json({{"model", "gpt-6-luna"}, {"input", "Hi"}, {"max_output_tokens", 16}, {"store", false},
+                        {"reasoning", {{"effort", "none"}}}}).dump();
+        r.url = "https://api.openai.com/v1/responses";
+        r.headers = {"Authorization: Bearer " + key, "Content-Type: application/json"};
+        r.body = &payload;
     } else {
         r.url = "https://generativelanguage.googleapis.com/v1beta/models";
         r.headers = {"x-goog-api-key: " + key};
@@ -737,7 +1129,12 @@ bool checkServiceKey(int service, const std::string& rawKey, std::string& msg) {
         msg = "It works.";
         return true;
     }
-    if (service == kClaude && low.find("credit balance") != std::string::npos)
+    if (service == kOpenAI && (low.find("insufficient_quota") != std::string::npos || low.find("billing") != std::string::npos))
+        msg = "The key is right, but the account has no credit. Add credits on platform.openai.com (Billing), or pick the Build plan.";
+    else if (service == kOpenAI && (status == 404 || low.find("model_not_found") != std::string::npos ||
+                                    (status == 403 && low.find("model") != std::string::npos)))
+        msg = "The key is right, but your OpenAI plan can't use gpt-6-luna yet. Adding $5 of credit (Build plan) unlocks it.";
+    else if (service == kClaude && low.find("credit balance") != std::string::npos)
         msg = "The key is right, but the account has no credits yet. Buy credits in the Claude Console (Billing).";
     else if (status == 401 || status == 403 || (service == kGemini && status == 400))
         msg = "That key was refused. Copy it again, the whole thing.";

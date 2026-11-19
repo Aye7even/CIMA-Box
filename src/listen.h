@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "extras.h"
 #include "translate.h"
 
 enum ListenSource { kSrcApp = 0, kSrcSpeakers = 1, kSrcInput = 2, kSrcExternal = 3 /* pushPcm only */ };
@@ -37,7 +38,8 @@ struct CaptionLine {
     int speaker = -1;      // 0, 1, ... when a caption holds several speakers, -1 otherwise
     std::string text;      // what to read: the translation, or the words themselves
     std::string original;  // the words as spoken, when `text` is a translation
-    int voice = 0;         // Gender guessed from the voice (0 = can't tell)
+    int voice = 0;         // Gender guessed from the voice, or shown by their words (0 = can't tell)
+    int voiceId = -1;      // the same voice across captions (a best guess), -1 = unknown
 };
 
 struct Caption {
@@ -45,6 +47,10 @@ struct Caption {
     bool pending = true;   // heard, still being transcribed
     std::string time;      // "21:04"
     std::string language;  // spoken language, e.g. "Japanese"
+    std::string code;      // its code, e.g. "ja" ("" = unknown)
+    bool sure = false;     // the language is clear (not a guess from a few words, and on the "around me" list)
+    bool live = false;     // still being spoken: `lines` hold the words so far, not translated yet
+    bool screen = false;   // read from the screen (screen translation), not heard
     std::vector<CaptionLine> lines;
 };
 
@@ -61,6 +67,14 @@ struct ListenConfig {
     ListenSettings s;
     std::string apiKey;        // ElevenLabs
     TranslateSetup translate;  // service, keys, AI settings (Listen always translates faithfully)
+    // Features page
+    std::vector<WordFix> words;          // personal word list
+    std::vector<std::string> around;     // languages around me: limits "Detect automatically"
+    bool soundLabels = false;            // [laughter] in captions
+    bool ignoreNoise = true;             // drop captions that are only music or noise
+    bool liveCaptions = false;           // words while they're still talking
+    bool voiceIds = true;                // tell voices apart across captions
+    bool maskSwears = false;             // f***
 };
 
 class Listener {
@@ -78,6 +92,8 @@ public:
 
     uint64_t version() const;               // changes whenever the feed changes
     void captions(std::vector<Caption>& out) const;
+    // A line read from the screen joins the feed, so it shows wherever captions do.
+    void addScreenCaption(const std::string& text, const std::string& original);
     ListenState state() const;
 
     // Audio entry for sources that deliver their own format (application capture, tests).

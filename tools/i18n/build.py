@@ -2,7 +2,7 @@ import json, re, os, sys
 D=os.path.dirname(os.path.abspath(__file__)) + os.sep
 en=json.load(open(D+'strings.json'))
 LANGS=[('es','Español'),('pt-BR','Português (Brasil)'),('fr','Français'),('de','Deutsch'),('it','Italiano'),
-       ('ru','Русский'),('ja','日本語'),('ko','한국어'),('zh-Hans','简体中文')]
+       ('id','Bahasa Indonesia'),('ru','Русский'),('ar','العربية'),('ja','日本語'),('ko','한국어'),('zh-Hans','简体中文')]
 def conv(s):
     out=''; i=0
     while i<len(s):

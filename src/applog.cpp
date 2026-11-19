@@ -45,7 +45,7 @@ std::string logRedact(const std::string& text) {
         }
     }
     // Anything key-shaped: a long unbroken run of letters, digits, _ - : that mixes letters and digits
-    // (ElevenLabs sk_..., Claude sk-ant-..., Gemini AIza..., DeepL ...:fx).
+    // (ElevenLabs sk_..., Claude sk-ant-..., OpenAI sk-proj-..., Gemini AIza..., DeepL ...:fx).
     std::string out;
     for (size_t i = 0; i < s.size();) {
         if (!keyChar(s[i])) { out += s[i++]; continue; }

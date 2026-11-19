@@ -77,6 +77,13 @@ struct Listener::Impl {
     std::string status, error, chatText;
     std::condition_variable cv;
 
+    // Voices heard this session, to keep the same colour for the same person across captions.
+    std::vector<VoicePrint> voices;   // guarded by mtx
+    // Captions while they talk: the caption being spoken and the words so far.
+    uint64_t liveId = 0;              // guarded by mtx; 0 = none
+    std::thread liveThread;           // one transcription of the unfinished phrase at a time
+    std::atomic<bool> liveBusy{false};
+
     std::atomic<uint64_t> version{1};
     std::atomic<bool> running{false}, cancel{false}, hearing{false};
     std::atomic<int> busy{0}, lastMs{0};
@@ -200,9 +207,17 @@ struct Listener::Impl {
             jobs.pop_front();
         }
         Job j;
-        j.id = nextId++;
         j.pcm = std::move(pcm);
         j.heard = Clock::now();
+        if (liveId != 0) {  // the words shown while they talked become this caption
+            j.id = liveId;
+            liveId = 0;
+            jobs.push_back(std::move(j));
+            ++version;
+            cv.notify_one();
+            return;
+        }
+        j.id = nextId++;
         Caption c;
         c.id = j.id;
         c.time = clockNow();
@@ -339,6 +354,7 @@ struct Listener::Impl {
             levelDb = seg.levelDb();
             const bool open = seg.open();
             hearing = open;
+            if (open && !done) showLiveWords(seg.current());
             if (done) {
                 enqueue(std::move(phrase));
             } else if (open && !wasOpen) {
@@ -349,6 +365,74 @@ struct Listener::Impl {
             wasOpen = open;
         }
         closeSource();
+    }
+
+    // Captions while they talk: every ~1.5 s of new speech, the unfinished phrase is transcribed (not
+    // translated) and shown as it is. The finished phrase replaces it as usual.
+    size_t liveFrom = 0;  // capture thread only: phrase length at the last look
+    void showLiveWords(const std::vector<int16_t>& sofar) {
+        ListenConfig c;
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            c = cfg;
+        }
+        if (!c.liveCaptions || c.apiKey.empty()) return;
+        if (sofar.size() < liveFrom) liveFrom = 0;  // a new phrase
+        if (sofar.size() < size_t(Segmenter::kRate) * 3 / 2 || sofar.size() - liveFrom < size_t(Segmenter::kRate) * 3 / 2) return;
+        if (liveBusy.exchange(true)) return;
+        liveFrom = sofar.size();
+        if (liveThread.joinable()) liveThread.join();
+        uint64_t id;
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            if (liveId == 0) {
+                Caption cap;
+                cap.id = liveId = nextId++;
+                cap.time = clockNow();
+                cap.live = true;
+                feed.push_back(std::move(cap));
+                ++version;
+            }
+            id = liveId;
+        }
+        liveThread = std::thread([this, pcm = sofar, c, id] {
+            Eleven api;
+            api.apiKey = c.apiKey;
+            api.http.cancel = &cancel;
+            std::string text, lang, err;
+            if (api.transcribe(pcm, c.s.fromLang, text, lang, err) && !text.empty()) {
+                text = applyWordFixes(text, c.words);
+                if (c.maskSwears) text = maskSwears(text);
+                std::lock_guard<std::mutex> lk(mtx);
+                for (Caption& cap : feed)
+                    if (cap.id == id && cap.pending) {  // still being spoken or translated: show the words so far
+                        cap.live = true;
+                        cap.lines.assign(1, CaptionLine());
+                        cap.lines[0].text = text;
+                        ++version;
+                    }
+            }
+            liveBusy = false;
+        });
+    }
+
+    // Which voice this is, among the ones heard this session (a best guess). mtx held.
+    int voiceIdOf(const VoicePrint& p) {
+        int best = -1;
+        float bestD = 1e9f;
+        for (size_t i = 0; i < voices.size(); ++i) {
+            const float d = voiceDistance(p, voices[i]);
+            if (d < bestD) { bestD = d; best = int(i); }
+        }
+        if (best >= 0 && (bestD < 1.0f || voices.size() >= 12)) {
+            VoicePrint& v = voices[size_t(best)];  // drift a little toward the newest sample
+            v.pitch += 0.2f * (p.pitch - v.pitch);
+            v.spread += 0.2f * (p.spread - v.spread);
+            v.bright += 0.2f * (p.bright - v.bright);
+            return best;
+        }
+        voices.push_back(p);
+        return int(voices.size()) - 1;
     }
 
     // ---------------------------------------------------------------- phrases out
@@ -362,12 +446,30 @@ struct Listener::Impl {
     void process(const Job& job, const ListenConfig& c, Eleven& api, Translator& translator) {
         Transcript t;
         std::string err;
-        if (!api.transcribeTurns(job.pcm, c.s.fromLang, c.s.tellApart, t, err)) { fail(job.id, err); return; }
+        const bool events = c.soundLabels || c.ignoreNoise;
+        if (!api.transcribeTurns(job.pcm, c.s.fromLang, c.s.tellApart, t, err, events, c.soundLabels)) { fail(job.id, err); return; }
 
         const Language* to = findLanguage(c.s.toLang);
         const Language* from = findLanguage(c.s.fromLang.empty() ? t.language : c.s.fromLang);
+        // "Languages around me": a language outside the list is a misheard short phrase. With one
+        // language on the list it's that one; otherwise the translator works it out.
+        bool sure = !c.s.fromLang.empty() || t.languageSure >= 0.8f;
+        if (c.s.fromLang.empty() && !c.around.empty() && from &&
+            std::find(c.around.begin(), c.around.end(), std::string(from->code)) == c.around.end()) {
+            from = c.around.size() == 1 ? findLanguage(c.around[0]) : nullptr;
+            sure = c.around.size() == 1;
+        }
         const bool same = to != nullptr && from == to;  // already in the reader's language
-        if (t.turns.empty() || (same && c.s.onlyOtherLanguages)) {
+        // Only music or noise: nothing anyone said.
+        bool noise = false;
+        if (c.ignoreNoise) {
+            bool music = false;
+            for (const std::string& e : t.events)
+                music = music || e.find("music") != std::string::npos || e.find("singing") != std::string::npos ||
+                        e.find("song") != std::string::npos;
+            noise = (t.words == 0 && !t.events.empty()) || (music && t.words <= 6);
+        }
+        if (t.turns.empty() || noise || (same && c.s.onlyOtherLanguages)) {
             std::lock_guard<std::mutex> lk(mtx);
             eraseCaption(job.id);  // noise, music, or nothing to translate
             error.clear();
@@ -380,6 +482,7 @@ struct Listener::Impl {
         std::string problem, chat;
         TranslateSetup setup = c.translate;
         setup.faithful = true;
+        setup.wordNote = wordListNote(c.words);
         {   // the last few things people said, so slang and references are understood in context
             std::lock_guard<std::mutex> lk(mtx);
             std::vector<std::string> recent;
@@ -392,24 +495,36 @@ struct Listener::Impl {
         for (const SpeakerTurn& turn : t.turns) {
             CaptionLine line;
             line.speaker = several ? turn.speaker : -1;
-            line.text = turn.text;
+            line.text = applyWordFixes(turn.text, c.words);
             line.voice = guessVoiceGender(job.pcm, several ? turn.start : -1.f, several ? turn.end : -1.f);
+            if (c.voiceIds) {
+                VoicePrint vp;
+                if (voicePrint(job.pcm, several ? turn.start : -1.f, several ? turn.end : -1.f, vp)) {
+                    std::lock_guard<std::mutex> lk(mtx);
+                    line.voiceId = voiceIdOf(vp);
+                }
+            }
             setup.speaker = line.voice;  // gendered target languages: "I'm tired" -> cansado / cansada
             if (!same && to && problem.empty()) {
                 std::string translated;
-                if (translator.translate(setup, turn.text, from, *to, translated, err)) {
+                if (translator.translate(setup, line.text, from, *to, translated, err)) {
+                    if (translator.wordsGender) line.voice = translator.wordsGender;  // their words beat a guess from the voice
                     static std::string lastVia;  // say when another service had to step in, and when that ends
                     if (translator.via != lastVia && (translator.via.find('(') != std::string::npos || lastVia.find('(') != std::string::npos))
                         logLine("Listen translated with " + translator.via);
                     lastVia = translator.via;
+                    line.original = line.text;
                     line.text = translated;
-                    line.original = turn.text;
                 } else if (err == "cancelled") {
                     fail(job.id, err);
                     return;
                 } else {
                     problem = err;  // keep the caption, untranslated
                 }
+            }
+            if (c.maskSwears) {
+                line.text = maskSwears(line.text);
+                line.original = maskSwears(line.original);
             }
             if (!chat.empty()) chat += "\n";
             chat += line.text;
@@ -420,7 +535,10 @@ struct Listener::Impl {
         for (Caption& cap : feed) {
             if (cap.id != job.id) continue;
             cap.pending = false;
+            cap.live = false;
             cap.language = from ? from->name : t.language;
+            cap.code = from ? from->code : std::string();
+            cap.sure = sure && from;
             cap.lines = std::move(lines);
             lastMs = msSince(job.heard);
             if (c.s.chatbox) chatText = chat;  // only the newest caption is worth sending
@@ -489,6 +607,7 @@ void Listener::stop() {
         p_->cv.notify_all();
     }
     p_->capThread.join();
+    if (p_->liveThread.joinable()) p_->liveThread.join();
     for (std::thread& w : p_->workers) w.join();
     p_->workers.clear();
     if (p_->convOn) { ma_data_converter_uninit(&p_->conv, nullptr); p_->convOn = false; }
@@ -509,6 +628,22 @@ void Listener::clear() {
 }
 
 uint64_t Listener::version() const { return p_->version; }
+
+void Listener::addScreenCaption(const std::string& text, const std::string& original) {
+    std::lock_guard<std::mutex> lk(p_->mtx);
+    Caption c;
+    c.id = p_->nextId++;
+    c.pending = false;
+    c.screen = true;
+    c.time = clockNow();
+    CaptionLine l;
+    l.text = text;
+    if (original != text) l.original = original;
+    c.lines.push_back(std::move(l));
+    p_->feed.push_back(std::move(c));
+    while (p_->feed.size() > kMaxCaptions) p_->feed.pop_front();
+    ++p_->version;
+}
 
 void Listener::captions(std::vector<Caption>& out) const {
     std::lock_guard<std::mutex> lk(p_->mtx);

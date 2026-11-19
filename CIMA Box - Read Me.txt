@@ -1,10 +1,10 @@
-CIMA Box 2.7.3
+CIMA Box 2.8.0
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
 say (for example in VRChat) into your language.
 
-It has four pages, switched at the top of the window:
+It has five pages, switched at the top of the window:
 
   My voice   Your microphone goes to ElevenLabs and comes back as a different voice, which is
              played on any output device (for example a virtual cable that Discord or VRChat
@@ -14,9 +14,31 @@ It has four pages, switched at the top of the window:
   Listen     Captions of what other people say, translated into your language.
   VR         Shows those captions (and your own words, if you like) on a small floating panel
              inside your headset, in any SteamVR game.
+  Features   Extras you can turn on one by one: screen translation, a voice reading captions
+             in your ear, quick phrases, profiles and more.
 
 The switch at the top right turns the page you're on on or off. The gear next to it opens
 Settings: the app's language, your API keys and hotkeys.
+
+
+YOUR KEYS, YOUR COSTS
+---------------------
+
+CIMA Box is free, and it runs on your own accounts: ElevenLabs, and DeepL, Claude, Gemini or
+OpenAI if you add them. Whatever it uses is charged by those services to your keys. The app says
+this once, after the setup (or after updating to 2.8.0), and again any time from Settings >
+About > "About costs and your keys".
+
+- Voices, captions and translations use credits or tokens for as long as they're switched on.
+  Switch off what you aren't using.
+- Some settings use a lot more: Listen left running, Captions while they talk, Hear them in my
+  ear, Best translations and AI screen reading.
+- Set a spending limit in Settings > Accounts, and look at what's left at the bottom of the
+  window now and then.
+- If you share a key with friends, what they use counts on your account too.
+
+The maker of CIMA Box isn't responsible for charges, used-up credits or tokens, or anything else
+that comes from using it. You choose the settings, so you use it at your own risk.
 
 
 GETTING STARTED
@@ -24,7 +46,7 @@ GETTING STARTED
 
 The first time you open CIMA Box, a short setup asks for your language and then walks you
 through everything one screen at a time, with pictures of where to click: your keys
-(ElevenLabs, then DeepL and Claude or Gemini), what you want to do, your voice and where it
+(ElevenLabs, then DeepL and Gemini, Claude or OpenAI), what you want to do, your voice and where it
 goes, including VB-CABLE for games and Discord. If it asks you to restart your PC, it continues
 where you left off. Settings > About > Run setup again shows it again.
 
@@ -84,31 +106,41 @@ Voice
                              Kuwait, Saudi Arabia, Gulf, Iraq, Egypt, Levant, Morocco...; Brazil
                              or Portugal; Quebec; Swiss German; Kansai; Hinglish; and more.
                              "Other (type it)" takes anything, like ar-KW or "Rioplatense".
-                             Needs Claude or Gemini (DeepL and Free use the standard language).
+                             Needs Claude, Gemini or OpenAI (DeepL and Free use the standard
+                             language).
                              The words come out in the dialect; the ACCENT comes from the voice,
                              so for the real thing pick a voice from that region.
   Translation service ...... Free (MyMemory: no sign-up, about 5,000 characters a day),
                              DeepL (better wording, needs a DeepL API key; the free DeepL plan
-                             gives 500,000 characters a month), Claude or Gemini (see below).
-                             Free and DeepL sound like a textbook. Claude and Gemini say it the
+                             gives 500,000 characters a month), Claude, Gemini or OpenAI (see
+                             below). Free and DeepL sound like a textbook. The AI ones say it the
                              way a native speaker actually talks, slang and casual speech
                              included, which is what makes it believable in a conversation.
-    Claude / Gemini key .... Your key from console.anthropic.com (Claude) or
-                             aistudio.google.com (Gemini). Costs a tiny fraction of a cent per
-                             phrase.
+    Claude / Gemini / OpenAI key  Your key from console.anthropic.com (Claude),
+                             aistudio.google.com (Gemini) or platform.openai.com (OpenAI). Costs
+                             a tiny fraction of a cent per phrase.
     DeepL API key (backup) . Optional. Used for a phrase when the AI is too slow or fails.
-    How you talk ........... Polite (like with someone you just met), Casual (friends, the
-                             default) or Very casual (close friends: more slang, swearing kept).
+    How you talk ........... Polite (like with someone you just met in a lobby), Casual (a
+                             friend you hang out with, the default), Very casual (your closest
+                             friend: slang, swearing kept) or My own: describe it in your own
+                             words. Saying who you're talking to works best ("like with my best
+                             friend", "laid back and a bit sarcastic").
+                             Casual and Very casual don't translate your sentence word for
+                             word: they say what you mean the way a friend would, however
+                             neatly you said it, and never use polite forms. If a line still
+                             comes out stiff, look at the bottom strip: "(... too slow)" means
+                             DeepL or Free did that one, and they only know one way to talk.
     Sound like... .......... Optional, for example "a guy in his 20s from Seoul". Region and age
                              change the slang a lot.
     Match how they talk to me  Also gives the AI the last few lines other people said (from the
-                             Listen page), so you answer the way they talk to you and use their
-                             words. Needs Listen on.
+                             Listen page), so it picks up their words. Your style stays; it only
+                             leans a little toward theirs. Needs Listen on.
     Time limit ............. If the AI hasn't answered by then (2 seconds by default), that phrase
-                             uses DeepL (if you added a key) or Free instead. The bottom strip
-                             shows which service did each phrase.
+                             uses DeepL (if you added a key) or Free instead. With a dialect it
+                             waits a little longer. The bottom strip shows which service did
+                             each phrase.
     AI model ............... Leave as is unless you want a bigger, slower model.
-  Gender (Claude / Gemini) . Many languages change words for who speaks and who listens
+  Gender (AI services) ..... Many languages change words for who speaks and who listens
                              (Spanish cansado / cansada, Arabic enta / enti).
     I am ................... Not set, A man, A woman or Nonbinary.
     Talking to ............. Auto, Don't know, A guy, A girl or A group. Auto guesses from the
@@ -194,6 +226,13 @@ For when you can't or don't want to talk. Type at the bottom and press Enter (or
 
 Typed messages work even when the My voice switch is off.
 
+With some Features turned on, the Text page also shows:
+  Quick phrases ............ A row of buttons above the box: click one to say it.
+  Will say ................. With "Cancel before it's spoken", a bar showing what the voice is
+                             about to say, with a Cancel button.
+  How to read it / Replay /  With Learning mode, under each line: how to read it in Latin letters,
+  Save                       hear it again in its own language, and keep it for studying.
+
 
 LISTEN PAGE
 -----------
@@ -222,8 +261,8 @@ Translation
                              talk. The numbers only apply inside that one caption.
   Show the original words .. Shows what was said under the translation.
   Skip speech in my language  Hides people who already speak your language.
-  Translation service ...... Same choices as on My voice. Claude or Gemini understand slang
-                             much better. Here they always translate faithfully.
+  Translation service ...... Same choices as on My voice. Claude, Gemini or OpenAI understand
+                             slang much better. Here they always translate faithfully.
   Send to VRChat chatbox ... Shows the newest caption above your avatar (people near you can read
                              it too). Needs OSC on in VRChat.
   Caption size ............. Text size of the captions.
@@ -284,6 +323,114 @@ VR needs nothing extra: everything is inside CIMABox.exe. (Before 2.7.2 it neede
 openvr_api.dll next to it; that file can be deleted now.)
 
 
+FEATURES PAGE
+-------------
+
+Extras, each with its own switch. They are all off until you turn them on, so CIMA Box stays
+simple if you don't need them. Turning one on shows its options.
+
+Talking
+  Cancel before it's spoken  Waits a moment (you choose how long) and shows what the voice is
+                             about to say. Click Cancel or press the Cancel key to stop it.
+  Answer in their language . When people speak to you in another language, "Translate to"
+                             switches to it. It only switches after two lines in a row in that
+                             language, so one short word can't flip it.
+  Languages ................ Languages I speak / Languages around me: "Detect automatically" only
+                             picks from these. Short phrases are often mistaken for another
+                             language; this stops that. Leave a list empty to allow all.
+  Clean up my swearing ..... Tone it down (milder words, with Claude, Gemini or OpenAI) or Say
+                             "beep".
+  Best translations ........ Bigger AI models and twice the time limit. Better for dialects and
+                             slang; a bit slower and pricier.
+  Try a line ............... Type a line and see how each style (Polite, Casual, Very casual, My
+                             own) says it, using your own keys.
+  More hotkeys ............. Hold for my real voice (your own mic goes out while held) and Stop
+                             speaking (stops the voice and drops anything waiting).
+  Screen translation ....... See below.
+
+Hearing and reading
+  Hear them in my ear ...... A voice reads the translated captions in your headphones. Pick the
+                             voice, where it plays and how loud. Needs Listen on, and uses
+                             ElevenLabs credits for every caption.
+  Captions while they talk . Words show up while someone is still speaking, then the translation
+                             replaces them. Uses more ElevenLabs credits.
+  Captions ................. Hide swearing (f***), sound labels ([laughs], [music]), skip music
+                             and noise, big high-contrast captions, the same color for the same
+                             voice (right-click a line to mute that voice; it's a best guess),
+                             and guessing gender from their words (for languages where it
+                             changes how you answer).
+  Caption window over the game
+                             A small see-through window of captions on top of your game. Games
+                             must run in borderless windowed mode, not fullscreen. "Clicks go
+                             through it" lets you click the game underneath: set the key first,
+                             it's how you get the window back.
+
+Handy
+  Quick phrases ............ Buttons on the Text page for things you say a lot. "You type these a
+                             lot" suggests lines you've sent several times.
+  My word list ............. Names and words that keep coming out wrong. "It writes" is what you
+                             see now (optional), "Write it as" is how it should be. Words on the
+                             list are never translated.
+  Learning mode ............ See the Text page.
+  Keep a history ........... Saves the conversation to a text file for each day, only on this PC
+                             (in the CIMA Box settings folder). Search it from here.
+  Profiles ................. Save your whole setup under a name and load it in one click.
+  Share a setup ............ Copy my setup makes a code to paste in Discord; Paste a setup adds a
+                             friend's code as a profile. Codes never include your keys, your
+                             word list, your quick phrases or anything you typed, and a friend's
+                             code can't switch screen translation on for you.
+
+Screen translation
+  Translates text you can see in a game or app: chat boxes, signs, menus.
+
+  1. Window ............ pick the game or app.
+  2. Translate into .... your language (it starts as the one on the Listen page).
+  3. Take a snapshot ... a preview opens with the picture. Drag over the text you want, like
+                         the chat box, and press Translate. Nothing is read or sent before that.
+
+  The translation shows next to the picture (Copy them all copies it), with the captions on the
+  Listen page and in the caption window, in the conversation on the Text page and, if you like,
+  on the VR panel.
+
+  In the preview: Retake takes a new picture, Whole window clears your selection, and Watch this
+  area keeps looking at that part every few seconds and translates new lines as they appear
+  (switch it off with "Watch for new lines"). While it watches, a "Capturing" label shows at the
+  top of the window.
+
+  While you play: the Snapshot key, and "Translate screen" in the SteamVR menu, translate right
+  away with the area you last picked, because there is no preview to click when you're in the
+  game. "Translate without the preview" makes the button do the same.
+
+  Who reads the text:
+    Windows (free) ... reads on your PC. Only the translation uses tokens, as usual. It can
+                       read Arabic, Bosnian, Bulgarian, Chinese (Simplified and Traditional),
+                       Croatian, Czech, Danish, Dutch, English, Finnish, French, German, Greek,
+                       Hungarian, Italian, Japanese, Korean, Norwegian, Polish, Portuguese,
+                       Romanian, Russian, Serbian, Slovak, Slovenian, Spanish, Swedish and
+                       Turkish, and only those installed in Windows (Settings > Time & language
+                       > Language). Not Hindi, Thai, Vietnamese, Indonesian, Hebrew, Ukrainian,
+                       Persian or Tagalog, among others. Pick the language under "Text in the
+                       picture": if Windows doesn't have it yet, CIMA Box says so and offers a
+                       button that opens Windows' language settings.
+    AI ............... sends the picture to Claude, Gemini or OpenAI, which read any language
+                       and translate in one step. Pictures cost far more than text: one
+                       snapshot can cost as much as dozens of spoken lines, and watching a chat
+                       box sends a picture every time it looks. Your spending limit still
+                       applies.
+
+  IMPORTANT: never capture private or sensitive information. Anything visible in the window
+  can end up in the picture: passwords, keys, login screens, bank or card details, private
+  messages, emails, your real name or address, or other people's personal information. With AI
+  reading, the picture is sent to that AI service and is covered by their privacy rules, not
+  CIMA Box's, and can't be taken back. If you wouldn't post it publicly, don't capture it.
+  CIMA Box only captures the window you picked, only when you ask (or while Watch is on), and
+  never saves the pictures or writes them to the log.
+
+  Games and anti-cheat: CIMA Box never touches a game's files or memory; it only takes a
+  picture of the window, like a screenshot tool. Some competitive games have rules about
+  overlay and screen-capture tools, so check them before using it there.
+
+
 SETTINGS (THE GEAR)
 -------------------
 
@@ -291,7 +438,7 @@ Click the gear at the top right; click it again (or any page name) to go back.
 
 App language
   The language of the menus: English, Español, Português (Brasil), Français, Deutsch, Italiano,
-  Русский, 日本語, 한국어 or 简体中文. Changes right away. Translations, captions and voices have
+  Bahasa Indonesia, Русский, العربية, 日本語, 한국어 or 简体中文. Changes right away. Translations, captions and voices have
   their own language settings.
 
   Adding another language: in the "lang" folder next to CIMABox.exe there is
@@ -316,7 +463,8 @@ About
 Accounts
   ElevenLabs API key ....... Needed for everything. From the API keys page on elevenlabs.io.
   Load voices and models ... Fetches your voices and models from ElevenLabs.
-  Claude / Gemini API key .. For natural translation with slang and dialects.
+  Claude / Gemini / OpenAI API key
+                             For natural translation with slang and dialects. You only need one.
   DeepL API key ............ Textbook translation, and the backup when the AI is slow.
   Show keys ................ Shows the keys instead of dots.
 
@@ -347,13 +495,14 @@ TIPS
   conversational, or a clone of yourself made from casual talking.
 - Two mics (for example a VR headset and a desk mic): turn on Match my mic, and keep the same
   distance and noise removal on both.
-- To sound like a native speaker when translating: Claude or Gemini, Casual, a "Sound like..."
-  with a region and age, and Listen on with "Match how they talk to me".
-- To pass as a local: Claude or Gemini, the right Dialect, "I am" set, and a voice (or clone)
+- To sound like a native speaker when translating: Claude, Gemini or OpenAI, Casual or Very
+  casual (or My own), a "Sound like..." with a region and age, and Listen on with "Match how
+  they talk to me".
+- To pass as a local: Claude, Gemini or OpenAI, the right Dialect, "I am" set, and a voice (or clone)
   from that region.
 - Emotion tags like [excited] and capitals for stressed words only work on v3 and v4 models.
-- Some languages (Arabic, Persian, Hebrew, Hindi and similar) may look odd in the text lines.
-  The voice itself is fine.
+- Arabic, Persian, Urdu and Hebrew are joined up and shown right to left. Hindi and similar
+  scripts may still look a little off in the text lines; the voice itself is fine.
 
 
 SPENDING LIMIT (SETTINGS > ACCOUNTS)
@@ -361,8 +510,8 @@ SPENDING LIMIT (SETTINGS > ACCOUNTS)
 
 Counted per session, from when CIMA Box starts.
   ElevenLabs credits per session .. A notice appears at the top after this many.
-  Claude or Gemini per session ...... The same for translations, in US dollars (an estimate from
-                                      list prices).
+  AI translation per session ......... The same for Claude, Gemini and OpenAI together, in US
+                                      dollars (an estimate from list prices).
   Stop talking and listening at the limit
                                       Also switches off My voice and Listen until you press OK.
 Press OK on the notice to carry on: the next notice comes after another full limit. ElevenLabs
@@ -376,7 +525,7 @@ A small line at the bottom of every page shows what's left for the services you 
   ElevenLabs ... credits left this month, read from your account. If it says "not available",
                  the key was made without permission to read the account (allow User: Read).
   DeepL ........ characters left this month.
-  Claude, Gemini  They can't report what's left on a key, so this shows what CIMA Box spent
+  Claude, Gemini, OpenAI  They can't report what's left on a key, so this shows what CIMA Box spent
                  in this session (counted from their answers, at list price).
 It turns amber when less than a tenth is left and red when it's used up. Hover for details.
 
@@ -388,11 +537,15 @@ If a headset or mic is unplugged, CIMA Box opens it again by itself when it's pl
 (within a few seconds).
 
 Settings > About > Open log file opens cimabox.log: what went wrong and when. It never contains
-your API keys, so it's safe to send to whoever is helping you.
+your API keys, so it's safe to send to whoever is helping you. Report a problem (also in About)
+puts a file on your Desktop with the log, your settings (without keys) and your Windows version:
+send that one instead.
 
-If something stops working, first look at Settings > Service status. It shows what the status
-pages of ElevenLabs, Claude and DeepL say (Gemini has no readable page, so it just links to it),
-checked every few minutes. When a service you use reports problems, "ElevenLabs: problems" (or
+If something stops working, first look at Settings > Service status. It shows, right in the app,
+whether ElevenLabs, Claude, Gemini, OpenAI and DeepL are working. For ElevenLabs, Claude and
+OpenAI that comes from their status pages. DeepL and Gemini are also asked directly whether they
+answer from your PC (no key is sent), and Google's incident list is read for Gemini. It's
+checked every few minutes; "Couldn't check" means your PC couldn't reach it just now. When a service you use reports problems, "ElevenLabs: problems" (or
 similar) appears at the top of the window: it's on their side, so wait and try again later.
 Click it to open their status page.
 
@@ -402,7 +555,7 @@ Nothing happens when I talk ............ Check the switch at the top right is on
 The other app doesn't hear the voice ... That app's microphone must be the other end of the
                                          virtual cable ("CABLE Output").
 It cuts off my last word ............... Make "Pause that ends a phrase" a bit longer.
-"Free translation limit reached" ....... Switch to DeepL, Claude or Gemini, or wait until
+"Free translation limit reached" ....... Switch to DeepL, Claude, Gemini or OpenAI, or wait until
                                          tomorrow.
 "(Claude too slow)" in the bottom strip  That phrase was done by DeepL or Free instead. Raise
                                          the Time limit a little if it happens a lot.
@@ -422,3 +575,9 @@ Nothing shows in the headset ........... Turn Listen on too, and check the panel
 The chatbox shows nothing .............. Turn on OSC in VRChat.
 App capture fails on Listen ............ Needs Windows 11 or an up-to-date Windows 10. Use
                                          Speakers instead.
+Screen translation finds no text ....... Drag over just the text in the preview. With Windows
+                                         reading, pick the text's language; if it isn't in
+                                         Windows yet, use the button that appears, or AI reading.
+Screen snapshot is black ............... Some games block window pictures in fullscreen. Use
+                                         borderless windowed mode.
+The caption window can't be clicked .... "Clicks go through it" is on: press its key.

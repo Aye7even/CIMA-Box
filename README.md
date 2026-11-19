@@ -17,7 +17,7 @@ Desktop) and run it. It updates itself from then on, and tells you what's new af
 - **Changer** keeps your own timing and emotion. The fastest and most natural mode.
 - **Re-speak** has the voice say your words in its own delivery.
 - **Translate** speaks your words in another language: 91 of them.
-- With Claude or Gemini, translations sound like a real person talking, not a textbook: casual
+- With Claude, Gemini or OpenAI, translations sound like a real person talking, not a textbook: casual
   speech, slang and **dialects** (Mexican or Puerto Rican Spanish, Kuwaiti or Egyptian Arabic,
   Kansai Japanese, Swiss German, Hinglish and many more), and the right words for **who's speaking
   and who you're talking to** in languages that change with gender.
@@ -44,29 +44,37 @@ SteamVR menu without taking the headset off.
 
 ![The VR page, with a preview of the caption panel](docs/vr.png)
 
-The app itself speaks English, Español, Português, Français, Deutsch, Italiano, Русский, 日本語,
-한국어 and 简体中文 (Settings, the gear at the top right).
+**Features**: extras you turn on one at a time, so the app stays simple if you don't need them.
+- **Screen translation**: pick a window, take a snapshot, drag over the text and press Translate.
+  Or let it watch a chat box and translate new lines by itself. Reads on your PC for free, or with
+  AI for any language.
+- **Hear them in your ear**: a voice reads the translated captions in your headphones.
+- **Captions while they talk**, **answer in their language**, a **see-through caption window**
+  that clicks pass through, sound labels, high-contrast captions and muting one person.
+- **Cancel before it's spoken**, **clean up your swearing** (tone down or bleep), **Best
+  translations**, and **Try a line** to compare styles.
+- **Quick phrases**, **your own word list**, **learning mode** (how to read a line, replay, save),
+  a searchable **history**, and **profiles** you can share with friends as a code (never with keys).
+
+![The Features page: screen translation, extras for talking, and handy tools](docs/features.png)
+
+The app itself speaks English, Español, Português, Français, Deutsch, Italiano, Bahasa Indonesia,
+Русский, العربية, 日本語, 한국어 and 简体中文 (Settings, the gear at the top right). Arabic, Persian, Urdu
+and Hebrew are shown right to left with joined letters, in the app and in VR.
 
 ![Settings: app language, API keys, hotkeys, updates and service status](docs/settings.png)
 
-## Before you start
+## What you need
 
-Get these ready and setup takes about five minutes. The setup screen inside CIMA Box walks you through where each one goes.
-
-**Must have**
-
-- **Windows 10 or 11**
-- **An ElevenLabs API key**: this is where every voice and caption comes from. Make a free account at [elevenlabs.io](https://elevenlabs.io), open your profile, go to **API keys** and create one. Without it, CIMA Box can't do anything.
-
-**Highly recommended**
-
-- **A DeepL API key**: fast, reliable translations, and the backup CIMA Box falls back on whenever the AI is slow or busy. The free plan covers a lot of chatting each month. Sign up for the free **DeepL API** plan (not the regular DeepL app) at [deepl.com/pro-api](https://www.deepl.com/pro-api) and copy your key from your account page. DeepL may ask for a card to confirm you're a real person, but the free plan doesn't charge it.
-- **A Gemini or Claude API key**: translations that sound like a real person talking, with slang and dialects (Mexican Spanish, Kansai Japanese and many more). You only need one of them:
-  - **Gemini** (free to start): sign in to [Google AI Studio](https://aistudio.google.com) and click **Get API key**.
-  - **Claude** (pay as you go, a few cents per evening of chatting): create a key at [console.anthropic.com](https://console.anthropic.com).
-- **VB-CABLE**, *if you want others to hear the voice in a game, Discord or a call*. Those apps only listen to microphones, and VB-CABLE adds a free "virtual microphone" for CIMA Box to speak into. Download it from [vb-audio.com/Cable](https://vb-audio.com/Cable/), install it, and restart your PC. Then pick **CABLE Input** in CIMA Box and **CABLE Output** as your microphone in the game or app. Just trying it out on your own headphones? You can skip this.
-
-All keys go in **Settings > Accounts** (the gear at the top right) and stay on your own PC.
+- **Windows 10 or 11.**
+- **An [ElevenLabs](https://elevenlabs.io) account and API key.** CIMA Box uses your own account,
+  so you pay ElevenLabs directly for what you use. Higher plans unlock better audio quality.
+- **A virtual audio cable** so games and apps can hear the new voice, for example the free
+  [VB-Audio Virtual Cable](https://vb-audio.com/Cable/).
+- Optional, for natural translation: a [Claude](https://console.anthropic.com),
+  [Gemini](https://aistudio.google.com) or [OpenAI](https://platform.openai.com) API key (a
+  fraction of a cent per sentence), or [DeepL](https://www.deepl.com/pro-api).
+- For VR captions: SteamVR.
 
 ## Getting started
 
@@ -93,32 +101,29 @@ Every button and setting is explained in **[`CIMA Box - Read Me.txt`](CIMA%20Box
   sent to the services they belong to. Don't share that file.
 - **What's sent where:** your voice goes to ElevenLabs; text to translate goes to the translation
   service you picked. With Listen on, other people's voices are sent to ElevenLabs too, to caption
-  them. Captions are never saved.
-- **What's left** of your ElevenLabs credits (and DeepL characters, or what Claude or Gemini cost
+  them. Captions are never saved, unless you turn on Keep a history (a text file on your PC).
+  Screen translation only captures the window you pick, when you ask; with AI reading that picture
+  goes to the AI service, so never capture anything private.
+- **Updates** are checked when the app starts and install with one click (Settings > Updates). Each
+  one is signed, and the app refuses anything that isn't.
+- **Your browser or Windows SmartScreen** may warn about the download or the first run ("Windows
+  protected your PC"), because the program is new and not from a big company. In the browser choose
+  **Keep**; in SmartScreen click **More info** > **Run anyway**.
+- Keep CIMA Box in a folder you can write to (not Program Files) so it can update itself.
+- **First time?** A short setup walks you through everything, starting with your language. Run it
+  again from Settings > About.
+- **Your keys, your costs.** CIMA Box is free and runs on your own accounts, so whatever it uses is
+  charged to your keys. Switch off what you aren't using, set a spending limit (Settings >
+  Accounts), and remember that friends using your key count on your account. The author isn't
+  responsible for charges or used-up credits: you use it at your own risk.
+- **What's left** of your ElevenLabs credits (and DeepL characters, or what Claude, Gemini or OpenAI cost
   this session) shows quietly at the bottom of the window.
-- **Something stopped working?** Settings > Service status shows whether ElevenLabs, Claude or
-  DeepL are having problems right now, and a small note appears at the top of the window when a
+- **Something stopped working?** Settings > Service status shows whether ElevenLabs, Claude,
+  OpenAI or DeepL are having problems right now, and a small note appears at the top of the window when a
   service you use is. Then it's on their side: wait a bit and try again. Settings > About > Open
   log file shows what went wrong (it never contains your keys), so you can send it to whoever helps
   you.
 - What changed in each version: [CHANGELOG.md](CHANGELOG.md).
-
-## Is it free?
-
-**CIMA Box itself is free**, and always will be. It runs on a few online services, though, and those have their own plans. The good news: you can try everything without paying anything.
-
-**Try it for free**
-
-1. **ElevenLabs** (the voices and captions): make a free account at [elevenlabs.io](https://elevenlabs.io). The free plan comes with a small amount of voice each month (about 10 minutes), which is plenty to try CIMA Box out. When CIMA Box starts for the first time, it shows you where to find your key and where to paste it.
-2. **Google Gemini** (natural translations, with slang and dialects): sign in to [Google AI Studio](https://aistudio.google.com) with your Google account and click **Get API key**. It's free for everyday use. Paste the key in CIMA Box under **Settings > Accounts**, then choose **Gemini** as the translation service.
-
-That's it: no credit card needed for either one.
-
-**If you use it a lot**
-
-The free ElevenLabs plan runs out quickly if you use CIMA Box every day. Their cheapest paid plan gives you about three times as much voice, plus the option to clone your own voice. You pay the services directly; CIMA Box never charges you anything, and your keys stay on your own PC.
-
-The line at the bottom right of the window always shows how much you have left.
 
 ## Credits
 

@@ -1,5 +1,7 @@
 #include "i18n.h"
 
+#include "bidi.h"
+
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -96,6 +98,9 @@ const std::vector<UiLanguage>& uiLanguages() {
 
 void setUiLanguage(const std::string& code) {
     scan();
+    // Arabic, Persian, Urdu, Hebrew menus: a line mixing those words with English reads right to left.
+    const std::string base = code.substr(0, code.find('-'));
+    bidi::setPreferRtl(base == "ar" || base == "fa" || base == "ur" || base == "he" || base == "ps" || base == "ckb");
     State& s = st();
     s.table.clear();
     s.withId.clear();

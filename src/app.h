@@ -7,6 +7,7 @@
 
 #include "appaudio.h"
 #include "eleven.h"
+#include "extras.h"
 #include "listen.h"
 #include "servicestatus.h"
 #include "voiceout.h"
@@ -16,12 +17,15 @@
 
 enum Engine { kVoiceChanger = 0, kRespeak = 1, kTranslate = 2 };
 enum Activation { kVoiceActivity = 0, kPushToTalk = 1 };
-enum Page { kPageVoice = 0, kPageListen = 1, kPageVR = 2, kPageSettings = 3, kPageText = 4 };
+enum Page { kPageVoice = 0, kPageListen = 1, kPageVR = 2, kPageSettings = 3, kPageText = 4, kPageFeatures = 5 };
 // Who you are talking to, as chosen. Auto = the last person who spoke (guessed from their voice).
 enum TalkingTo { kTalkAuto = 0, kTalkUnknown = 1, kTalkMan = 2, kTalkWoman = 3, kTalkGroup = 4, kTalkCount = 5 };
 // Where cimabox.json is kept (Settings > About).
 enum SettingsPlace { kPlaceSettingsFolder = 0, kPlaceDocuments = 1, kPlaceProgram = 2 };
 enum ChatboxShow { kShowSaid = 0, kShowSpoken = 1, kShowBoth = 2 };
+
+// The one-time notice about costs. Raise it when the notice says something new: everyone sees it once more.
+const int kUsageNotice = 1;
 
 struct Settings {
     std::string apiKey;
@@ -49,15 +53,17 @@ struct Settings {
     // Spending limit, per session (from when CIMA Box starts).
     bool spendWarn = true;
     int spendCredits = 20000;          // ElevenLabs credits
-    float spendDollars = 1.0f;         // Claude and Gemini together, US$
+    float spendDollars = 1.0f;         // Claude, Gemini and OpenAI together, US$
     bool spendStop = false;            // also switch off talking and listening when reached             // Text page: say it with the voice (else only the chatbox and the feed)
     int chatboxShow = 0;               // ChatboxShow
     int translateService = 0;          // TranslateService, shared by both pages
     std::string deeplKey;
-    std::string claudeKey, geminiKey;  // AI translation (natural, slang-aware)
+    std::string claudeKey, geminiKey, openaiKey;  // AI translation (natural, slang-aware)
     std::string claudeModel = "claude-haiku-5-5";
     std::string geminiModel = "gemini-3.5-flash-lite";
+    std::string openaiModel = "gpt-6-luna";
     int speechLevel = kLevelCasual;    // SpeechLevel: how the AI words what you say
+    std::string customStyle;           // kLevelCustom: how to sound, in the person's own words
     std::string persona;               // optional: "a guy in his 20s from Seoul"
     int aiTimeoutMs = 2000;            // AI slower than this: that phrase uses DeepL / Free instead
     bool mirror = true;                // match how the people you talk to speak (from the Listen captions)
@@ -72,6 +78,7 @@ struct Settings {
     std::string uiLanguage = "en";     // the app's own language
     bool checkUpdates = true;          // look for a new version when the app starts
     std::string lastSeenVersion;       // "What's new" shows what changed since this one
+    int usageNotice = 0;               // which "your keys, your costs" notice was read (kUsageNotice = the current one)
     std::string inDevice, outDevice, monDevice;  // empty = system default
     bool monitor = false;
     bool enabled = true;
@@ -82,6 +89,8 @@ struct Settings {
     int pttKey = 0;
     ListenSettings listen;             // the Listen page: captions for what other people say
     VrSettings vr;                     // the VR page: captions inside the headset
+    FeatureSettings fx;                // the Features page
+    ScreenSettings screen;             // screen translation (Features page)
 };
 
 // The translator settings for one language and dialect (the dialect part only).
@@ -94,11 +103,36 @@ struct ChatLine {
     std::string original;  // as said, when it differs
     std::string language;  // theirs
     int speaker = -1;      // "Voice 1/2"
+    int voiceId = -1;      // the same voice across captions (a best guess), -1 = unknown
+    uint64_t key = 0;      // stays the same for this line (romanization is kept per line)
+    std::string roman;     // learning mode: how to read it (romaji, pinyin...), when fetched
+    bool screen = false;   // read from the screen (screen translation)
+    std::string code;      // their language's code, for replaying it ("" = unknown)
+};
+
+// Screen translation: one line found in the picture, and its translation.
+struct ScreenLine {
+    std::string text, translated;
+};
+// What the screen translation preview shows.
+struct ScreenShot {
+    uint64_t texture = 0;      // the picture
+    int width = 0, height = 0;
+    bool busy = false;         // reading / translating
+    std::string error;
+    std::string app;           // the window it came from
+    std::vector<ScreenLine> lines;
+    int tokens = 0;            // AI reading: about how many tokens the picture costs
+    float crop[4] = {0, 0, 1, 1};
+    bool show = false;         // the preview window is open
 };
 
 // The "how do I get this key?" guides, and their pictures (in this order in guide_data.h).
-enum KeyGuide { kGuideEleven = 0, kGuideDeepL, kGuideGemini, kGuideClaude, kGuideCount };
-enum GuidePicture { kPicEleven1 = 0, kPicEleven2, kPicEleven3, kPicDeepL, kPicGemini, kPicClaude, kPicCount };
+enum KeyGuide { kGuideEleven = 0, kGuideDeepL, kGuideGemini, kGuideClaude, kGuideOpenAI, kGuideCount };
+enum GuidePicture {
+    kPicEleven1 = 0, kPicEleven2, kPicEleven3, kPicDeepL, kPicGemini, kPicClaude,
+    kPicOpenAI1, kPicOpenAI2, kPicOpenAI3, kPicOpenAI4, kPicOpenAI5, kPicCount
+};
 struct GuidePic {
     uint64_t texture = 0;
     int width = 0, height = 0;
@@ -162,18 +196,19 @@ struct UiModel {
     std::vector<UsageItem> usage;            // what's left, for the services in use
     std::string logPath;                     // cimabox.log
     long long sessionCredits = -1;           // ElevenLabs credits used since start (-1 = can't tell)
-    double sessionDollars = 0;               // Claude + Gemini since start
+    double sessionDollars = 0;               // Claude + Gemini + OpenAI since start
     std::string spendAlert;                  // the spending limit was reached: what to say
     bool spendStopped = false;               // ... and talking and listening were switched off
     bool scrollToSpend = false;              // Settings: show the spending limit part
+    bool showUsageNotice = false;            // Settings > About: read the notice about costs again
     int setupStep = -1;                      // the walkthrough's screen, -1 = not showing
     int setupUse = 0;                        // SetupUse bits
     int setupRoute = kRouteNone;
-    int setupAi = kGuideGemini;              // the AI picked in setup (kGuideGemini or kGuideClaude)
+    int setupAi = kGuideGemini;              // the AI picked in setup (kGuideGemini, kGuideClaude or kGuideOpenAI)
     GuidePic guidePics[kPicCount];
     int bigPicture = -1;                     // a guide picture shown large
     int guideOpen = -1;                      // Settings: a key guide shown in a window (KeyGuide)
-    int keyCheck[kGuideCount] = {};          // KeyCheck, for DeepL / Gemini / Claude ("Check key")
+    int keyCheck[kGuideCount] = {};          // KeyCheck, for DeepL / Gemini / Claude / OpenAI ("Check key")
     std::string keyCheckMsg[kGuideCount];
 
     // interface-only state
@@ -182,6 +217,32 @@ struct UiModel {
     int bindingWhich = 0;              // 0 = push-to-talk key, 1 = "talking to" key
     float meterDb = -100.f, listenMeterDb = -100.f;
     std::string textDraft;             // Text page: what's being typed
+
+    // ---- Features page
+    std::string profileName;           // typed name for "Save as profile"
+    std::string setupCodeMsg;          // after copying or pasting a setup code
+    std::string wordHeard, wordWrite;  // new word list entry
+    std::string phraseDraft;           // new quick phrase
+    std::string tryText;               // "Try a line"
+    std::string tryResults[4];         // Polite, Casual, Very casual, My own
+    bool tryBusy = false;
+    std::string historyQuery;
+    std::vector<std::string> historyResults;
+    std::string historyPath;           // the history folder
+    std::vector<std::string> heardLanguages;  // languages others spoke this session, most heard first
+    std::string autoTargetNote;        // "Answering in Japanese: they spoke it"
+    std::string pendingSay;            // about to be spoken (a moment to cancel)
+    float pendingLeft = 0;             // seconds left to cancel
+    std::vector<int> mutedVoices;      // voices hidden this session (ChatLine::voiceId)
+    ScreenShot shot;                   // screen translation preview
+    bool screenNotice = false;         // show the screen translation notice
+    bool screenNoticeTicked = false;
+    std::string capturing;             // "VRChat.exe" while Watch chat runs
+    std::string screenStatus;          // what screen translation is doing, or what went wrong
+    std::vector<std::string> readerLanguages;  // what Windows' text reader can read on this PC ("ja", "en-US"...)
+    bool readerKnown = false;          // that list has been looked up
+    bool overlayClickThrough = false;  // the caption window lets clicks through right now
+    std::string reportPath;            // the problem report, once written
 };
 
 struct UiActions {
@@ -195,7 +256,22 @@ struct UiActions {
     std::string sendText;       // Text page: say this
     std::string testSound;      // setup: say this once, nowhere but the output
     bool openLog = false;
-    int checkKey = -1;          // KeyGuide whose key to try (DeepL, Gemini, Claude)
+    int checkKey = -1;          // KeyGuide whose key to try (DeepL, Gemini, Claude, OpenAI)
+    // ---- Features page
+    std::string loadProfile, saveProfile, deleteProfile;
+    bool copySetupCode = false, pasteSetupCode = false;
+    std::string tryLine;        // translate this in every style
+    std::string historySearch;  // look through the history files
+    bool openHistory = false;
+    bool reportProblem = false;
+    bool cancelPending = false; // don't say what's about to be spoken
+    std::string replayText, replayLang;  // learning mode: say this line again in your headphones
+    uint64_t romanize = 0;      // learning mode: fetch how to read this line (ChatLine::key)
+    bool screenSnapshot = false;   // take a picture of the chosen window
+    bool screenTranslate = false;  // read and translate the preview (with its crop)
+    bool screenUseArea = false;    // the preview's crop becomes the Watch chat area, and Watch starts
+    bool screenClose = false;
+    bool openCaptionWindow = false;
     bool spendOk = false;       // the spending notice was read: count the next limit from now
     std::string openUrl;        // a status page
 };

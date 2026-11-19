@@ -321,6 +321,33 @@ int guessVoiceGender(const std::vector<int16_t>& pcm16k, float startS, float end
     return 0;
 }
 
+bool voicePrint(const std::vector<int16_t>& pcm16k, float startS, float endS, VoicePrint& out) {
+    const size_t n = pcm16k.size();
+    size_t a = startS > 0.1f ? size_t((startS - 0.1f) * kRate) : 0;
+    size_t b = endS > 0 ? size_t((endS + 0.1f) * kRate) : n;
+    a = std::min(a, n);
+    b = std::min(std::max(b, a), n);
+    if (b - a < size_t(kRate) / 2) return false;
+    const std::vector<int16_t> part(pcm16k.begin() + long(a), pcm16k.begin() + long(b));
+    const VoiceTrack t = trackVoice(part);
+    std::vector<float> pitch, tilt;
+    for (size_t i = 0; i < t.pitch.size(); ++i)
+        if (!std::isnan(t.pitch[i])) {
+            pitch.push_back(t.pitch[i]);
+            if (i < t.tilt.size()) tilt.push_back(t.tilt[i]);
+        }
+    if (pitch.size() < 25) return false;  // under ~0.25 s of clear voice
+    out.pitch = percentile(pitch, 0.5f);
+    out.spread = percentile(pitch, 0.8f) - percentile(pitch, 0.2f);
+    out.bright = tilt.empty() ? 0.f : percentile(tilt, 0.5f);
+    return true;
+}
+
+float voiceDistance(const VoicePrint& a, const VoicePrint& b) {
+    // Pitch in semitones matters most; how much it moves and the tone colour less (they change with mood).
+    return std::fabs(a.pitch - b.pitch) / 2.5f + std::fabs(a.spread - b.spread) / 5.f + std::fabs(a.bright - b.bright) / 4.f;
+}
+
 Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& tokens, VoiceBaseline& base, int strength,
                        bool tagsAllowed) {
     Direction out;

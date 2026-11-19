@@ -48,7 +48,7 @@ def balanced(text, start):
             if depth==0: return text[start+1:i]
         i+=1
     return ''
-calls = ['chip','keyBox','guideLink','buttonPair','setupTitle','setupStepLine','setupCard','setupPageRow','T','TF','fieldLabel','note','heading','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
+calls = ['featureCard','para','bullet','pendingBar','chip','keyBox','guideLink','buttonPair','setupTitle','setupStepLine','setupCard','setupPageRow','T','TF','fieldLabel','note','heading','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
 found=[]
 def scan_file(name, which):
     text=open(src+name).read()
@@ -87,14 +87,16 @@ def keep(s):
     if s in ('%s','%.2f','%.0f','%d','%.0f dB','%d ms','%.1fx','%.2f s','%s%s %.2f s',', ','.'): return False
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
-drop={'Google Gemini','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','SteamVR: ','Waiting for ',' to start.',
+drop={'Google Gemini','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','SteamVR: ','Waiting for ',' to start.',
       'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
-          'Working','Some problems','Outage','Maintenance','See its page','All Systems Operational','Problems reported',
-          'Open the status page to check',"This key isn't allowed to read usage (it needs User: Read access).",
+          'Working','Some problems','Outage','Maintenance',"Couldn't check",'All Systems Operational','Problems reported',
+          "Couldn't check right now",'Answering normally (checked from this PC)',"This key isn't allowed to read usage (it needs User: Read access).",
           'The DeepL key was refused.','Couldn\'t check','Hi! This is how my new voice sounds.','Stopped at your spending limit. Press OK on the notice at the top to keep going.',
           'Paste a key first.','Couldn\'t reach the service. Check your internet connection.','It works.',
           'The key is right, but the account has no credits yet. Buy credits in the Claude Console (Billing).',
+          'The key is right, but the account has no credit. Add credits on platform.openai.com (Billing), or pick the Build plan.',
+          'The key is right, but your OpenAI plan can\'t use gpt-6-luna yet. Adding $5 of credit (Build plan) unlocks it.',
           'That key was refused. Copy it again, the whole thing.','The key works, but this month\'s DeepL characters are used up.',
           'The key works, but it\'s busy or out of credit right now.',
           'Change my voice','Talk into your mic and others hear a different voice, or your words in another language.',
@@ -104,6 +106,12 @@ found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing s
           'Into a game, Discord or a call','Other people hear it as if it were your microphone.',
           'I have my own setup',"A virtual cable or mixer I already use. I'll pick the output myself.",
           'Start','Continue','Next','Back','Skip for now','Checking','Pick a voice','Voice','My voice','Text','Listen',"Couldn't read the status page",'Checking',
+          'Taking a picture','Take a snapshot first.','No text found in the picture.',
+          'The window is minimized. Bring it back on screen to translate it.','Pick the window to translate.',
+          'The window is too small to read.',"Windows can't read this language yet. Add it in Windows Settings > Time & language > Language (with its text recognition), or use AI reading.",
+          "Windows' text reader isn't available on this PC. Use AI reading instead.",
+          "This copy was built without Windows' text reader. Use AI reading instead.",
+          'AI reading needs Claude, Gemini or OpenAI as the translation service.',
           'Recording','Converting','Level','Auto','Voice','Search voices','the default speakers','the default input',"Couldn't save there, so your settings stayed where they were.","ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall."]
 uniq=[]
 for s in found:

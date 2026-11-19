@@ -1,5 +1,7 @@
 #include "captionpanel.h"
 
+#include "bidi.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -28,6 +30,13 @@ std::vector<std::string> systemFonts() {
             "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc"};
 #endif
+}
+
+void appendUtf8(std::string& out, unsigned cp) {
+    if (cp < 0x80) out += char(cp);
+    else if (cp < 0x800) { out += char(0xC0 | (cp >> 6)); out += char(0x80 | (cp & 0x3F)); }
+    else if (cp < 0x10000) { out += char(0xE0 | (cp >> 12)); out += char(0x80 | ((cp >> 6) & 0x3F)); out += char(0x80 | (cp & 0x3F)); }
+    else { out += char(0xF0 | (cp >> 18)); out += char(0x80 | ((cp >> 12) & 0x3F)); out += char(0x80 | ((cp >> 6) & 0x3F)); out += char(0x80 | (cp & 0x3F)); }
 }
 
 std::vector<unsigned> decodeUtf8(const std::string& s) {
@@ -158,10 +167,13 @@ struct CaptionPainter::Impl {
         return w;
     }
 
-    // Word wrap: break at spaces, or anywhere in Chinese / Japanese text.
-    std::vector<std::vector<unsigned>> wrap(const std::string& text, float px, float maxW) {
+    // Word wrap: break at spaces, or anywhere in Chinese / Japanese text. Arabic is joined first (the
+    // joined letters are narrower), and each row is then put in drawing order (right to left for
+    // Arabic and Hebrew); `rtl` says which rows read right to left.
+    std::vector<std::vector<unsigned>> wrap(const std::string& text, float px, float maxW, std::vector<bool>* rtl = nullptr) {
         std::vector<std::vector<unsigned>> rows;
-        const std::vector<unsigned> cps = decodeUtf8(text);
+        const bool anyRtl = bidi::hasRtl(text);
+        const std::vector<unsigned> cps = decodeUtf8(anyRtl ? bidi::shape(text) : text);
         size_t start = 0;
         while (start < cps.size()) {
             while (start < cps.size() && cps[start] == ' ') ++start;
@@ -179,6 +191,13 @@ struct CaptionPainter::Impl {
             size_t end = i;
             if (i < cps.size() && haveBreak && lastBreak > start) end = lastBreak;
             rows.emplace_back(cps.begin() + long(start), cps.begin() + long(end));
+            bool rowRtl = false;
+            if (anyRtl) {
+                std::string u;
+                for (unsigned cp : rows.back()) appendUtf8(u, cp);
+                rows.back() = decodeUtf8(bidi::visualLine(u, &rowRtl));
+            }
+            if (rtl) rtl->push_back(rowRtl);
             start = end;
         }
         return rows;
@@ -214,19 +233,23 @@ void CaptionPainter::paint(const std::vector<PanelLine>& lines, const PanelStyle
     const float maxTextW = float(W) - 2 * pad - 2 * glowRoom - px * 0.4f;  // room for the speaker marker
 
     // ---- the rows that fit, newest at the bottom
-    struct Row { std::vector<unsigned> cps; float px; Rgb color; int speaker; bool first; };
+    struct Row { std::vector<unsigned> cps; float px; Rgb color; int speaker; bool first; bool rtl; };
     std::vector<Row> rows;  // collected bottom-up
     float used = 0;
     const float budget = lineH * float(std::max(1, st.maxLines));
     for (auto it = lines.rbegin(); it != lines.rend() && used < budget - 1; ++it) {
         std::vector<Row> mine;
         const Rgb main = rgbOf(it->me ? st.meColor : st.textColor);
-        for (auto& r : p_->wrap(it->text, px, maxTextW)) mine.push_back({std::move(r), px, main, it->speaker, false});
+        std::vector<bool> rtl;
+        auto wrapped = p_->wrap(it->text, px, maxTextW, &rtl);
+        for (size_t k = 0; k < wrapped.size(); ++k) mine.push_back({std::move(wrapped[k]), px, main, it->speaker, false, rtl[k]});
         if (!mine.empty()) mine.front().first = true;
         if (st.showSub && !it->sub.empty() && it->sub != it->text) {
             Rgb muted = rgbOf(it->me ? st.meColor : st.textColor);
             muted = {muted.r * 0.62f, muted.g * 0.62f, muted.b * 0.62f};
-            for (auto& r : p_->wrap(it->sub, subPx, maxTextW)) mine.push_back({std::move(r), subPx, muted, -1, false});
+            rtl.clear();
+            auto sub = p_->wrap(it->sub, subPx, maxTextW, &rtl);
+            for (size_t k = 0; k < sub.size(); ++k) mine.push_back({std::move(sub[k]), subPx, muted, -1, false, rtl[k]});
         }
         float total = 0;
         for (const Row& r : mine) total += r.px == px ? lineH : subH;
@@ -292,7 +315,7 @@ void CaptionPainter::paint(const std::vector<PanelLine>& lines, const PanelStyle
     float y = top + pad + tagH;
     if (!st.tag.empty()) {  // small accent-coloured note, right-aligned in the top margin
         const float tpx = st.textPx * 0.5f;
-        const std::vector<unsigned> cps = decodeUtf8(st.tag);
+        const std::vector<unsigned> cps = decodeUtf8(bidi::visualLine(st.tag));
         float x = right - pad - p_->widthOf(cps, 0, cps.size(), tpx);
         const float base = top + pad * 0.55f;
         for (unsigned cp : cps) {
@@ -315,6 +338,7 @@ void CaptionPainter::paint(const std::vector<PanelLine>& lines, const PanelStyle
                 for (int xx = int(left + pad); xx < int(left + pad + px * 0.12f); ++xx) blend(xx, yy, vc, 0.9f);
         }
         const float baseline = y + (h - r.px * 1.0f) * 0.5f;
+        if (r.rtl) x = std::max(x, right - pad - p_->widthOf(r.cps, 0, r.cps.size(), r.px));  // Arabic, Hebrew: on the right
         for (unsigned cp : r.cps) {
             const Impl::Glyph* g = p_->glyph(cp, r.px);
             if (!g) continue;
@@ -403,7 +427,7 @@ void CaptionPainter::paintMenu(const MenuSpec& m, PanelImage& out) {
     };
     // Text centred on cx (or left-aligned at x when cx < 0), shrunk to fit maxW.
     auto text = [&](const std::string& s, float px, float cx, float x, float top, float maxW, Rgb col, float a) {
-        const std::vector<unsigned> cps = decodeUtf8(s);
+        const std::vector<unsigned> cps = decodeUtf8(bidi::visualLine(s));
         float w = p_->widthOf(cps, 0, cps.size(), px);
         if (w > maxW && w > 0) {
             px *= maxW / w;

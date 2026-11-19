@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "screen.h"
 
 #ifndef CIMA_VERSION
 #define CIMA_VERSION "2.6"  // normally set by CMakeLists.txt
@@ -31,21 +32,25 @@ namespace {
 ImVec4 rgb(unsigned v, float a = 1.f) {
     return ImVec4(((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f, a);
 }
-const ImVec4 kBg = rgb(0x161A23);          // window
-const ImVec4 kPanel = rgb(0x1F2530);       // the three stages and the status strip
-const ImVec4 kField = rgb(0x2A3140);       // inputs, buttons
-const ImVec4 kFieldHover = rgb(0x333B4D);
-const ImVec4 kFieldActive = rgb(0x3D465B);
-const ImVec4 kLine = rgb(0x343C4E);
-const ImVec4 kText = rgb(0xE9EDF5);
-const ImVec4 kMuted = rgb(0x93A0B8);
-const ImVec4 kSignal = rgb(0xF2B04A);      // amber = live signal: meter, switches, the selected option
-const ImVec4 kSignalHover = rgb(0xF7C069);
-const ImVec4 kSignalDown = rgb(0xD99A38);
-const ImVec4 kOnSignal = rgb(0x1B1405);    // text on amber
-const ImVec4 kBusy = rgb(0x8AB4FF);
-const ImVec4 kDanger = rgb(0xFF7B7B);
+// Kept calm on purpose: text that isn't pure white, panels told apart by their shade instead of
+// outlines, and one accent colour used only for what is live or selected.
+const ImVec4 kBg = rgb(0x14171E);          // window
+const ImVec4 kPanel = rgb(0x1C212B);       // the three stages and the status strip
+const ImVec4 kField = rgb(0x272D3A);       // inputs, buttons
+const ImVec4 kFieldHover = rgb(0x303747);
+const ImVec4 kFieldActive = rgb(0x394154);
+const ImVec4 kLine = rgb(0x2B3240);
+const ImVec4 kText = rgb(0xDDE2EB);
+const ImVec4 kMuted = rgb(0x8D98AD);
+const ImVec4 kSignal = rgb(0xE8B05E);      // amber = live signal: meter, switches, the selected option
+const ImVec4 kSignalHover = rgb(0xF0C07A);
+const ImVec4 kSignalDown = rgb(0xCF9A48);
+const ImVec4 kOnSignal = rgb(0x1E1707);    // text on amber
+const ImVec4 kBusy = rgb(0x8FB2F2);
+const ImVec4 kDanger = rgb(0xF08484);
 const ImVec4 kVoices[] = {kSignal, kBusy, rgb(0x7FD6A4), rgb(0xE59AD0)};  // speakers inside one caption
+// The same person keeps the same colour across captions (Features > Same voice, same color).
+const ImVec4 kPeople[] = {rgb(0x7FD6A4), rgb(0xE59AD0), rgb(0x8EC5FF), kBusy, rgb(0xB9A3FF), rgb(0xFF9E8A), rgb(0xD7E37A), rgb(0x6FD3D0)};
 
 ImFont* gSemibold = nullptr;
 
@@ -172,7 +177,7 @@ std::string shown(const char* label) {
 }
 
 void fieldLabel(const char* text) {
-    gap(0.1f);
+    gap(0.22f);
     ImGui::TextColored(kMuted, "%s", shown(text).c_str());
 }
 
@@ -456,16 +461,20 @@ void meter(float levelDb, float& shownDb, float thresholdDb, bool open, bool sho
 // Shared by both pages: which service turns text into the other language.
 void translationService(Settings& c, bool forCaptions) {
     fieldLabel("Translation service");
-    static const char* const kServices[] = {"Free", "DeepL", "Claude", "Gemini"};
-    segmented("##service", kServices, 4, &c.translateService);
-    const bool ai = c.translateService == kClaude || c.translateService == kGemini;
+    static const char* const kServices[] = {"Free", "DeepL", "Claude", "Gemini", "OpenAI"};
+    segmented("##service", kServices, 5, &c.translateService);
+    const bool ai = isAiService(c.translateService);
     // The key can be pasted right here the first time; after that it lives in Settings.
-    std::string* key = c.translateService == kDeepL ? &c.deeplKey : c.translateService == kClaude ? &c.claudeKey
-                     : c.translateService == kGemini ? &c.geminiKey : nullptr;
+    std::string* key = c.translateService == kDeepL    ? &c.deeplKey
+                     : c.translateService == kClaude ? &c.claudeKey
+                     : c.translateService == kGemini ? &c.geminiKey
+                     : c.translateService == kOpenAI ? &c.openaiKey
+                                                     : nullptr;
     if (key && key->empty()) {
         ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::InputTextWithHint("##servicekey", c.translateService == kDeepL ? T("Paste your DeepL API key")
+        ImGui::InputTextWithHint("##servicekey", c.translateService == kDeepL    ? T("Paste your DeepL API key")
                                                  : c.translateService == kClaude ? T("Paste your Claude API key (console.anthropic.com)")
+                                                 : c.translateService == kOpenAI ? T("Paste your OpenAI API key (platform.openai.com)")
                                                                                  : T("Paste your Gemini API key (aistudio.google.com)"),
                                  key, ImGuiInputTextFlags_Password);
     }
@@ -484,17 +493,25 @@ void translationService(Settings& c, bool forCaptions) {
         note("Tip: add a DeepL key in Settings too. It steps in when the AI is slow.");
     if (!forCaptions) {
         fieldLabel("How you talk");
-        static const char* const kLevels[] = {"Polite", "Casual", "Very casual"};
-        segmented("##level", kLevels, 3, &c.speechLevel);
-        note(c.speechLevel == kLevelPolite ? "Polite but natural, as with someone you just met."
-             : c.speechLevel == kLevelCasual ? "Like talking with friends: casual speech level, everyday slang."
-                                             : "Close friends gaming together: lots of slang, swearing kept.");
+        static const char* const kLevels[] = {"Polite", "Casual", "Very casual", "My own"};
+        segmented("##level", kLevels, 4, &c.speechLevel);
+        if (c.speechLevel == kLevelCustom) {
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputTextWithHint("##customstyle", T("Describe how you talk"), &c.customStyle);
+            const bool described = c.customStyle.find_first_not_of(" \t") != std::string::npos;
+            note(described ? "Said your way. Describe who you're talking to, it works best: \"like my best friend\"."
+                           : "For example: laid back and a bit sarcastic, like talking to a close friend while gaming.");
+        } else {
+            note(c.speechLevel == kLevelPolite ? "Friendly and respectful, like with someone you just met in a lobby."
+                 : c.speechLevel == kLevelCasual ? "Like talking with a friend you hang out with a lot."
+                                                 : "Like your closest friend: loose, slang, swearing kept.");
+        }
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##persona", T("Sound like... (optional)"), &c.persona);
         if (c.persona.empty()) note("For example: a guy in his 20s from Seoul. Region and age change the slang.");
         toggleRow("Match how they talk to me", &c.mirror);
-        note(c.mirror ? "Uses the last few lines from the Listen captions, so you answer at their level and pick up "
-                        "their words. Needs Listen on."
+        note(c.mirror ? "Uses the last few lines from the Listen captions to pick up their words. Your style above "
+                        "stays; it only leans a little toward theirs. Needs Listen on."
                       : "Translates each phrase on its own.");
     }
     float seconds = c.aiTimeoutMs / 1000.f;
@@ -507,9 +524,11 @@ void translationService(Settings& c, bool forCaptions) {
     if (open) {
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (c.translateService == kClaude) ImGui::InputText("##claudemodel", &c.claudeModel);
+        else if (c.translateService == kOpenAI) ImGui::InputText("##openaimodel", &c.openaiModel);
         else ImGui::InputText("##geminimodel", &c.geminiModel);
-        note(c.translateService == kClaude ? "claude-haiku-5-5 is the fastest. claude-sonnet-5-5 words things a bit better, but is slower."
-                                           : "gemini-3.5-flash-lite is the fastest. gemini-3.6-flash words things a bit better, but is slower.");
+        note(c.translateService == kClaude   ? "claude-haiku-5-5 is the fastest. claude-sonnet-5-5 words things a bit better, but is slower."
+             : c.translateService == kOpenAI ? "gpt-6-luna is the fastest and cheapest. gpt-6.2-sol words things a bit better, but is slower and costs more."
+                                             : "gemini-3.5-flash-lite is the fastest. gemini-3.6-flash words things a bit better, but is slower.");
     }
 }
 
@@ -538,9 +557,9 @@ void dialectPicker(Settings& c) {
         ImGui::InputTextWithHint("##customdialect", T("For example ar-KW, or Rioplatense"), &c.customVariety[c.targetLang]);
     }
     if (id.empty()) c.variety.erase(c.targetLang);
-    const bool ai = c.translateService == kClaude || c.translateService == kGemini;
+    const bool ai = isAiService(c.translateService);
     if (!ai && (custom || cur))
-        note("Dialects need Claude or Gemini. DeepL and Free use the standard language (DeepL knows a few regional "
+        note("Dialects need Claude, Gemini or OpenAI. DeepL and Free use the standard language (DeepL knows a few regional "
              "spellings, like Latin American Spanish or Brazilian Portuguese).", kBusy);
     else if (custom || cur)
         note("The words come out in this dialect. The accent comes from the voice: for the real thing, pick a voice "
@@ -604,16 +623,19 @@ void keyBinder(UiModel& m, int which, int& key) {
 
 void beginPanel(const char* id, ImVec2 size, const char* title) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.05f, em() * 0.9f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));  // its shade sets it apart; no outline needed
     ImGui::BeginChild(id, size, ImGuiChildFlags_Borders);
+    ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     heading(title, 1.15f);
-    gap(0.05f);
+    gap(0.25f);
 }
 
 // A smaller heading inside a panel, with a little room above it.
 void subheading(const char* text) {
-    gap(0.5f);
+    gap(0.8f);
     heading(text, 1.0f);
+    gap(0.1f);
 }
 
 // ---------------------------------------------------------------- the three stages
@@ -679,7 +701,7 @@ void voicePanel(UiModel& m, UiActions& act) {
         languageCombo("##target", c.targetLang, false, c.ttsModel);
         dialectPicker(c);
         translationService(c, false);
-        if (c.translateService == kClaude || c.translateService == kGemini) {
+        if (isAiService(c.translateService)) {
             subheading("Gender");
             note("Many languages change words for who is speaking and who is listening (cansado / cansada).");
             genderPicker(m);
@@ -826,7 +848,7 @@ ImVec4 healthColor(int h) {
 
 const char* healthWord(int h) {
     return h == kHealthOk ? "Working" : h == kHealthMinor ? "Some problems" : h == kHealthMajor ? "Outage"
-         : h == kHealthMaintenance ? "Maintenance" : "See its page";
+         : h == kHealthMaintenance ? "Maintenance" : "Couldn't check";
 }
 
 // The first service in trouble that this setup actually uses (ElevenLabs always, plus the
@@ -834,6 +856,7 @@ const char* healthWord(int h) {
 const ServiceStatus* troubleInUse(const UiModel& m) {
     const char* translator = m.cfg.translateService == kClaude   ? "Claude"
                            : m.cfg.translateService == kGemini   ? "Gemini"
+                           : m.cfg.translateService == kOpenAI   ? "OpenAI"
                            : !m.cfg.deeplKey.empty()             ? "DeepL"
                                                                  : "";
     for (const ServiceStatus& st : m.services)
@@ -977,16 +1000,16 @@ void header(UiModel& m, UiActions& act) {
 
     // The two halves of the app: changing your own voice, and reading what others say.
     ImGui::SetCursorScreenPos(ImVec2(x, std::floor(p.y + (h - ImGui::GetFrameHeight()) * 0.5f)));
-    static const char* const kPages[] = {"My voice", "Text", "Listen", "VR"};
-    static const int kPageIds[] = {kPageVoice, kPageText, kPageListen, kPageVR};
+    static const char* const kPages[] = {"My voice", "Text", "Listen", "VR", "Features"};
+    static const int kPageIds[] = {kPageVoice, kPageText, kPageListen, kPageVR, kPageFeatures};
     float tabW = 0.f;  // as wide as the longest name needs, in whatever language
     for (const char* pg : kPages) tabW = std::max(tabW, ImGui::CalcTextSize(shown(pg).c_str()).x);
     const ImVec2 tabsAt = ImGui::GetCursorScreenPos();
-    const float tabsW = (tabW + em() * 1.8f) * 4.f + em() * 0.4f;
+    const float tabsW = (tabW + em() * 1.6f) * 5.f + em() * 0.4f;
     int tab = -1;
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 5; ++i)
         if (kPageIds[i] == m.cfg.page) tab = i;
-    if (segmented("##page", kPages, 4, &tab, tabsW)) m.cfg.page = kPageIds[tab];
+    if (segmented("##page", kPages, 5, &tab, tabsW)) m.cfg.page = kPageIds[tab];
     float pillX = tabsAt.x + tabsW + em() * 0.9f;
 
     // A new version: a small amber button next to the tabs, to Settings where it installs.
@@ -996,6 +1019,25 @@ void header(UiModel& m, UiActions& act) {
         ImGui::SetCursorScreenPos(ImVec2(pillX, tabsAt.y));
         const float pw = ImGui::CalcTextSize(label).x + em() * 1.6f;
         if (button((std::string(label) + "##updatepill").c_str(), true, pw)) m.cfg.page = kPageSettings;
+        pillX += pw + em() * 0.6f;
+    }
+
+    // Screen translation is watching a window: always visible, so it's never running unnoticed.
+    if (!m.capturing.empty()) {
+        char label[200];
+        std::snprintf(label, sizeof(label), TF("Capturing: %s"), m.capturing.c_str());
+        const float room = p.x + w - em() * 14.f - pillX;
+        if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) std::snprintf(label, sizeof(label), "%s", m.capturing.c_str());
+        if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) label[0] = 0;  // no room for words: the red dot alone (hover says the rest)
+        const ImVec2 ls = ImGui::CalcTextSize(label);
+        const float pw = label[0] ? ls.x + em() * 2.0f : em() * 1.4f, ph = ImGui::GetFrameHeight();
+        const ImVec2 a(pillX, tabsAt.y);
+        ImGui::SetCursorScreenPos(a);
+        if (ImGui::InvisibleButton("##capturepill", ImVec2(pw, ph))) m.cfg.page = kPageFeatures;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", T("Screen translation is watching this window. Click to change it."));
+        dl->AddRect(a, ImVec2(a.x + pw, a.y + ph), col(ImVec4(kDanger.x, kDanger.y, kDanger.z, 0.6f)), ImGui::GetStyle().FrameRounding);
+        dl->AddCircleFilled(ImVec2(a.x + em() * 0.7f, a.y + ph * 0.5f), em() * 0.24f, col(kDanger), 16);
+        if (label[0]) dl->AddText(ImVec2(a.x + em() * 1.2f, a.y + (ph - ls.y) * 0.5f), col(kText), label);
         pillX += pw + em() * 0.6f;
     }
 
@@ -1137,7 +1179,9 @@ void statusLine(const char* label, const std::string& text, const ImVec4& color)
 
 void statusStrip(UiModel& m, UiActions& act, float height) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.05f, em() * 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));  // like the panels above: shade, no outline
     ImGui::BeginChild("status", ImVec2(0, height), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleColor();
     ImGui::PopStyleVar();
 
     const float buttonW = em() * 8.5f;
@@ -1167,6 +1211,7 @@ void statusStrip(UiModel& m, UiActions& act, float height) {
             statusLine("Not the app", b, healthColor(bad->health));
         }
     }
+    else if (!m.pendingSay.empty()) statusLine("About to say", m.pendingSay, kSignal);
     else if (!m.heardText.empty()) statusLine("You said", m.heardText, kText);
     else ImGui::TextColored(kMuted, "%s", T(m.cfg.engine == kVoiceChanger ? "Changer mode sends your voice straight through, without text."
                                                                            : "What you say will show up here."));
@@ -1178,7 +1223,9 @@ void statusStrip(UiModel& m, UiActions& act, float height) {
     ImGui::SameLine(0, em());
     ImGui::BeginGroup();
     gap(0.15f);
-    if (button("Stop speaking", false, buttonW)) act.stopSpeaking = true;
+    if (!m.pendingSay.empty()) {
+        if (button("Cancel##strip", true, buttonW)) act.cancelPending = true;
+    } else if (button("Stop speaking", false, buttonW)) act.stopSpeaking = true;
     if (m.queued > 0) ImGui::TextColored(kMuted, TF("%d waiting"), m.queued);
     ImGui::EndGroup();
     ImGui::EndChild();
@@ -1218,16 +1265,15 @@ std::string listenStatusText(const std::string& s) {
     return T(s);
 }
 
-void appCombo(UiModel& m, UiActions& act) {
-    ListenSettings& l = m.cfg.listen;
+void appCombo(UiModel& m, UiActions& act, std::string& app, const char* id = "##app") {
     ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::BeginCombo("##app", l.app.empty() ? T("Pick an application") : l.app.c_str(), ImGuiComboFlags_HeightLarge)) {
+    if (ImGui::BeginCombo(id, app.empty() ? T("Pick an application") : app.c_str(), ImGuiComboFlags_HeightLarge)) {
         if (ImGui::IsWindowAppearing()) act.refreshApps = true;  // the list arrives on the next frame
         ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::InputTextWithHint("##appname", T("Or type its file name, like VRChat.exe"), &l.app);
+        ImGui::InputTextWithHint("##appname", T("Or type its file name, like VRChat.exe"), &app);
         for (const AppInfo& a : m.apps) {
             ImGui::PushID(int(a.pid));
-            if (ImGui::Selectable(a.exe.c_str(), a.exe == l.app)) l.app = a.exe;
+            if (ImGui::Selectable(a.exe.c_str(), a.exe == app)) app = a.exe;
             ImGui::SameLine();
             ImGui::TextColored(kMuted, "%s", a.title.c_str());
             ImGui::PopID();
@@ -1237,6 +1283,7 @@ void appCombo(UiModel& m, UiActions& act) {
         ImGui::EndCombo();
     }
 }
+void appCombo(UiModel& m, UiActions& act) { appCombo(m, act, m.cfg.listen.app); }
 
 void listenSourcePanel(UiModel& m, UiActions& act) {
     Settings& c = m.cfg;
@@ -1285,26 +1332,47 @@ void listenSourcePanel(UiModel& m, UiActions& act) {
     sliderF("Caption size", &l.textScale, 0.9f, 2.4f, "%.1fx");
 }
 
-void captionLine(const CaptionLine& line, float fontSize, bool showOriginal) {
-    const bool tagged = line.speaker >= 0;
-    const ImVec4 color = tagged ? kVoices[line.speaker % 4] : kText;
+// Text with a solid black box behind it (Features > Big, high-contrast captions).
+void contrastBox(ImDrawList* dl, ImVec2 a, ImVec2 b) {
+    dl->AddRectFilled(ImVec2(a.x - em() * 0.3f, a.y - em() * 0.1f), ImVec2(b.x + em() * 0.3f, b.y + em() * 0.1f),
+                      IM_COL32(0, 0, 0, 235), em() * 0.25f);
+}
+
+// Right-click a line from someone: mute that voice for this session.
+void muteMenu(UiModel& m, int voiceId) {
+    if (voiceId < 0 || !ImGui::BeginPopupContextItem("##mutemenu")) return;
+    if (ImGui::MenuItem(T("Mute this voice"))) m.mutedVoices.push_back(voiceId);
+    ImGui::EndPopup();
+}
+
+void captionLine(UiModel& m, const CaptionLine& line, float fontSize, bool showOriginal, bool live = false) {
+    const bool person = line.voiceId >= 0 && m.cfg.fx.voiceIds;
+    if (person && std::find(m.mutedVoices.begin(), m.mutedVoices.end(), line.voiceId) != m.mutedVoices.end()) return;
+    const bool tagged = line.speaker >= 0 || person;
+    const ImVec4 color = person ? kPeople[line.voiceId % 8] : tagged ? kVoices[line.speaker % 4] : kText;
+    const bool contrast = m.cfg.fx.highContrast;
+    if (contrast) fontSize *= 1.2f;
     const float indent = em() * 0.9f;
     const ImVec2 start = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (contrast) dl->ChannelsSplit(2), dl->ChannelsSetCurrent(1);
     if (tagged) ImGui::Indent(indent);
     ImGui::BeginGroup();
     if (tagged) {
         ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
-        ImGui::TextColored(color, TF("Voice %d"), line.speaker + 1);
+        ImGui::TextColored(color, TF("Voice %d"), (person ? line.voiceId : line.speaker) + 1);
         ImGui::PopFont();
     }
-    ImGui::PushFont(nullptr, fontSize);
+    ImGui::PushFont(contrast ? gSemibold : nullptr, fontSize);
     ImGui::PushTextWrapPos(0.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, live ? kMuted : contrast ? ImVec4(1, 1, 1, 1) : kText);
     ImGui::TextUnformatted(line.text.c_str());
+    ImGui::PopStyleColor();
     ImGui::PopTextWrapPos();
     ImGui::PopFont();
     if (showOriginal && !line.original.empty()) {
         ImGui::PushFont(nullptr, std::max(ImGui::GetStyle().FontSizeBase * 0.9f, fontSize * 0.72f));
-        ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+        ImGui::PushStyleColor(ImGuiCol_Text, contrast ? ImVec4(0.85f, 0.85f, 0.85f, 1) : kMuted);
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextUnformatted(line.original.c_str());
         ImGui::PopTextWrapPos();
@@ -1312,11 +1380,16 @@ void captionLine(const CaptionLine& line, float fontSize, bool showOriginal) {
         ImGui::PopFont();
     }
     ImGui::EndGroup();
+    if (contrast) {
+        dl->ChannelsSetCurrent(0);
+        contrastBox(dl, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+        dl->ChannelsMerge();
+    }
+    muteMenu(m, person ? line.voiceId : -1);
     if (tagged) {
         ImGui::Unindent(indent);
         const float bar = std::max(2.f, std::floor(em() * 0.2f));
-        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(start.x, start.y + 2), ImVec2(start.x + bar, ImGui::GetItemRectMax().y - 2),
-                                                  col(color), bar * 0.5f);
+        dl->AddRectFilled(ImVec2(start.x, start.y + 2), ImVec2(start.x + bar, ImGui::GetItemRectMax().y - 2), col(color), bar * 0.5f);
     }
 }
 
@@ -1332,14 +1405,18 @@ void captionFeed(UiModel& m, float scale, const char* emptyHint) {
     for (const Caption& c : m.captions) {
         ImGui::PushID(int(c.id & 0x7FFFFFFF));
         ImGui::PushFont(nullptr, base * 0.85f);
-        ImGui::TextColored(kMuted, "%s", c.pending ? T("Just heard") : c.language.c_str());
+        ImGui::TextColored(kMuted, "%s", c.screen ? T("On screen") : c.pending ? T("Just heard") : c.language.c_str());
         const float timeW = ImGui::CalcTextSize(c.time.c_str()).x;
         ImGui::SameLine();
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, ImGui::GetContentRegionAvail().x - timeW));
         ImGui::TextColored(kMuted, "%s", c.time.c_str());
         ImGui::PopFont();
-        if (c.pending) ImGui::TextColored(kBusy, TF("Translating%s"), dots().c_str());
-        for (const CaptionLine& line : c.lines) captionLine(line, base * scale, l.showOriginal);
+        if (c.pending && !c.live) ImGui::TextColored(kBusy, TF("Translating%s"), dots().c_str());
+        for (size_t i = 0; i < c.lines.size(); ++i) {
+            ImGui::PushID(int(i));
+            captionLine(m, c.lines[i], base * scale, l.showOriginal, c.live);
+            ImGui::PopID();
+        }
         gap(0.55f);
         ImGui::PopID();
     }
@@ -1538,6 +1615,7 @@ void vrPage(UiModel& m, UiActions& act) {
 void changesWindow(UiModel& m) {
     static bool all = false;
     static std::string since;
+    if (m.showChanges && (m.cfg.usageNotice < kUsageNotice || m.showUsageNotice)) return;  // the notice first, then this
     if (m.showChanges) {
         all = m.showChanges == 2;
         since = m.changesSince;
@@ -1640,6 +1718,7 @@ void settingsPage(UiModel& m, UiActions& act) {
         if (a) m.showChanges = 2;
         if (b) m.setupStep = 0;
     }
+    if (button("About costs and your keys")) m.showUsageNotice = true;
     fieldLabel("Save settings in");
     static const char* const kPlaces[] = {"Settings folder", "Documents", "With the program"};
     int place = m.settingsPlace;
@@ -1652,6 +1731,10 @@ void settingsPage(UiModel& m, UiActions& act) {
     buttonPair("Open settings folder", "Open log file", act.openSettingsFolder, act.openLog);
     note("Settings save by themselves. The file holds your API keys: don't share it. The log file has no keys "
          "in it: send it to whoever helps you when something goes wrong.");
+    gap(0.2f);
+    if (button("Report a problem")) act.reportProblem = true;
+    note(m.reportPath.empty() ? "Puts one file on your Desktop with what's needed to find the problem (no keys, nothing anyone said). Send it to whoever helps you."
+                              : m.reportPath);
     ImGui::EndChild();
 
     ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));
@@ -1666,11 +1749,14 @@ void settingsPage(UiModel& m, UiActions& act) {
                 "Recommended: fast translations, and the backup when the AI is slow or busy.");
     guideLink(m, kGuideDeepL);
     apiKeyField("Claude API key", "##claudekey", c.claudeKey, m.showKey,
-                "Recommended (or Gemini): natural translations with dialects and slang.");
+                "Recommended (or Gemini or OpenAI): natural translations with dialects and slang.");
     guideLink(m, kGuideClaude);
     apiKeyField("Gemini API key", "##geminikey", c.geminiKey, m.showKey,
                 "Recommended (or Claude): the same, free to start.");
     guideLink(m, kGuideGemini);
+    apiKeyField("OpenAI API key", "##openaikey", c.openaiKey, m.showKey,
+                "Another choice for the same: natural translations with dialects and slang.");
+    guideLink(m, kGuideOpenAI);
     gap(0.2f);
     toggleRow("Show keys", &m.showKey);
     subheading("Spending limit");
@@ -1684,7 +1770,7 @@ void settingsPage(UiModel& m, UiActions& act) {
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputInt("##spendcredits", &c.spendCredits, 1000, 10000);
         c.spendCredits = std::max(500, c.spendCredits);
-        fieldLabel("Claude or Gemini per session (US$)");
+        fieldLabel("AI translation per session (US$)");
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputFloat("##spenddollars", &c.spendDollars, 0.25f, 1.f, "%.2f");
         c.spendDollars = std::max(0.05f, c.spendDollars);
@@ -1725,7 +1811,7 @@ void settingsPage(UiModel& m, UiActions& act) {
             if (ImGui::Selectable(T(kTalkingLabels[i]), c.talkingTo == i)) c.talkingTo = i;
         ImGui::EndCombo();
     }
-    note("Used by Claude and Gemini when translating, for languages whose words change with gender.");
+    note("Used by Claude, Gemini and OpenAI when translating, for languages whose words change with gender.");
     subheading("Updates");
     if (!m.updatesConfigured) {
         note("This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.");
@@ -1787,7 +1873,7 @@ void textVoicePanel(UiModel& m, UiActions& act) {
         languageCombo("##texttarget", c.targetLang, false, c.ttsModel);
         dialectPicker(c);
         translationService(c, false);
-        if (c.translateService == kClaude || c.translateService == kGemini) {
+        if (isAiService(c.translateService)) {
             subheading("Gender");
             genderPicker(m);
         }
@@ -1801,36 +1887,99 @@ void textVoicePanel(UiModel& m, UiActions& act) {
 }
 
 // One line of the conversation. Yours get an amber bar, other people's the color of their voice.
-void chatLine(const ChatLine& l, float fontSize, bool showOriginal) {
-    const ImVec4 color = l.me ? kSignal : l.speaker >= 0 ? kVoices[l.speaker % 4] : kLine;
+void chatLine(UiModel& m, UiActions& act, const ChatLine& l, float fontSize, bool showOriginal) {
+    const bool person = !l.me && l.voiceId >= 0 && m.cfg.fx.voiceIds;
+    const ImVec4 color = l.me ? kSignal : person ? kPeople[l.voiceId % 8] : l.speaker >= 0 ? kVoices[l.speaker % 4] : kLine;
+    const bool contrast = m.cfg.fx.highContrast && !l.me;
+    if (contrast) fontSize *= 1.2f;
     const float indent = em() * 0.9f;
     const ImVec2 start = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (contrast) dl->ChannelsSplit(2), dl->ChannelsSetCurrent(1);
     ImGui::Indent(indent);
     ImGui::BeginGroup();
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
     if (l.me) ImGui::TextColored(kSignal, "%s", T(l.typed ? "You (typed)" : "You"));
-    else if (l.speaker >= 0) ImGui::TextColored(color, TF("Voice %d"), l.speaker + 1);
+    else if (l.screen) ImGui::TextColored(kMuted, "%s", T("On screen"));
+    else if (person || l.speaker >= 0) ImGui::TextColored(color, TF("Voice %d"), (person ? l.voiceId : l.speaker) + 1);
     else ImGui::TextColored(kMuted, "%s", l.language.empty() ? T("Them") : l.language.c_str());
     ImGui::PopFont();
-    ImGui::PushFont(nullptr, fontSize);
+    ImGui::PushFont(contrast ? gSemibold : nullptr, fontSize);
     ImGui::PushTextWrapPos(0.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, contrast ? ImVec4(1, 1, 1, 1) : kText);
     ImGui::TextUnformatted(l.text.c_str());
+    ImGui::PopStyleColor();
     ImGui::PopTextWrapPos();
     ImGui::PopFont();
     if (showOriginal && !l.original.empty()) {
         ImGui::PushFont(nullptr, std::max(ImGui::GetStyle().FontSizeBase * 0.9f, fontSize * 0.72f));
-        ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+        ImGui::PushStyleColor(ImGuiCol_Text, contrast ? ImVec4(0.85f, 0.85f, 0.85f, 1) : kMuted);
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextUnformatted(l.original.c_str());
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
         ImGui::PopFont();
     }
+    if (m.cfg.fx.learning && !l.roman.empty()) {  // how to read it
+        ImGui::PushStyleColor(ImGuiCol_Text, kBusy);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(l.roman.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    }
     ImGui::EndGroup();
+    if (contrast) {
+        dl->ChannelsSetCurrent(0);
+        contrastBox(dl, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+        dl->ChannelsMerge();
+    }
+    muteMenu(m, person ? l.voiceId : -1);
+    if (m.cfg.fx.learning) {  // learning mode: read it, hear it again, keep it
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
+        const std::string foreign = l.me ? l.text : (l.original.empty() ? l.text : l.original);
+        // Only scripts that aren't Latin letters need a reading (Greek, Cyrillic and up).
+        bool nonLatin = false;
+        for (unsigned char ch : foreign) nonLatin = nonLatin || ch >= 0xCE;
+        if (nonLatin && l.roman.empty() && ImGui::SmallButton(T("How to read it"))) act.romanize = l.key;
+        if (nonLatin && l.roman.empty()) ImGui::SameLine();
+        if (ImGui::SmallButton(T("Replay"))) {  // the words in their own language
+            act.replayText = foreign;
+            act.replayLang = l.me ? m.cfg.targetLang : !l.original.empty() ? l.code : m.cfg.listen.toLang;
+        }
+        ImGui::SameLine();
+        const std::string saved = foreign + (l.text != foreign ? "  =  " + l.text : std::string()) + (l.roman.empty() ? std::string() : "  (" + l.roman + ")");
+        const bool have = std::find(m.cfg.fx.savedLines.begin(), m.cfg.fx.savedLines.end(), saved) != m.cfg.fx.savedLines.end();
+        ImGui::BeginDisabled(have);
+        if (ImGui::SmallButton(T(have ? "Saved" : "Save"))) m.cfg.fx.savedLines.push_back(saved);
+        ImGui::EndDisabled();
+        ImGui::PopFont();
+    }
     ImGui::Unindent(indent);
     const float bar = std::max(2.f, std::floor(em() * 0.2f));
-    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(start.x, start.y + 2), ImVec2(start.x + bar, ImGui::GetItemRectMax().y - 2),
-                                              col(color), bar * 0.5f);
+    dl->AddRectFilled(ImVec2(start.x, start.y + 2), ImVec2(start.x + bar, ImGui::GetItemRectMax().y - 2), col(color), bar * 0.5f);
+}
+
+// "About to say" with a Cancel button, while the voice waits (Features > Cancel before it's spoken).
+void pendingBar(UiModel& m, UiActions& act) {
+    const float cancelW = em() * 6.f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x, h = ImGui::GetFrameHeight();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col(ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.12f)), ImGui::GetStyle().FrameRounding);
+    // how long is left, as a thin bar along the bottom
+    const float total = std::max(0.5f, m.cfg.fx.previewMs / 1000.f);
+    dl->AddRectFilled(ImVec2(p.x, p.y + h - 2), ImVec2(p.x + w * clamp01(m.pendingLeft / total), p.y + h), col(kSignal));
+    char label[64];
+    std::snprintf(label, sizeof(label), "%s ", T("About to say:"));
+    ImGui::SetCursorScreenPos(ImVec2(p.x + em() * 0.5f, p.y + (h - em()) * 0.5f));
+    ImGui::PushClipRect(p, ImVec2(p.x + w - cancelW - em() * 0.6f, p.y + h), true);
+    ImGui::TextColored(kSignal, "%s", label);
+    ImGui::SameLine(0, 0);
+    ImGui::TextUnformatted(m.pendingSay.c_str());
+    ImGui::PopClipRect();
+    ImGui::SetCursorScreenPos(ImVec2(p.x + w - cancelW, p.y));
+    if (button("Cancel##pending", true, cancelW)) act.cancelPending = true;
+    gap(0.3f);
 }
 
 void conversationPanel(UiModel& m, UiActions& act, ImVec2 size) {
@@ -1853,7 +2002,9 @@ void conversationPanel(UiModel& m, UiActions& act, ImVec2 size) {
     const bool problem = !m.lastError.empty();
     const ServiceStatus* bad = problem ? troubleInUse(m) : nullptr;
     const float footH = rowH + ImGui::GetStyle().ItemSpacing.y +
-                        ImGui::GetTextLineHeightWithSpacing() * ((problem ? 1.f : 0.f) + (bad ? 1.f : 0.f));
+                        ImGui::GetTextLineHeightWithSpacing() * ((problem ? 1.f : 0.f) + (bad ? 1.f : 0.f)) +
+                        (m.cfg.fx.quickPhrases.empty() ? 0.f : ImGui::GetFrameHeightWithSpacing()) +
+                        (m.pendingSay.empty() ? 0.f : ImGui::GetFrameHeightWithSpacing() + em() * 0.3f);
     ImGui::BeginChild("chatfeed", ImVec2(0, std::max(em() * 4.f, ImGui::GetContentRegionAvail().y - footH)), 0,
                       ImGuiWindowFlags_NoBackground);
     const float fontSize = ImGui::GetStyle().FontSizeBase * l.textScale;
@@ -1864,12 +2015,22 @@ void conversationPanel(UiModel& m, UiActions& act, ImVec2 size) {
     }
     for (size_t i = 0; i < m.chat.size(); ++i) {
         ImGui::PushID(int(i));
-        chatLine(m.chat[i], fontSize, l.showOriginal);
+        chatLine(m, act, m.chat[i], fontSize, l.showOriginal);
         gap(0.45f);
         ImGui::PopID();
     }
     bool pending = false;
-    for (const Caption& c : m.captions) pending = pending || c.pending;
+    for (const Caption& c : m.captions) {
+        pending = pending || c.pending;
+        if (c.pending && c.live)  // words while they're still talking
+            for (const CaptionLine& cl : c.lines) {
+                ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextUnformatted(cl.text.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::PopStyleColor();
+            }
+    }
     if (l.on && m.listen.hearing) ImGui::TextColored(kSignal, TF("Hearing speech%s"), dots().c_str());
     else if (l.on && pending) ImGui::TextColored(kBusy, TF("Translating%s"), dots().c_str());
     if (m.busy || m.queued > 0) ImGui::TextColored(kMuted, TF("Sending%s"), dots().c_str());
@@ -1881,6 +2042,21 @@ void conversationPanel(UiModel& m, UiActions& act, ImVec2 size) {
         char b[400];
         std::snprintf(b, sizeof(b), TF("%s's status page reports: %s"), bad->name.c_str(), bad->detail.c_str());
         statusLine("Not the app", b, healthColor(bad->health));
+    }
+    if (!m.pendingSay.empty()) pendingBar(m, act);
+    if (!m.cfg.fx.quickPhrases.empty()) {  // quick phrases: one click to say
+        const float maxX = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        for (size_t i = 0; i < m.cfg.fx.quickPhrases.size(); ++i) {
+            const std::string& q = m.cfg.fx.quickPhrases[i];
+            const float w = ImGui::CalcTextSize(q.c_str()).x + ImGui::GetStyle().FramePadding.x * 2;
+            if (i > 0) {
+                if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w < maxX) ImGui::SameLine();
+                else break;  // one row only
+            }
+            ImGui::PushID(int(i));
+            if (ImGui::SmallButton(q.c_str())) act.sendText = q;
+            ImGui::PopID();
+        }
     }
     const float sendW = em() * 5.f;
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - sendW - ImGui::GetStyle().ItemSpacing.x);
@@ -1918,7 +2094,7 @@ void textPage(UiModel& m, UiActions& act) {
 void voicePage(UiModel& m, UiActions& act) {
     // The three panels follow the audio: microphone -> voice -> output.
     const bool fourLines = m.cfg.engine != kVoiceChanger && m.cfg.emotion;
-    const float gapW = em() * 1.6f, stripH = em() * (fourLines ? 7.0f : 5.3f);
+    const float gapW = em() * 1.6f, stripH = em() * (fourLines ? 7.4f : 5.6f);
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float bodyH = std::max(em() * 8.f, avail.y - stripH - ImGui::GetStyle().ItemSpacing.y);
     const float colW = std::floor((avail.x - gapW * 2) / 3.f);
@@ -1966,7 +2142,7 @@ int setupNext(const UiModel& m, int step, int dir) {
     return step;
 }
 
-enum SetupIcon { kIconMic, kIconKeys, kIconBubbles, kIconHeadphones, kIconGame, kIconSliders, kIconSpark };
+enum SetupIcon { kIconMic, kIconKeys, kIconBubbles, kIconHeadphones, kIconGame, kIconSliders, kIconSpark, kIconBolt };
 
 // Small line drawings for the choice cards.
 void setupIcon(ImDrawList* dl, int icon, ImVec2 c, float s, ImU32 color) {
@@ -2011,6 +2187,13 @@ void setupIcon(ImDrawList* dl, int icon, ImVec2 c, float s, ImU32 color) {
         const ImVec2 pts[8] = {{c.x, c.y - o}, {c.x + i, c.y - i}, {c.x + o, c.y}, {c.x + i, c.y + i},
                                {c.x, c.y + o}, {c.x - i, c.y + i}, {c.x - o, c.y}, {c.x - i, c.y - i}};
         dl->AddPolyline(pts, 8, color, ImDrawFlags_Closed, t);
+        break;
+    }
+    case kIconBolt: {  // a lightning bolt
+        const ImVec2 pts[6] = {{c.x + s * 0.08f, c.y - s * 0.46f}, {c.x - s * 0.26f, c.y + s * 0.06f},
+                               {c.x - s * 0.01f, c.y + s * 0.06f}, {c.x - s * 0.08f, c.y + s * 0.46f},
+                               {c.x + s * 0.26f, c.y - s * 0.06f}, {c.x + s * 0.01f, c.y - s * 0.06f}};
+        dl->AddPolyline(pts, 6, color, ImDrawFlags_Closed, t);
         break;
     }
     default:  // sliders
@@ -2109,8 +2292,8 @@ struct KeyGuideText {
     const char* extraUrl;   // a second button (sign up, buy credits), or null
     const char* extraLabel;
     const char* steps[5];
-    int pics[3];
-    int picAfter[3];        // each picture goes right after this step
+    int pics[5];            // -1 = none
+    int picAfter[5];        // each picture goes right after this step
 };
 
 const KeyGuideText kKeyGuides[kGuideCount] = {
@@ -2120,7 +2303,7 @@ const KeyGuideText kKeyGuides[kGuideCount] = {
       "Click Create Key.",
       "Turn Restrict Key off, so CIMA Box can use everything it needs.",
       "Click Create Key, then copy the key it shows. It's shown only once."},
-     {kPicEleven1, kPicEleven2, kPicEleven3}, {2, 3, 5}},
+     {kPicEleven1, kPicEleven2, kPicEleven3, -1, -1}, {2, 3, 5, 0, 0}},
     {"DeepL", "https://www.deepl.com/your-account/keys", "deepl.com/your-account/keys", "https://www.deepl.com/pro-api",
      "Sign up (free)",
      {"Sign up for the free DeepL API plan. Already have a DeepL account for the translator? Log out and make a new "
@@ -2129,13 +2312,13 @@ const KeyGuideText kKeyGuides[kGuideCount] = {
       "Click Create key, if there's no key yet.",
       "Click the copy button next to the key.",
       nullptr},
-     {kPicDeepL, -1, -1}, {4, 0, 0}},
+     {kPicDeepL, -1, -1, -1, -1}, {4, 0, 0, 0, 0}},
     {"Google Gemini", "https://aistudio.google.com/apikey", "aistudio.google.com/apikey", nullptr, nullptr,
      {"Sign in with your Google account (you need to be 18 or older) and accept the terms.",
       "Click Create API key.",
       "Click the copy button next to your new key.",
       nullptr, nullptr},
-     {kPicGemini, -1, -1}, {3, 0, 0}},
+     {kPicGemini, -1, -1, -1, -1}, {3, 0, 0, 0, 0}},
     {"Claude", "https://platform.claude.com/settings/keys", "platform.claude.com/settings/keys",
      "https://platform.claude.com/settings/billing", "Buy credits",
      {"Sign in (or make an account), then buy a few dollars of credits under Billing. Claude doesn't work without them.",
@@ -2143,7 +2326,15 @@ const KeyGuideText kKeyGuides[kGuideCount] = {
       "Click Create key and give it a name.",
       "Copy the key it shows. It's shown only once.",
       nullptr},
-     {kPicClaude, -1, -1}, {3, 0, 0}},
+     {kPicClaude, -1, -1, -1, -1}, {3, 0, 0, 0, 0}},
+    {"OpenAI", "https://platform.openai.com/api-keys", "platform.openai.com/api-keys",
+     "https://platform.openai.com/settings/organization/billing/overview", "Add credits",
+     {"Sign in (or make an account). When it asks you to choose a plan, Free is fine to try. Click Continue.",
+      "Name the key, for example CIMA Box, and click Generate API Key.",
+      "Click Copy next to the key. It's shown only once.",
+      "If Check key says there's no credit, click Add credits. The Build plan starts at $5, which lasts a long time.",
+      "Need the key again, or a new one? Click API Keys in the left menu, then Create new secret key at the top right."},
+     {kPicOpenAI1, kPicOpenAI2, kPicOpenAI3, kPicOpenAI4, kPicOpenAI5}, {1, 2, 3, 4, 5}},
 };
 
 // A small rounded label, like "Required" or "Highly recommended".
@@ -2224,7 +2415,7 @@ void keyGuide(UiModel& m, UiActions& act, int which, bool inSetup) {
         if (!s) continue;
         setupStepLine(n, s);
         bool shown = false;
-        for (int i = 0; i < 3; ++i)  // the picture for what was just said
+        for (int i = 0; i < 5; ++i)  // the picture for what was just said
             if (g.pics[i] >= 0 && g.picAfter[i] == n) {
                 if (!shown) gap(0.1f);
                 guidePicture(m, g.pics[i]);
@@ -2236,9 +2427,12 @@ void keyGuide(UiModel& m, UiActions& act, int which, bool inSetup) {
     gap(0.3f);
 }
 
-// The key box with "Check key" and what the check found, for DeepL, Gemini or Claude.
+// The key box with "Check key" and what the check found, for DeepL, Gemini, Claude or OpenAI.
 void keyBox(UiModel& m, UiActions& act, int which, std::string& key, const char* id) {
-    fieldLabel(which == kGuideDeepL ? "DeepL API key" : which == kGuideClaude ? "Claude API key" : "Gemini API key");
+    fieldLabel(which == kGuideDeepL    ? "DeepL API key"
+               : which == kGuideClaude ? "Claude API key"
+               : which == kGuideOpenAI ? "OpenAI API key"
+                                       : "Gemini API key");
     const float checkW = std::max(em() * 7.f, ImGui::CalcTextSize(T("Check key")).x + em() * 1.6f);
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - checkW - ImGui::GetStyle().ItemSpacing.x);
     if (ImGui::InputTextWithHint(id, T("Paste it here"), &key, m.showKey ? 0 : ImGuiInputTextFlags_Password))
@@ -2372,7 +2566,7 @@ void setupLanguage(UiModel& m) {
 
 void setupWelcome() {
     setupTitle("Welcome to CIMA Box", "Let's get you set up. It takes about two minutes, and you can change everything later.");
-    setupStepLine(1, "Connect ElevenLabs, where the voices come from, plus DeepL and Claude or Gemini for great translations.");
+    setupStepLine(1, "Connect ElevenLabs, where the voices come from, plus DeepL and an AI (Gemini, Claude or OpenAI) for great translations.");
     setupStepLine(2, "Choose what you want to do: talk, type, or read what others say.");
     setupStepLine(3, "Choose where the voice goes, then play a test.");
     gap(0.4f);
@@ -2419,7 +2613,7 @@ void setupDeepL(UiModel& m, UiActions& act) {
 
 void setupAi(UiModel& m, UiActions& act) {
     chip("Highly recommended", kBusy);
-    setupTitle("Make translations sound real", "Claude or Gemini translate the way people actually talk. You only need one.");
+    setupTitle("Make translations sound real", "Gemini, Claude or OpenAI translate the way people actually talk. You only need one.");
     ImGui::TextColored(kText, "%s", T("Without one, you'd miss:"));
     for (const char* miss : {"Dialects, like Mexican Spanish, Kansai Japanese or Kuwaiti Arabic",
                              "Slang and casual speech, instead of textbook wording",
@@ -2438,9 +2632,13 @@ void setupAi(UiModel& m, UiActions& act) {
     if (setupCard("##claude", kIconBubbles, "Claude", "The most natural. Pay as you go: a few cents for an evening of chatting, from credits you buy first.",
                   m.setupAi == kGuideClaude, false))
         m.setupAi = kGuideClaude;
+    if (setupCard("##openai", kIconBolt, "OpenAI", "Cheap and quick. Try it free; $5 of credit lifts the limits.",
+                  m.setupAi == kGuideOpenAI, false))
+        m.setupAi = kGuideOpenAI;
     gap(0.3f);
     keyGuide(m, act, m.setupAi, true);
     if (m.setupAi == kGuideClaude) keyBox(m, act, kGuideClaude, m.cfg.claudeKey, "##setupclaude");
+    else if (m.setupAi == kGuideOpenAI) keyBox(m, act, kGuideOpenAI, m.cfg.openaiKey, "##setupopenai");
     else keyBox(m, act, kGuideGemini, m.cfg.geminiKey, "##setupgemini");
     toggleRow("Show keys", &m.showKey);
 }
@@ -2566,7 +2764,7 @@ void setupRead(UiModel& m, UiActions& act) {
     gap(0.5f);
     fieldLabel("Translate into");
     languageCombo("##setupto", l.toLang, false);
-    note("Uses the free translator to start. A DeepL, Claude or Gemini key in Settings gives better translations.");
+    note("Uses the free translator to start. A DeepL, Gemini, Claude or OpenAI key in Settings gives better translations.");
 }
 
 // A page name in amber and what to do there.
@@ -2596,8 +2794,10 @@ void finishSetup(UiModel& m) {
     auto has = [](const std::string& k) { return k.find_first_not_of(" \t\r\n") != std::string::npos; };
     if (m.setupAi == kGuideClaude && has(m.cfg.claudeKey)) m.cfg.translateService = kClaude;
     else if (m.setupAi == kGuideGemini && has(m.cfg.geminiKey)) m.cfg.translateService = kGemini;
+    else if (m.setupAi == kGuideOpenAI && has(m.cfg.openaiKey)) m.cfg.translateService = kOpenAI;
     else if (has(m.cfg.claudeKey)) m.cfg.translateService = kClaude;
     else if (has(m.cfg.geminiKey)) m.cfg.translateService = kGemini;
+    else if (has(m.cfg.openaiKey)) m.cfg.translateService = kOpenAI;
     else if (has(m.cfg.deeplKey)) m.cfg.translateService = kDeepL;
     if (m.setupUse & kUseVoice) m.cfg.page = kPageVoice;
     else if (m.setupUse & kUseText) m.cfg.page = kPageText;
@@ -2677,7 +2877,10 @@ void setupView(UiModel& m, UiActions& act) {
     bool canGo = true;
     if (step == kStepKey && m.cfg.apiKey.empty()) next = "Skip for now";
     if (step == kStepDeepL && m.cfg.deeplKey.empty()) next = "Skip for now";
-    if (step == kStepAi && (m.setupAi == kGuideClaude ? m.cfg.claudeKey : m.cfg.geminiKey).empty()) next = "Skip for now";
+    if (step == kStepAi && (m.setupAi == kGuideClaude   ? m.cfg.claudeKey
+                            : m.setupAi == kGuideOpenAI ? m.cfg.openaiKey
+                                                        : m.cfg.geminiKey).empty())
+        next = "Skip for now";
     if (step == kStepUse) canGo = m.setupUse != 0;
     if (step == kStepRoute) canGo = m.setupRoute != kRouteNone;
     ImGui::SetCursorScreenPos(ImVec2(colX + colW - bw, by));
@@ -2690,6 +2893,660 @@ void setupView(UiModel& m, UiActions& act) {
     ImGui::EndDisabled();
 }
 
+// ---------------------------------------------------------------- Features page
+
+// One feature: its name, one line about it and a switch. Its settings show only while it's on, so
+// people who never use a feature never see its options. Returns whether to draw the settings;
+// call featureCardEnd() either way.
+bool featureCard(const char* id, const char* title, const char* desc, bool* on) {
+    ImGui::PushID(id);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 0.85f, em() * 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(kField.x, kField.y, kField.z, (on && *on) ? 0.6f : 0.32f));
+    ImGui::PushStyleColor(ImGuiCol_Border, (on && *on) ? ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.38f) : ImVec4(0, 0, 0, 0));
+    ImGui::BeginChild("##card", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar();
+    const float sh = std::floor(em() * 1.2f), sw = sh * 1.8f;
+    const float textW = ImGui::GetContentRegionAvail().x - (on ? sw + em() * 0.6f : 0.f);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.0f);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + textW);
+    ImGui::TextUnformatted(T(title));
+    ImGui::PopTextWrapPos();
+    ImGui::PopFont();
+    if (desc && *desc) {
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.9f);
+        ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + textW);
+        ImGui::TextUnformatted(T(desc));
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+    }
+    if (on) {
+        const ImVec2 after = ImGui::GetCursorScreenPos();
+        const ImVec2 sp(p.x + ImGui::GetContentRegionAvail().x - sw, p.y + em() * 0.1f);
+        ImGui::SetCursorScreenPos(sp);
+        if (ImGui::InvisibleButton("##switch", ImVec2(sw, sh))) *on = !*on;
+        drawSwitch(sp, sh, *on, ImGui::IsItemHovered(), ImGui::GetID("##cardanim"));
+        ImGui::SetCursorScreenPos(after);
+        ImGui::Dummy(ImVec2(0, 0));
+    }
+    const bool open = !on || *on;
+    if (open && on) gap(0.25f);
+    return open;
+}
+void featureCardEnd() {
+    ImGui::EndChild();
+    ImGui::PopID();
+    gap(0.6f);
+}
+
+// Small toggleable chips for picking several languages ("Languages I speak").
+void languageChips(const char* id, std::vector<std::string>& codes) {
+    ImGui::PushID(id);
+    const float maxX = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    for (size_t i = 0; i < codes.size(); ++i) {
+        const Language* l = findLanguage(codes[i]);
+        if (!l) continue;
+        const std::string label = std::string(l->name) + "  x##c" + std::to_string(i);
+        const float w = ImGui::CalcTextSize(label.c_str(), nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2;
+        if (i > 0 && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w < maxX) ImGui::SameLine();
+        if (ImGui::SmallButton(label.c_str())) {
+            codes.erase(codes.begin() + long(i));
+            break;
+        }
+    }
+    std::string add;
+    languageCombo("##add", add, false);
+    if (!add.empty() && std::find(codes.begin(), codes.end(), add) == codes.end()) codes.push_back(add);
+    ImGui::PopID();
+}
+
+// A list of short texts, each with a remove button.
+bool removableRow(const std::string& text, int i) {
+    ImGui::PushID(i);
+    const float xw = ImGui::GetFrameHeight();
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - xw - em() * 0.4f);
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - xw);
+    const bool gone = ImGui::Button("x", ImVec2(xw, 0));
+    ImGui::PopID();
+    return gone;
+}
+
+void featuresTalking(UiModel& m, UiActions& act) {
+    Settings& c = m.cfg;
+    FeatureSettings& f = c.fx;
+
+    bool preview = f.previewMs > 0;
+    if (featureCard("cancel", "Cancel before it's spoken", "A moment to see what the voice is about to say, and stop it if it misheard you.", &preview)) {
+        if (preview && f.previewMs == 0) f.previewMs = 1200;
+        float sec = f.previewMs / 1000.f;
+        if (sliderF("Wait before speaking", &sec, 0.5f, 3.f, "%.1f s")) f.previewMs = int(sec * 1000.f + 0.5f);
+        fieldLabel("Cancel key");
+        keyBinder(m, 10, f.cancelKey);
+        note("Or click Cancel on the bar at the bottom. Adds this wait to every phrase.");
+    }
+    if (!preview) f.previewMs = 0;
+    featureCardEnd();
+
+    if (featureCard("answer", "Answer in their language", "Translate to switches to the language people speak to you.", &f.answerTheirs)) {
+        note("It only switches after they say two things in a row in that language, so one short word can't flip it. "
+             "Pick a language yourself any time; it switches again when someone speaks another language.");
+        if (!m.autoTargetNote.empty()) note(m.autoTargetNote, kSignal);
+    }
+    featureCardEnd();
+
+    if (featureCard("langs", "Languages", "Short phrases are easy to mistake for another language. List the ones you expect.", nullptr)) {
+        fieldLabel("Languages I speak");
+        languageChips("mine", f.myLanguages);
+        fieldLabel("Languages around me");
+        languageChips("around", f.aroundLanguages);
+        note("\"Detect automatically\" then sticks to these. Leave a list empty to allow every language.");
+        if (!m.heardLanguages.empty()) {
+            fieldLabel("Heard this session");
+            for (size_t i = 0; i < m.heardLanguages.size() && i < 6; ++i) {
+                const Language* l = findLanguage(m.heardLanguages[i]);
+                if (!l) continue;
+                if (i > 0) ImGui::SameLine();
+                ImGui::PushID(int(i));
+                if (ImGui::SmallButton(l->name)) c.targetLang = l->code;
+                ImGui::PopID();
+            }
+            note("Click one to translate into it.");
+        }
+    }
+    featureCardEnd();
+
+    bool swear = f.voiceSwear != kSwearKeep;
+    if (featureCard("swear", "Clean up my swearing", "For streams or new people: the voice tones down or bleeps your swear words.", &swear)) {
+        if (f.voiceSwear == kSwearKeep) f.voiceSwear = kSwearSoften;
+        int mode = f.voiceSwear - 1;
+        static const char* const kModes[] = {"Tone it down", "Say \"beep\""};
+        if (segmented("##swearmode", kModes, 2, &mode)) f.voiceSwear = mode + 1;
+        note(f.voiceSwear == kSwearSoften ? "Milder words instead (with an AI service; otherwise they're left out)."
+                                          : "Each swear word becomes \"beep\".");
+    }
+    if (!swear) f.voiceSwear = kSwearKeep;
+    featureCardEnd();
+
+    if (featureCard("best", "Best translations", "Bigger AI models and more time. Better dialects and slang, a bit slower and pricier.", &f.best)) {
+        note("Uses claude-sonnet-5-5, gemini-3.6-flash or gpt-6.2-sol, and allows twice the time limit.");
+    }
+    featureCardEnd();
+
+    if (featureCard("try", "Try a line", "See how each style says something, with your own keys.", nullptr)) {
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##trytext", T("Type something to say"), &m.tryText);
+        ImGui::BeginDisabled(m.tryBusy || m.tryText.find_first_not_of(" ") == std::string::npos || !isAiService(c.translateService));
+        if (button(m.tryBusy ? "Translating" : "Try it", true)) act.tryLine = m.tryText;
+        ImGui::EndDisabled();
+        if (!isAiService(c.translateService)) note("Needs Claude, Gemini or OpenAI as the translation service.");
+        static const char* const kNames[] = {"Polite", "Casual", "Very casual", "My own"};
+        for (int i = 0; i < 4; ++i) {
+            if (m.tryResults[i].empty()) continue;
+            ImGui::TextColored(kSignal, "%s", T(kNames[i]));
+            ImGui::PushTextWrapPos(0.f);
+            ImGui::TextUnformatted(m.tryResults[i].c_str());
+            ImGui::PopTextWrapPos();
+        }
+    }
+    featureCardEnd();
+
+    if (featureCard("keys", "More hotkeys", nullptr, nullptr)) {
+        fieldLabel("Hold for my real voice");
+        keyBinder(m, 11, f.realVoiceKey);
+        note("While held, your own mic goes out instead of the new voice.");
+        fieldLabel("Stop speaking");
+        keyBinder(m, 12, f.stopKey);
+        note("Stops the voice right away and drops anything waiting.");
+    }
+    featureCardEnd();
+}
+
+void featuresHearing(UiModel& m, UiActions& act) {
+    Settings& c = m.cfg;
+    FeatureSettings& f = c.fx;
+    ScreenSettings& sc = c.screen;
+
+    bool screen = sc.on;
+    if (featureCard("screen", "Screen translation", "Translate text in a game or app: chat boxes, signs, menus. Take a snapshot, or let it watch a chat box.", &screen)) {
+        if (screen && !sc.agreed) {  // the notice comes first
+            m.screenNotice = true;
+            screen = false;
+        }
+        if (sc.on) {
+            // The three things needed for a snapshot come first; the rest are choices.
+            fieldLabel("Window");
+            appCombo(m, act, sc.app, "##screenapp");
+            if (sc.toLang.empty()) sc.toLang = c.listen.toLang;
+            fieldLabel("Translate into");
+            languageCombo("##screento", sc.toLang, false);
+            gap(0.2f);
+            ImGui::BeginDisabled(m.shot.busy || sc.app.empty());
+            if (button(m.shot.busy ? "Reading" : "Take a snapshot", true)) act.screenSnapshot = true;
+            ImGui::EndDisabled();
+            if (!m.screenStatus.empty()) note(T(m.screenStatus), kBusy);
+            else note("Then drag over the text you want in the picture and press Translate. It shows up with the captions and in the conversation.");
+
+            subheading("Who reads the text");
+            static const char* const kReaders[] = {"Windows (free)", "AI"};
+            segmented("##reader", kReaders, 2, &sc.reader);
+            note(sc.reader == kReadWindows ? "Reads on your PC, free. Knows fewer languages (see the notice)."
+                                           : "Reads any language and translates in one step, but pictures use many more tokens.");
+            if (sc.reader == kReadAi && !isAiService(c.translateService))
+                note("AI reading needs Claude, Gemini or OpenAI as the translation service.", kDanger);
+            if (sc.reader == kReadWindows) {
+                fieldLabel("Text in the picture");
+                languageCombo("##readlang", sc.readLang, true);
+                if (m.readerKnown && m.readerLanguages.empty()) {
+                    note("Windows' text reader isn't available on this PC. Use AI reading instead.", kDanger);
+                } else if (sc.readLang.empty()) {
+                    note("Pick the language of the text. Left on automatic, it only reads the languages Windows itself is set to.");
+                } else if (m.readerKnown) {
+                    bool can = false;  // Windows names them "ja", "en-US", "zh-Hans-CN"...
+                    for (const std::string& tag : m.readerLanguages)
+                        if (tag == sc.readLang || tag.rfind(sc.readLang + "-", 0) == 0) can = true;
+                    if (!can) {
+                        note("Windows can't read this language yet. Add it in Windows Settings > Time & language > Language (with its text recognition), or use AI reading.", kDanger);
+                        if (button("Open Windows language settings")) act.openUrl = "ms-settings:regionlanguage";
+                    }
+                }
+            }
+
+            subheading("Watch a chat box");
+            toggleRow("Watch for new lines", &sc.watch);
+            if (sc.watch) {
+                float sec = sc.watchSeconds;
+                if (sliderF("Look every", &sec, 1.f, 15.f, "%.0f s")) sc.watchSeconds = sec;
+                const bool whole = sc.area[0] <= 0.f && sc.area[1] <= 0.f && sc.area[2] >= 1.f && sc.area[3] >= 1.f;
+                note(whole ? "Reads the whole window. Take a snapshot and crop it to the chat box for better results."
+                           : "Reads the area you picked in the preview. Only new lines are translated.");
+                if (sc.reader == kReadAi) note("Watching with AI reading sends a picture every time it looks. That adds up fast.", kBusy);
+            }
+
+            subheading("While you play");
+            fieldLabel("Snapshot key");
+            keyBinder(m, 13, sc.key);
+            note("The key, and Translate screen in the SteamVR menu, translate right away: you're in the game, so there's no preview to click.");
+            toggleRow("Translate without the preview", &sc.skipPreview);
+            toggleRow("Also show on the VR panel", &sc.toVr);
+            note("Don't capture anything private.", kBusy);
+        }
+    }
+    if (!sc.agreed) screen = false;
+    sc.on = screen;
+    if (!sc.on) sc.watch = false;
+    featureCardEnd();
+
+    if (featureCard("ear", "Hear them in my ear", "A voice reads the translations of what others say, in your headphones.", &f.hearThem)) {
+        fieldLabel("Voice");
+        std::string preview = T("The voice I use");
+        for (const Voice& v : m.voices)
+            if (v.id == f.earVoice) preview = v.name;
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##earvoice", preview.c_str(), ImGuiComboFlags_HeightLarge)) {
+            if (ImGui::Selectable(T("The voice I use"), f.earVoice.empty())) f.earVoice.clear();
+            for (const Voice& v : m.voices) {
+                ImGui::PushID(v.id.c_str());
+                if (ImGui::Selectable(v.name.c_str(), v.id == f.earVoice)) f.earVoice = v.id;
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        fieldLabel("Play it on");
+        deviceCombo("##eardevice", m.outputDevices, f.earDevice);
+        sliderF("Volume", &f.earVolume, 0.f, 2.f, "%.0f%%", 100.f);
+        note("Needs Listen on. Uses ElevenLabs credits for every caption.");
+    }
+    featureCardEnd();
+
+    if (featureCard("live", "Captions while they talk", "Words appear while someone is still speaking, then the translation replaces them.", &f.liveCaptions)) {
+        note("Transcribes the unfinished sentence every second or two, so it uses more ElevenLabs credits.");
+    }
+    featureCardEnd();
+
+    if (featureCard("captions", "Captions", nullptr, nullptr)) {
+        toggleRow("Hide swearing (f***)", &f.maskCaptions);
+        toggleRow("Sound labels ([laughs], [music])", &f.soundLabels);
+        toggleRow("Skip music and noise", &f.ignoreNoise);
+        toggleRow("Big, high-contrast captions", &f.highContrast);
+        toggleRow("Same voice, same color", &f.voiceIds);
+        if (f.voiceIds) note("Recognizes voices across captions (a best guess). Right-click a line to mute that voice.");
+        toggleRow("Guess gender from their words", &f.genderFromWords);
+        if (f.genderFromWords) note("\"Estoy cansada\" says more than a voice, which a voice changer can fake.");
+        if (!m.mutedVoices.empty()) {
+            char b[120];
+            std::snprintf(b, sizeof(b), TF("%d muted voices"), int(m.mutedVoices.size()));
+            note(b);
+            if (button("Unmute everyone")) m.mutedVoices.clear();
+        }
+    }
+    featureCardEnd();
+
+    if (featureCard("overlay", "Caption window over the game", "A small see-through window of captions on top of your game (borderless windowed mode, not fullscreen).", nullptr)) {
+        toggleRow("Clicks go through it", &f.clickThrough);
+        if (f.clickThrough && f.overlayKey == 0) note("Set a key below first: it's how you get the window back.", kBusy);
+        sliderF("See-through", &f.overlayOpacity, 0.3f, 1.f, "%.0f%%", 100.f);
+        fieldLabel("Key to switch click-through");
+        keyBinder(m, 14, f.overlayKey);
+        if (button("Open the caption window", true)) act.openCaptionWindow = true;
+    }
+    featureCardEnd();
+}
+
+void featuresMore(UiModel& m, UiActions& act) {
+    Settings& c = m.cfg;
+    FeatureSettings& f = c.fx;
+
+    if (featureCard("phrases", "Quick phrases", "Buttons on the Text page for things you say a lot.", nullptr)) {
+        for (size_t i = 0; i < f.quickPhrases.size(); ++i)
+            if (removableRow(f.quickPhrases[i], int(i))) { f.quickPhrases.erase(f.quickPhrases.begin() + long(i)); break; }
+        const float addW = std::max(em() * 4.f, ImGui::CalcTextSize(T("Add")).x + em() * 1.6f);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - addW - ImGui::GetStyle().ItemSpacing.x);
+        const bool enter = ImGui::InputTextWithHint("##newphrase", T("Add a phrase"), &m.phraseDraft, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        if ((button("Add##phrase", false, addW) || enter) && m.phraseDraft.find_first_not_of(" ") != std::string::npos) {
+            f.quickPhrases.push_back(m.phraseDraft);
+            m.phraseDraft.clear();
+        }
+        const std::vector<std::string> common = commonLines(f, 3);
+        if (!common.empty()) {
+            fieldLabel("You type these a lot");
+            for (size_t i = 0; i < common.size(); ++i) {
+                ImGui::PushID(int(i) + 100);
+                if (ImGui::SmallButton((std::string("+ ") + common[i]).c_str())) f.quickPhrases.push_back(common[i]);
+                ImGui::PopID();
+            }
+        }
+    }
+    featureCardEnd();
+
+    if (featureCard("words", "My word list", "Names and words it keeps getting wrong. Written your way, and never translated.", nullptr)) {
+        for (size_t i = 0; i < f.words.size(); ++i) {
+            const WordFix& w = f.words[i];
+            const std::string row = w.heard.empty() ? w.write : w.heard + "  >  " + w.write;
+            if (removableRow(row, int(i) + 1000)) { f.words.erase(f.words.begin() + long(i)); break; }
+        }
+        const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        ImGui::SetNextItemWidth(half);
+        ImGui::InputTextWithHint("##wordheard", T("It writes (optional)"), &m.wordHeard);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(half);
+        ImGui::InputTextWithHint("##wordwrite", T("Write it as"), &m.wordWrite);
+        if (button("Add##word") && m.wordWrite.find_first_not_of(" ") != std::string::npos) {
+            f.words.push_back({m.wordHeard, m.wordWrite});
+            m.wordHeard.clear();
+            m.wordWrite.clear();
+        }
+        note("For example: it writes \"see my box\", write it as \"CIMA Box\". Or just a name, to keep it as it is.");
+    }
+    featureCardEnd();
+
+    if (featureCard("learn", "Learning mode", "On the Text page: how to read each line, replay it, and save lines to study.", &f.learning)) {
+        note("How to read it (romaji, pinyin, romanization) needs an AI service. Replay plays in your headphones.");
+        if (!f.savedLines.empty()) {
+            fieldLabel("Saved lines");
+            for (size_t i = 0; i < f.savedLines.size(); ++i)
+                if (removableRow(f.savedLines[i], int(i) + 2000)) { f.savedLines.erase(f.savedLines.begin() + long(i)); break; }
+            if (button("Copy them all")) {
+                std::string all;
+                for (const std::string& s : f.savedLines) all += s + "\n";
+                ImGui::SetClipboardText(all.c_str());
+            }
+        }
+    }
+    featureCardEnd();
+
+    if (featureCard("history", "Keep a history", "Saves the conversation to a text file for each day, on this PC only.", &f.keepHistory)) {
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::InputTextWithHint("##historyq", T("Search the history"), &m.historyQuery, ImGuiInputTextFlags_EnterReturnsTrue))
+            act.historySearch = m.historyQuery;
+        for (const std::string& r : m.historyResults) {
+            ImGui::PushTextWrapPos(0.f);
+            ImGui::TextUnformatted(r.c_str());
+            ImGui::PopTextWrapPos();
+        }
+        if (button("Open the history folder")) act.openHistory = true;
+    }
+    featureCardEnd();
+
+    if (featureCard("profiles", "Profiles", "Save your setup and switch in one click: \"Japanese lobby\", \"Streaming\"...", nullptr)) {
+        for (const auto& kv : f.profiles) {
+            ImGui::PushID(kv.first.c_str());
+            const float bw = em() * 4.2f;
+            ImGui::TextUnformatted(kv.first.c_str());
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - bw * 2 - ImGui::GetStyle().ItemSpacing.x);
+            if (button("Load", true, bw)) act.loadProfile = kv.first;
+            ImGui::SameLine();
+            if (button("Delete", false, bw)) act.deleteProfile = kv.first;
+            ImGui::PopID();
+        }
+        const float saveW = em() * 5.f;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - saveW - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::InputTextWithHint("##profilename", T("Name"), &m.profileName);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m.profileName.find_first_not_of(" ") == std::string::npos);
+        if (button("Save##profile", false, saveW)) { act.saveProfile = m.profileName; m.profileName.clear(); }
+        ImGui::EndDisabled();
+        subheading("Share a setup");
+        bool copy = false, paste = false;
+        buttonPair("Copy my setup", "Paste a setup", copy, paste);
+        act.copySetupCode = copy;
+        act.pasteSetupCode = paste;
+        note(m.setupCodeMsg.empty() ? "A code to paste in Discord. Never includes your keys." : m.setupCodeMsg);
+    }
+    featureCardEnd();
+}
+
+void featuresPage(UiModel& m, UiActions& act) {
+    const float gapW = em() * 1.6f;
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float colW = std::floor((avail.x - gapW * 2) / 3.f);
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    beginPanel("fxtalk", ImVec2(colW, avail.y), "Talking");
+    featuresTalking(m, act);
+    ImGui::EndChild();
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));
+    beginPanel("fxhear", ImVec2(colW, avail.y), "Hearing and reading");
+    featuresHearing(m, act);
+    ImGui::EndChild();
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + (colW + gapW) * 2, origin.y));
+    beginPanel("fxmore", ImVec2(avail.x - (colW + gapW) * 2, avail.y), "Handy");
+    featuresMore(m, act);
+    ImGui::EndChild();
+}
+
+
+// ---------------------------------------------------------------- screen translation windows
+
+// The notice before screen translation is first switched on. The box must be ticked.
+void screenNoticeWindow(UiModel& m) {
+    if (!m.screenNotice) return;
+    if (!ImGui::IsPopupOpen("##screennotice")) ImGui::OpenPopup("##screennotice");
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowSize(ImVec2(std::min(em() * 40.f, vp->Size.x * 0.94f), vp->Size.y * 0.9f));
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.4f, em() * 1.1f));
+    if (ImGui::BeginPopupModal("##screennotice", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        ImGui::BeginChild("noticebody", ImVec2(0, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight() * 2.6f), 0,
+                          ImGuiWindowFlags_NoBackground);
+        heading("Before you use screen translation", 1.45f);
+        gap(0.4f);
+        ImGui::PushStyleColor(ImGuiCol_Text, kDanger);
+        heading("Never capture private or sensitive information", 1.12f);
+        ImGui::PopStyleColor();
+        auto para = [](const char* t, const ImVec4& c = kText) {
+            ImGui::PushStyleColor(ImGuiCol_Text, c);
+            ImGui::PushTextWrapPos(0.f);
+            ImGui::TextUnformatted(T(t));
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+        };
+        auto bullet = [](const char* t) {
+            ImGui::TextColored(kDanger, "  -");
+            ImGui::SameLine();
+            ImGui::PushTextWrapPos(0.f);
+            ImGui::TextUnformatted(T(t));
+            ImGui::PopTextWrapPos();
+        };
+        para("Screen translation takes a picture of the app you choose. Anything visible in that app can end up in the picture, including things you didn't mean to capture.");
+        gap(0.2f);
+        para("Do NOT use it on anything showing:");
+        bullet("Passwords, keys, codes or login screens");
+        bullet("Bank, card or payment details");
+        bullet("Private messages, DMs or emails");
+        bullet("Your real name, address, phone number or other personal details");
+        bullet("Anyone else's personal or private information");
+        gap(0.2f);
+        para("If you use AI reading, the picture is sent to that AI service (Claude, Gemini or OpenAI) and handled under their privacy rules, not CIMA Box's. Once it's sent, CIMA Box can't take it back. If you wouldn't post it publicly, don't capture it.", kBusy);
+        subheading("It can use extra tokens");
+        bullet("Windows reader (the default): reads the text on your PC. Free; only the translation uses tokens, like normal.");
+        bullet("AI reading: the picture itself is sent to the AI, and pictures cost much more than text. One capture can cost as much as dozens of spoken lines.");
+        bullet("Watch a chat box with AI reading keeps sending pictures as long as it's on. It can use up a free plan's daily limit quickly and adds to your spending. Your spending limit still applies.");
+        subheading("The Windows reader only knows some languages");
+        para("It can read: Arabic, Bosnian, Bulgarian, Chinese (Simplified and Traditional), Croatian, Czech, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian, Italian, Japanese, Korean, Norwegian, Polish, Portuguese, Romanian, Russian, Serbian, Slovak, Slovenian, Spanish, Swedish and Turkish.");
+        para("It can't read Hindi, Thai, Vietnamese, Indonesian, Hebrew, Ukrainian, Persian or Tagalog, among others. For those, use AI reading. Each language also has to be installed in Windows first (Settings > Time & language > Language).", kMuted);
+        subheading("Good to know");
+        bullet("It only captures the app you picked, only when you press the button or key (or while Watch is on).");
+        bullet("Pictures are never saved or written to the log.");
+        bullet("It never touches the game's files or memory. For competitive games, check their rules about screen capture.");
+        bullet("Respect other people's privacy: their messages are theirs.");
+        ImGui::EndChild();
+        gap(0.2f);
+        ImGui::Checkbox(T("I understand. I won't capture private or sensitive information."), &m.screenNoticeTicked);
+        bool ok = false, cancel = false;
+        const float bw = em() * 9.f;
+        ImGui::BeginDisabled(!m.screenNoticeTicked);
+        ok = button("I understand", true, bw);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        cancel = button("Cancel##notice", false, bw);
+        if (ok) {
+            m.cfg.screen.agreed = true;
+            m.cfg.screen.on = true;
+        }
+        if (ok || cancel) {
+            m.screenNotice = false;
+            m.screenNoticeTicked = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+}
+
+// Once, after the setup (or after updating from a version that didn't have it): CIMA Box runs on
+// the person's own accounts, so what it uses is theirs to watch. Friendly, short, and one button.
+void usageNoticeWindow(UiModel& m, bool inSetup) {
+    const bool due = m.cfg.usageNotice < kUsageNotice && !inSetup;
+    if (!due && !m.showUsageNotice) return;
+    if (!ImGui::IsPopupOpen("##usagenotice")) ImGui::OpenPopup("##usagenotice");
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowSize(ImVec2(std::min(em() * 36.f, vp->Size.x * 0.92f), 0.f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(vp->Size.x * 0.92f, vp->Size.y * 0.92f));
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.6f, em() * 1.3f));
+    if (ImGui::BeginPopupModal("##usagenotice", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        auto para = [](const char* t, const ImVec4& c = kText) {
+            ImGui::PushStyleColor(ImGuiCol_Text, c);
+            ImGui::PushTextWrapPos(0.f);
+            ImGui::TextUnformatted(T(t));
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+        };
+        auto bullet = [](const char* t) {
+            ImGui::TextColored(kSignal, "  -");
+            ImGui::SameLine();
+            ImGui::PushTextWrapPos(0.f);
+            ImGui::TextUnformatted(T(t));
+            ImGui::PopTextWrapPos();
+        };
+        heading("One thing before you start", 1.45f);
+        gap(0.5f);
+        para("CIMA Box is free, and it runs on your own accounts: ElevenLabs, and DeepL, Claude, Gemini or OpenAI if you add them. Whatever it uses is charged by those services to your keys.");
+        gap(0.4f);
+        para("So please keep an eye on it:");
+        bullet("Voices, captions and translations use credits or tokens for as long as they're switched on. Switch off what you aren't using.");
+        bullet("Some settings use a lot more: Listen left running, Captions while they talk, Hear them in my ear, Best translations and AI screen reading.");
+        bullet("Set a spending limit in Settings > Accounts, and look at what's left at the bottom of the window now and then.");
+        bullet("If you share a key with friends, what they use counts on your account too.");
+        gap(0.4f);
+        para("The maker of CIMA Box isn't responsible for charges, used-up credits or tokens, or anything else that comes from using it. You choose the settings, so you use it at your own risk.", kMuted);
+        gap(0.7f);
+        const bool ok = button("Got it", true, em() * 8.f);
+        ImGui::SameLine();
+        const bool limit = button("Set a spending limit", false, std::max(em() * 11.f, ImGui::CalcTextSize(T("Set a spending limit")).x + em() * 1.6f));
+        if (ok || limit) {
+            m.cfg.usageNotice = kUsageNotice;
+            m.showUsageNotice = false;
+            if (limit) {
+                m.cfg.page = kPageSettings;
+                m.scrollToSpend = true;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+}
+
+// The picture that was taken: drag on it to pick the part to read, then translate.
+void screenPreviewWindow(UiModel& m, UiActions& act) {
+    ScreenShot& s = m.shot;
+    if (!s.show) return;
+    if (!ImGui::IsPopupOpen("##screenpreview")) ImGui::OpenPopup("##screenpreview");
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowSize(ImVec2(vp->Size.x * 0.92f, vp->Size.y * 0.9f));
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.2f, em() * 1.0f));
+    if (ImGui::BeginPopupModal("##screenpreview", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        heading("Screen translation", 1.3f);
+        ImGui::SameLine();
+        ImGui::TextColored(kMuted, "%s", s.app.c_str());
+        note("Drag on the picture to pick the part to read, like the chat box. Nothing is sent until you press Translate.");
+        const float sideW = std::max(em() * 18.f, ImGui::GetContentRegionAvail().x * 0.34f);
+        const float footH = ImGui::GetFrameHeight() + em() * 0.6f;
+        const ImVec2 room(ImGui::GetContentRegionAvail().x - sideW - em(), ImGui::GetContentRegionAvail().y - footH);
+        // ---- the picture, with the chosen part outlined
+        float w = room.x, h = s.width > 0 ? w * float(s.height) / float(s.width) : 0.f;
+        if (h > room.y) { h = room.y; w = s.height > 0 ? h * float(s.width) / float(s.height) : 0.f; }
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton("##pic", ImVec2(std::max(1.f, room.x), std::max(1.f, room.y)));
+        const ImVec2 a(top.x + (room.x - w) * 0.5f, top.y + (room.y - h) * 0.5f);  // centred in its room
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (s.texture) dl->AddImage(ImTextureRef(ImTextureID(s.texture)), a, ImVec2(a.x + w, a.y + h));
+        static ImVec2 dragFrom;
+        if (ImGui::IsItemActivated()) dragFrom = ImGui::GetIO().MousePos;
+        if (ImGui::IsItemActive() && w > 0 && h > 0) {
+            const ImVec2 b = ImGui::GetIO().MousePos;
+            auto nx = [&](float x) { return clamp01((x - a.x) / w); };
+            auto ny = [&](float y) { return clamp01((y - a.y) / h); };
+            const float x0 = std::min(nx(dragFrom.x), nx(b.x)), x1 = std::max(nx(dragFrom.x), nx(b.x));
+            const float y0 = std::min(ny(dragFrom.y), ny(b.y)), y1 = std::max(ny(dragFrom.y), ny(b.y));
+            if (x1 - x0 > 0.02f && y1 - y0 > 0.02f) { s.crop[0] = x0; s.crop[1] = y0; s.crop[2] = x1; s.crop[3] = y1; }
+        }
+        const ImVec2 c0(a.x + s.crop[0] * w, a.y + s.crop[1] * h), c1(a.x + s.crop[2] * w, a.y + s.crop[3] * h);
+        const ImU32 shade = IM_COL32(0, 0, 0, 140);  // dim what won't be read
+        dl->AddRectFilled(a, ImVec2(a.x + w, c0.y), shade);
+        dl->AddRectFilled(ImVec2(a.x, c1.y), ImVec2(a.x + w, a.y + h), shade);
+        dl->AddRectFilled(ImVec2(a.x, c0.y), ImVec2(c0.x, c1.y), shade);
+        dl->AddRectFilled(ImVec2(c1.x, c0.y), ImVec2(a.x + w, c1.y), shade);
+        dl->AddRect(c0, c1, col(kSignal), 0, 0, 2.f);
+        // ---- what was found
+        ImGui::SetCursorScreenPos(ImVec2(top.x + room.x + em(), top.y));
+        ImGui::BeginChild("found", ImVec2(sideW, room.y), ImGuiChildFlags_Borders);
+        if (s.busy) ImGui::TextColored(kBusy, TF("Reading%s"), dots().c_str());
+        else if (s.lines.empty()) note(m.screenStatus.empty() ? "The text it finds and its translation show up here." : m.screenStatus);
+        for (const ScreenLine& l : s.lines) {
+            ImGui::PushTextWrapPos(0.f);
+            ImGui::TextUnformatted(l.translated.c_str());
+            if (l.translated != l.text) ImGui::TextColored(kMuted, "%s", l.text.c_str());
+            ImGui::PopTextWrapPos();
+            gap(0.3f);
+        }
+        if (!s.lines.empty() && !s.busy && button("Copy them all")) {
+            std::string all;
+            for (const ScreenLine& l : s.lines) all += l.translated + "\n";
+            ImGui::SetClipboardText(all.c_str());
+        }
+        if (m.cfg.screen.reader == kReadAi && s.width > 0) {  // what the chosen part costs, not the whole picture
+            const int pw = std::min(1280, int(float(s.width) * (s.crop[2] - s.crop[0])));
+            const int ph = std::min(1280, int(float(s.height) * (s.crop[3] - s.crop[1])));
+            char b[160];
+            std::snprintf(b, sizeof(b), TF("AI reading: about %d tokens for this picture."), pictureTokens(m.cfg.translateService, pw, ph));
+            note(b, kBusy);
+        }
+        ImGui::EndChild();
+        // ---- buttons
+        ImGui::SetCursorScreenPos(ImVec2(top.x, top.y + room.y + em() * 0.5f));
+        const float bw = em() * 8.5f;
+        ImGui::BeginDisabled(s.busy);
+        if (button("Translate", true, bw)) act.screenTranslate = true;
+        ImGui::SameLine();
+        if (button("Retake", false, bw)) act.screenSnapshot = true;
+        ImGui::SameLine();
+        if (button("Whole window", false, bw)) { s.crop[0] = s.crop[1] = 0.f; s.crop[2] = s.crop[3] = 1.f; }
+        ImGui::SameLine();
+        if (button("Watch this area", false, std::max(bw, ImGui::CalcTextSize(T("Watch this area")).x + em() * 1.6f))) act.screenUseArea = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", T("Keeps looking at this part and translates new lines as they appear."));
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (button("Close##preview", false, bw) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            act.screenClose = true;
+            s.show = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::GetContentRegionAvail().x - ImGui::GetItemRectSize().x > ImGui::CalcTextSize(T("Don't capture private info.")).x + em() * 2.f) ImGui::SameLine();
+        ImGui::TextColored(kDanger, "%s", T("Don't capture private info."));
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+}
+
+
 }  // namespace
 
 // ---------------------------------------------------------------- public
@@ -2699,12 +3556,12 @@ void uiSetup(float scale) {
     s = ImGuiStyle();
     s.WindowPadding = ImVec2(16, 14);
     s.FramePadding = ImVec2(10, 7);
-    s.ItemSpacing = ImVec2(10, 7);
+    s.ItemSpacing = ImVec2(10, 8);
     s.ItemInnerSpacing = ImVec2(8, 6);
     s.WindowRounding = 0;
-    s.ChildRounding = 10;
-    s.FrameRounding = 6;
-    s.PopupRounding = 8;
+    s.ChildRounding = 12;
+    s.FrameRounding = 7;
+    s.PopupRounding = 10;
     s.GrabRounding = 6;
     s.ScrollbarRounding = 6;
     s.WindowBorderSize = 0;
@@ -2712,7 +3569,7 @@ void uiSetup(float scale) {
     s.PopupBorderSize = 1;
     s.FrameBorderSize = 0;
     s.GrabMinSize = 14;
-    s.ScrollbarSize = 10;
+    s.ScrollbarSize = 8;
     s.DisabledAlpha = 0.4f;
 
     ImVec4* c = s.Colors;
@@ -2720,7 +3577,7 @@ void uiSetup(float scale) {
     c[ImGuiCol_TextDisabled] = kMuted;
     c[ImGuiCol_WindowBg] = kBg;
     c[ImGuiCol_ChildBg] = kPanel;
-    c[ImGuiCol_PopupBg] = rgb(0x242B38);
+    c[ImGuiCol_PopupBg] = rgb(0x222834);
     c[ImGuiCol_Border] = kLine;
     c[ImGuiCol_FrameBg] = kField;
     c[ImGuiCol_FrameBgHovered] = kFieldHover;
@@ -2739,7 +3596,8 @@ void uiSetup(float scale) {
     c[ImGuiCol_ScrollbarGrabHovered] = kFieldActive;
     c[ImGuiCol_ScrollbarGrabActive] = kMuted;
     c[ImGuiCol_Separator] = kLine;
-    c[ImGuiCol_TextSelectedBg] = rgb(0xF2B04A, 0.35f);
+    c[ImGuiCol_TextSelectedBg] = rgb(0xE8B05E, 0.32f);
+    c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.03f, 0.04f, 0.06f, 0.62f);
     c[ImGuiCol_NavCursor] = kSignal;
 
     s.ScaleAllSizes(scale);
@@ -2777,15 +3635,19 @@ UiActions uiDraw(UiModel& m) {
         if (m.cfg.page == kPageListen) listenPage(m, act);
         else if (m.cfg.page == kPageText) textPage(m, act);
         else if (m.cfg.page == kPageVR) vrPage(m, act);
+        else if (m.cfg.page == kPageFeatures) featuresPage(m, act);
         else if (m.cfg.page == kPageSettings) settingsPage(m, act);
         else voicePage(m, act);
         ImGui::EndChild();
         if (footer) usageLine(m, footH);
     }
 
+    usageNoticeWindow(m, m.setupStep >= 0 || m.captionsOnly);
     changesWindow(m);
     if (pictureOpen) ImGui::EndDisabled();
     guideWindow(m, act);
+    screenNoticeWindow(m);
+    screenPreviewWindow(m, act);
     bigPictureWindow(m);
     ImGui::End();
     return act;

@@ -6,6 +6,36 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 2.8.0
+- OpenAI is now a translation choice next to Claude and Gemini (GPT-6 Luna: quick and cheap, and you can try it on OpenAI's free plan). The setup and Settings have a step-by-step guide with pictures, and Check key tells you if the key works or the account needs credit.
+- Casual and Very casual really are casual now. They no longer translate your sentence word for word: they say what you mean the way you'd say it to a friend (or your closest friend), however neatly you said it. Polite forms are ruled out, slang is expected on Very casual, each common language gets told what casual speech looks like in it, and polite people around you no longer pull you back to formal. DeepL, as your service or as the backup, now also uses informal words (du, tu, tú...) on the casual styles and polite ones on Polite, in the languages where it can.
+- New "My own" style: describe how you want to sound in your own words, like "laid back and a bit sarcastic, like with my best friend".
+- Fewer lines falling back to DeepL when you use a dialect: dialect lines get a little more time, a line the AI answers wrongly or refuses is asked again once, and a moment of "too busy" is retried instead of giving up. Gemini no longer silently drops lines with swearing.
+- Arabic, Persian, Urdu and Hebrew now display properly everywhere: letters join up and lines read right to left, in the app, the conversation, captions and the VR panel.
+- CIMA Box in Arabic and Indonesian: pick them in the language step or in Settings > App language.
+- A short, one-time note about costs after the setup (and once after this update): CIMA Box runs on your own keys, so keep an eye on what you leave switched on and set a spending limit. Read it again any time in Settings > About.
+- Service status now shows DeepL and Gemini in the app too, instead of sending you to their websites.
+- A calmer look: softer colors, fewer outlines and a little more room between things.
+- New Features page (the tab next to VR). Everything below is there, sorted into Talking, Hearing and reading, and Handy. Each one is off until you turn it on.
+- Screen translation: translate text in a game or app, like a chat box, signs or menus. Pick the window, take a snapshot, drag over the text in the preview and press Translate; the result shows with your captions and in the conversation. "Watch this area" keeps translating new lines in a chat box. In a game, a hotkey or the button in the SteamVR menu translates right away. The free Windows reader runs on your PC (the app tells you if a language is missing in Windows and opens the right settings page); AI reading handles any language but uses many more tokens. Read the notice first: never capture anything private.
+- Hear them in my ear: a voice reads the translated captions in your headphones.
+- Captions while they talk: words show up while someone is still speaking, then the translation replaces them.
+- Answer in their language: when people speak to you in another language, your translations switch to it.
+- Languages I speak / around me: "Detect automatically" only picks from these, so short phrases aren't mistaken for another language.
+- Cancel before it's spoken: a short wait showing what the voice is about to say, with a Cancel button and key.
+- Clean up my swearing: the voice tones down or bleeps your swear words. Captions can hide swearing too (f***).
+- Best translations: bigger AI models and more time for the trickiest dialects and slang.
+- Try a line: see how Polite, Casual, Very casual and My own say the same thing.
+- My word list: names and words that keep coming out wrong, written your way and never translated.
+- Captions: sound labels ([laughs], [music]), skip music and noise, big high-contrast text, the same color for the same voice, mute one person (right-click their line), and guessing gender from their words.
+- A see-through caption window over the game that clicks pass through (borderless windowed games).
+- Quick phrases on the Text page, plus the lines you type most often.
+- Learning mode on the Text page: how to read a line (romaji, pinyin...), replay it in its language, and save lines to study.
+- Keep a history: the conversation saved to a text file per day, searchable from the app.
+- Profiles: save your setup and switch in one click. Share a setup with friends as a code (never your keys, word list or anything you typed).
+- More hotkeys: hold for your real voice, and stop speaking.
+- Settings > About > Report a problem puts a file on your Desktop with what's needed to find the problem, without keys or anything anyone said.
+
 ## 2.7.3
 - The setup now walks you through getting every key, with pictures showing exactly where to click: ElevenLabs (required), then DeepL and Claude or Gemini (highly recommended, with what you'd miss without them). Each has a button that opens the right page and a Check key button that tells you if the key works, or what's wrong (like a Claude account with no credits yet).
 - The same guides are in Settings > Accounts: click "How do I get this?" under any key. Click a picture to see it bigger.
