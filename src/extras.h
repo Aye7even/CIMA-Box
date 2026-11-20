@@ -95,6 +95,21 @@ std::string markSwears(const std::string& text, std::vector<std::string>& words)
 // letter case, whole words; anywhere in Chinese, Japanese and Korean text) becomes [[1]], [[2]]...
 std::string markListed(const std::string& text, const std::vector<std::string>& list, std::vector<std::string>& found);
 
+// Sentence-aware phrases (My voice, Translate and Re-speak). A pause can come in the middle of a
+// sentence; translated on its own, half a sentence comes out with broken grammar.
+// True when `text` (a transcript) sounds cut off: it ends on a comma, dash or "...", on a word a
+// sentence doesn't end on ("and", "because", "the", "y", "und", "و", "けど"...), or it's a longer
+// stretch with no closing punctuation at all. `lang`: the spoken language's code ("" = unknown).
+bool sentenceUnfinished(const std::string& text, const std::string& lang);
+// Where the last finished sentence inside `text` ends: the index where the next sentence starts
+// (after its . ? ! and the space). npos when there's no finished sentence before the end.
+size_t lastSentenceEnd(const std::string& text);
+// About how many words `text` is (Chinese and Japanese, written without spaces: 2 characters a word).
+int roughWords(const std::string& text);
+// Two pieces of one sentence, heard either side of a pause, as one: the closing "." the transcript
+// put on the first piece is taken off ("I went to the store and." + "Then I..." -> "... and then I...").
+std::string joinHeard(const std::string& first, const std::string& rest, const std::string& lang);
+
 // A typed line was sent: count it (keeps the 40 most used).
 void countSentLine(FeatureSettings& f, const std::string& line);
 // The most used typed lines that aren't quick phrases already (at most `n`).

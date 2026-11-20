@@ -4,7 +4,10 @@ en=json.load(open(D+'strings.json'))
 LANGS=[('es','Español'),('pt-BR','Português (Brasil)'),('fr','Français'),('de','Deutsch'),('it','Italiano'),
        ('id','Bahasa Indonesia'),('ru','Русский'),('ar','العربية'),('ja','日本語'),('ko','한국어'),('zh-Hans','简体中文')]
 def conv(s):
-    out=''; i=0
+    # %1..%9 are positional (sentence chips): any order, each exactly once
+    pos=sorted(re.findall(r'%([1-9])(?![0-9.]*[dsfxiuc])', s))
+    s=re.sub(r'%[1-9](?![0-9.]*[dsfxiuc])', '', s)
+    out=''.join('#'+p for p in pos); i=0
     while i<len(s):
         if s[i]=='%':
             i+=1

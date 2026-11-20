@@ -317,3 +317,256 @@ bool codeToSetup(const std::string& raw, std::string& out) {
     }
     return !out.empty() && out.front() == '{';
 }
+
+// ---------------------------------------------------------------- sentence-aware phrases
+
+namespace {
+
+// Decodes the last UTF-8 code point before `end` (and moves `end` to its start).
+uint32_t prevCodepoint(const std::string& t, size_t& end) {
+    size_t i = end;
+    if (i == 0) return 0;
+    do { --i; } while (i > 0 && (static_cast<unsigned char>(t[i]) & 0xC0) == 0x80);
+    const unsigned char c = static_cast<unsigned char>(t[i]);
+    uint32_t cp = c;
+    int more = 0;
+    if (c >= 0xF0) { cp = c & 0x07; more = 3; }
+    else if (c >= 0xE0) { cp = c & 0x0F; more = 2; }
+    else if (c >= 0xC0) { cp = c & 0x1F; more = 1; }
+    for (int k = 1; k <= more && i + k < t.size(); ++k) cp = (cp << 6) | (static_cast<unsigned char>(t[i + k]) & 0x3F);
+    end = i;
+    return cp;
+}
+
+bool isCjk(uint32_t cp) {
+    return (cp >= 0x3040 && cp <= 0x30FF) || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF) ||
+           (cp >= 0xF900 && cp <= 0xFAFF);
+}
+
+// Lower-case for ASCII, Latin-1 and Cyrillic capitals: enough to compare one word with a list.
+std::string lowerWord(const std::string& w) {
+    std::string out;
+    for (size_t i = 0; i < w.size();) {
+        const unsigned char c = static_cast<unsigned char>(w[i]);
+        if (c < 0x80) { out += char(std::tolower(c)); ++i; continue; }
+        size_t j = i + 1;
+        while (j < w.size() && (static_cast<unsigned char>(w[j]) & 0xC0) == 0x80) ++j;
+        std::string ch = w.substr(i, j - i);
+        if (ch.size() == 2) {
+            const unsigned a = static_cast<unsigned char>(ch[0]), b = static_cast<unsigned char>(ch[1]);
+            const uint32_t cp = ((a & 0x1F) << 6) | (b & 0x3F);
+            uint32_t lo = cp;
+            if (cp >= 0xC0 && cp <= 0xDE && cp != 0xD7) lo = cp + 0x20;               // À..Þ
+            else if (cp >= 0x410 && cp <= 0x42F) lo = cp + 0x20;                      // А..Я
+            else if (cp >= 0x400 && cp <= 0x40F) lo = cp + 0x50;                      // Ѐ..Џ
+            if (lo != cp) { ch.clear(); ch += char(0xC0 | (lo >> 6)); ch += char(0x80 | (lo & 0x3F)); }
+        }
+        out += ch;
+        i = j;
+    }
+    return out;
+}
+
+// Words a sentence doesn't end on, by language: "and", "because", "the", "my"... A transcript that
+// stops on one of these was cut off by a pause, even when the service put a "." after it.
+const std::vector<std::string>& openEnders(const std::string& lang) {
+    static const std::vector<std::string> none;
+    // Only words a sentence practically never ends on: "that", "to", "her" or "so" can end one ("I
+    // know that.", "I want to.", "I saw her.", "I think so."), so they're not here.
+    static const std::vector<std::pair<const char*, std::vector<std::string>>> lists = {
+        {"en", {"and", "but", "or", "because", "cause", "cuz", "the", "an", "my", "your", "their", "our", "its", "if",
+                "than", "which", "gonna", "wanna", "um", "uh", "umm", "uhh", "erm"}},
+        {"es", {"y", "o", "pero", "porque", "de", "del", "el", "los", "las", "un", "con", "para", "mi", "su", "cuando",
+                "e", "ni", "al", "eh"}},
+        {"pt", {"e", "ou", "mas", "porque", "de", "do", "da", "os", "com", "para", "pra", "em", "no", "na"}},
+        {"fr", {"et", "ou", "mais", "parce", "de", "du", "des", "les", "pour", "mon", "ma", "mes", "euh", "je", "j'"}},
+        {"de", {"und", "oder", "aber", "weil", "dass", "ein", "für", "wenn", "äh", "ähm"}},
+        {"it", {"e", "o", "ma", "di", "del", "della", "il", "gli", "un", "con", "per", "ehm"}},
+        {"nl", {"en", "of", "maar", "omdat", "de", "een", "als"}},
+        {"id", {"dan", "atau", "tapi", "karena", "yang", "di", "ke", "dari", "untuk", "dengan", "kalau"}},
+        {"ms", {"dan", "atau", "tapi", "kerana", "sebab", "yang", "di", "ke", "dari", "untuk", "dengan", "kalau"}},
+        {"fil", {"at", "pero", "ng", "sa", "ang", "mga", "para", "kung", "pag", "si", "ni"}},
+        {"tl", {"at", "pero", "ng", "sa", "ang", "mga", "para", "kung", "pag", "si", "ni"}},
+        {"ru", {"и", "или", "но", "потому", "чтобы", "в", "с", "к", "по", "для", "если", "ну"}},
+        {"uk", {"і", "й", "або", "але", "тому", "щоб", "в", "у", "з", "до", "для", "якщо"}},
+        {"pl", {"i", "lub", "albo", "ale", "bo", "że", "żeby", "w", "na", "z", "do", "dla", "jeśli"}},
+        {"tr", {"ve", "veya", "ama", "çünkü", "ile", "eğer"}},
+        {"ar", {"و", "او", "أو", "لكن", "لكنّ", "لأن", "لان", "عشان", "علشان", "إن", "ان", "أن", "اللي", "الذي", "التي",
+                "في", "على", "إلى", "الى", "لما", "إذا", "اذا", "لو"}},
+        {"hi", {"और", "या", "लेकिन", "क्योंकि", "कि", "अगर", "जब"}},
+        {"vi", {"và", "hoặc", "nhưng", "vì", "của", "với", "nếu", "khi", "thì", "là"}},
+        {"ko", {"그리고", "그래서", "근데", "그런데", "하지만", "왜냐면", "만약"}},
+        {"zh", {"和", "跟", "但是", "可是", "因为", "所以", "如果", "然后", "而且", "还有"}},
+        {"ja", {"そして", "でも", "けど", "それで", "あの", "えっと"}},
+    };
+    std::string code = lang;
+    if (code.size() > 2 && code != "fil") {  // three-letter codes from the speech-to-text service
+        static const std::pair<const char*, const char*> three[] = {
+            {"eng", "en"}, {"spa", "es"}, {"por", "pt"}, {"fra", "fr"}, {"fre", "fr"}, {"deu", "de"}, {"ger", "de"},
+            {"ita", "it"}, {"nld", "nl"}, {"dut", "nl"}, {"ind", "id"}, {"msa", "ms"}, {"may", "ms"}, {"tgl", "tl"},
+            {"rus", "ru"}, {"ukr", "uk"}, {"pol", "pl"}, {"tur", "tr"}, {"ara", "ar"}, {"hin", "hi"}, {"vie", "vi"},
+            {"kor", "ko"}, {"zho", "zh"}, {"chi", "zh"}, {"cmn", "zh"}, {"yue", "zh"}, {"jpn", "ja"}};
+        for (const auto& t : three)
+            if (code == t.first) { code = t.second; break; }
+    }
+    if (code.size() > 2 && code.compare(0, 3, "fil") != 0) code = code.substr(0, 2);  // "pt-BR" -> "pt"
+    for (const auto& l : lists)
+        if (code == l.first) return l.second;
+    return none;
+}
+
+}  // namespace
+
+int roughWords(const std::string& text) {
+    int words = 0, cjk = 0;
+    bool in = false;
+    for (size_t i = 0; i < text.size();) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        size_t n = c < 0x80 ? 1 : c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : 2;
+        size_t end = std::min(text.size(), i + n);
+        uint32_t cp = 0;
+        { size_t e = end; cp = prevCodepoint(text, e); }
+        if (isCjk(cp)) { ++cjk; in = false; }
+        else if (c == ' ' || c == '\t' || c == '\n') in = false;
+        else if (!in) { ++words; in = true; }
+        i = end;
+    }
+    return words + (cjk + 1) / 2;
+}
+
+bool sentenceUnfinished(const std::string& text, const std::string& lang) {
+    size_t end = text.size();
+    // Closing quotes and brackets don't count; spaces neither.
+    for (;;) {
+        size_t at = end;
+        const uint32_t cp = prevCodepoint(text, at);
+        if (cp == ' ' || cp == '\t' || cp == '\n' || cp == '"' || cp == '\'' || cp == ')' || cp == ']' || cp == 0x201D ||
+            cp == 0x2019 || cp == 0x300D || cp == 0x300F || cp == 0xFF09) {
+            end = at;
+            continue;
+        }
+        break;
+    }
+    if (end == 0) return false;
+    size_t at = end;
+    const uint32_t last = prevCodepoint(text, at);
+    // Trailing off ("so...", "and then…"), or a comma, dash or colon: more is coming.
+    if (last == 0x2026 || (last == '.' && end >= 2 && text[end - 2] == '.')) return true;
+    if (last == ',' || last == 0xFF0C || last == 0x3001 || last == 0x060C || last == '-' || last == 0x2013 ||
+        last == 0x2014 || last == ':' || last == ';' || last == 0xFF1A)
+        return true;
+    // Questions and exclamations are finished.
+    if (last == '?' || last == '!' || last == 0xFF1F || last == 0xFF01 || last == 0x061F) return false;
+    const bool closed = last == '.' || last == 0x3002 || last == 0x0964 || last == 0xFF0E;
+
+    // The last word, without its punctuation.
+    size_t wordEnd = closed ? at : end;
+    size_t wordStart = wordEnd;
+    bool cjkTail = false;
+    for (;;) {
+        size_t p = wordStart;
+        const uint32_t cp = prevCodepoint(text, p);
+        if (wordStart == 0 || cp == ' ' || cp == '\t' || cp == '\n' || cp == ',' || cp == '"' || cp == '(') break;
+        if (isCjk(cp)) cjkTail = true;
+        wordStart = p;
+    }
+    const std::string word = lowerWord(text.substr(wordStart, wordEnd - wordStart));
+    for (const std::string& w : openEnders(lang)) {
+        if (cjkTail) {
+            // Chinese and Japanese: the text ends with that word (no spaces to find the last word by).
+            if (word.size() >= w.size() && word.compare(word.size() - w.size(), w.size(), w) == 0) return true;
+        } else if (word == w) {
+            return true;
+        }
+    }
+    if (closed) return false;
+    // No closing punctuation at all. Japanese and Korean pieces that end on a joining form (て, けど,
+    // から...; 고, 는데, 지만...) are mid-sentence; otherwise a longer stretch with nothing to close it
+    // was most likely cut off, and a few words ("okay", "yeah sure") are a whole reply.
+    static const char* const kJa[] = {"て", "で", "が", "けど", "けれど", "から", "し", "と", "を", "に", "は", "ので", "のに", "たら", "ば", "ながら"};
+    static const char* const kKo[] = {"고", "서", "는데", "은데", "지만", "면", "니까", "랑", "하고", "를", "을", "에서", "에"};
+    const std::string base = lang.substr(0, 2);
+    if (base == "ja" || lang == "jpn")
+        for (const char* e : kJa) {
+            const size_t n = std::strlen(e);
+            if (word.size() >= n && word.compare(word.size() - n, n, e) == 0) return true;
+        }
+    if (base == "ko" || lang == "kor")
+        for (const char* e : kKo) {
+            const size_t n = std::strlen(e);
+            if (word.size() >= n && word.compare(word.size() - n, n, e) == 0) return true;
+        }
+    return roughWords(text) >= 4;
+}
+
+size_t lastSentenceEnd(const std::string& text) {
+    static const char* const kAbbrev[] = {"mr", "mrs", "ms", "dr", "st", "vs", "etc", "jr", "sr", "e.g", "i.e", "sra", "sr", "dra"};
+    size_t best = std::string::npos;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        size_t next = std::string::npos;
+        if ((c == '.' || c == '?' || c == '!') && i + 1 < text.size() && text[i + 1] == ' ') {
+            if (c == '.') {
+                if (i > 0 && text[i - 1] == '.') continue;  // "..." trails off, it doesn't end anything
+                size_t w = i;
+                while (w > 0 && text[w - 1] != ' ') --w;
+                const std::string word = lowerWord(text.substr(w, i - w));
+                bool abbrev = false;
+                for (const char* a : kAbbrev) abbrev = abbrev || word == a;
+                if (abbrev || (word.size() == 1 && std::isupper(static_cast<unsigned char>(text[w])))) continue;  // "J. Smith"
+            }
+            next = i + 1;
+            while (next < text.size() && text[next] == ' ') ++next;
+        } else if (c >= 0xE0) {
+            size_t e = std::min(text.size(), i + (c >= 0xF0 ? 4 : 3));
+            size_t at = e;
+            const uint32_t cp = prevCodepoint(text, at);
+            if (cp == 0x3002 || cp == 0xFF1F || cp == 0xFF01 || cp == 0x061F || cp == 0x0964) {
+                next = e;
+                while (next < text.size() && text[next] == ' ') ++next;
+            }
+        } else if (c == 0xD8 && i + 1 < text.size() && static_cast<unsigned char>(text[i + 1]) == 0x9F && i + 2 < text.size() &&
+                   text[i + 2] == ' ') {  // Arabic question mark ؟
+            next = i + 3;
+        }
+        if (next != std::string::npos && next < text.size()) best = next;
+    }
+    return best;
+}
+
+std::string joinHeard(const std::string& first, const std::string& rest, const std::string& lang) {
+    std::string a = first;
+    while (!a.empty() && (a.back() == ' ' || a.back() == '\n')) a.pop_back();
+    // The "." (or "。") the transcript closed the first piece with: the sentence goes on.
+    if (a.size() >= 3 && a.compare(a.size() - 3, 3, "\xE3\x80\x82") == 0) a.erase(a.size() - 3);
+    else if (!a.empty() && a.back() == '.' && !(a.size() >= 2 && a[a.size() - 2] == '.')) a.pop_back();
+    std::string b = rest;
+    while (!b.empty() && b.front() == ' ') b.erase(b.begin());
+    if (a.empty()) return b;
+    if (b.empty()) return a;
+    // Chinese and Japanese are written without spaces between words.
+    size_t at = a.size();
+    const uint32_t lastA = prevCodepoint(a, at);
+    const std::string base = lang.substr(0, 2);
+    const bool cjkMark = (lastA >= 0x3000 && lastA <= 0x303F) || (lastA >= 0xFF00 && lastA <= 0xFFEF);  // 、。，
+    const bool noSpace = (isCjk(lastA) || cjkMark) && (base == "zh" || base == "ja" || lang == "jpn" || lang == "zho" || lang == "cmn" ||
+                                          lang == "yue" || lang.empty());
+    // "Then" after a cut is the same sentence going on: lower-case its first letter (not "I", and
+    // not a word in capitals like a name or "OK").
+    if (b.size() >= 2 && std::isupper(static_cast<unsigned char>(b[0])) && std::islower(static_cast<unsigned char>(b[1])) &&
+        a.back() != '.' && a.back() != '?' && a.back() != '!') {
+        static const char* const kKeep[] = {"I", "I'm", "I'll", "I've", "I'd"};
+        size_t sp = b.find_first_of(" ,.!?");
+        const std::string firstWord = b.substr(0, sp);
+        bool keep = false;
+        for (const char* k : kKeep) keep = keep || firstWord == k;
+        static const char* const kJoin[] = {"And", "But", "Or", "So", "Because", "Then", "That", "Which", "Who", "When",
+                                            "Y", "Pero", "Porque", "Que", "Und", "Aber", "Weil", "Et", "Mais", "Parce", "E",
+                                            "Ma", "Mas", "En", "Dan", "Tapi", "At", "Kasi", "Tapos", "The", "A", "To", "With",
+                                            "Like", "Um", "Uh", "If", "Than"};
+        bool joiner = false;
+        for (const char* j : kJoin) joiner = joiner || firstWord == j;
+        if (!keep && joiner) b[0] = char(std::tolower(static_cast<unsigned char>(b[0])));
+    }
+    return noSpace ? a + b : a + " " + b;
+}

@@ -17,7 +17,7 @@
 
 enum Engine { kVoiceChanger = 0, kRespeak = 1, kTranslate = 2 };
 enum Activation { kVoiceActivity = 0, kPushToTalk = 1 };
-enum Page { kPageVoice = 0, kPageListen = 1, kPageVR = 2, kPageSettings = 3, kPageText = 4, kPageFeatures = 5 };
+enum Page { kPageVoice = 0, kPageListen = 1, kPageVR = 2, kPageSettings = 3, kPageText = 4, kPageFeatures = 5, kPageHome = 6 };
 // Who you are talking to, as chosen. Auto = the last person who spoke (guessed from their voice).
 enum TalkingTo { kTalkAuto = 0, kTalkUnknown = 1, kTalkMan = 2, kTalkWoman = 3, kTalkGroup = 4, kTalkCount = 5 };
 // Where cimabox.json is kept (Settings > About).
@@ -40,7 +40,8 @@ void lookPreset(LookSettings& l, int preset);  // sets the four colors of a pres
 
 struct Settings {
     std::string apiKey;
-    int page = kPageVoice;
+    int page = kPageHome;
+    std::vector<std::string> homeTiles;  // the quick toggles on Home, in order (empty = the usual ones)
     int engine = kVoiceChanger;
     std::string voiceId;
     std::string stsModel = "eleven_multilingual_sts_v2";
@@ -97,6 +98,8 @@ struct Settings {
     bool pttRealVoice = false;         // push to talk: while the key is up, your own mic goes out (off = silence)
     float thresholdDb = -40.f;
     int holdMs = 350;
+    int sentenceWaitMs = 900;          // a pause mid-sentence: wait this long for the rest (0 = off)
+    bool liveStt = false;              // live transcription: your voice goes to ElevenLabs while you talk
     int maxSeconds = 12;
     int pttKey = 0;
     ListenSettings listen;             // the Listen page: captions for what other people say
@@ -179,9 +182,11 @@ struct UiModel {
     float matchProgress = 0;           // 0..1: how much of your mic and the new voice Match my mic has heard
     bool passing = false;              // your own mic is going to the output right now
     bool loading = false, recording = false, busy = false;
+    bool holding = false;              // a sentence was cut off by a pause: waiting a moment for the rest
     int queued = 0;
     float levelDb = -100.f;
     int sttMs = 0, translateMs = 0, voiceMs = 0, totalMs = 0;  // last phrase; 0 = stage not used
+    bool sttLive = false;              // the last phrase's words came from live transcription
 
     std::vector<AppInfo> apps;        // programs with a window, for the Listen source picker
     std::vector<Caption> captions;    // oldest first
@@ -192,6 +197,7 @@ struct UiModel {
     float pictureW = 0, pictureH = 0;
     std::string pictureMsg;           // why a picture couldn't be used
     bool captionsOnly = false;        // compact always-on-top view
+    bool mini = false;                // the mini window: My voice at a glance, always on top
     VrState vr;                       // SteamVR overlay status
     bool vrSupported = false;
     uint64_t previewTexture = 0;      // VR page: the panel as it looks in the headset
@@ -271,6 +277,7 @@ struct UiActions {
     bool resetBaseline = false, resetMatch = false, placeVrHere = false;
     bool refreshApps = false, clearCaptions = false;
     int setCaptionsOnly = -1;  // 0 / 1 when the user switches the compact view
+    int setMini = -1;          // 0 / 1 when the user switches the mini window
     bool checkUpdates = false, installUpdate = false, openSettingsFolder = false;
     bool pickPicture = false, clearPicture = false;  // Settings > Look
     int setSettingsPlace = -1;  // SettingsPlace picked in Settings > About

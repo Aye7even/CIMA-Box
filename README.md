@@ -9,9 +9,14 @@ Powered by ElevenLabs.
 That one file is the whole program. Put `CIMABox.exe` in a normal folder (like Documents or
 Desktop) and run it. It updates itself from then on, and tells you what's new after each update.
 
-![CIMA Box: the My voice page](docs/my-voice.png)
+![CIMA Box 3.0: the Home page](docs/home.png)
 
 ## What it does
+
+**Home**: everything at a glance. Your setup in one sentence ("You speak English, they hear Japanese
+in George"): click any underlined word to change it. What you just said, how fast people heard it,
+shortcuts to the extras you use most (pick your own), what people around you are saying, and one
+feature you haven't tried yet. **All voice settings** takes you to My voice for everything else.
 
 **My voice**: your microphone, turned into any ElevenLabs voice (including a clone of your own).
 - **Changer** keeps your own timing and emotion. The fastest and most natural mode.
@@ -25,10 +30,12 @@ Desktop) and run it. It updates itself from then on, and tells you what's new af
 - Works anywhere that takes a microphone: games, Discord, Zoom, OBS and streams.
 - In VRChat it can also show what you said, or the translation, in the chatbox above your avatar.
 
+![My voice: microphone, voice and language, and where it goes](docs/my-voice.png)
+
 **Text**: type instead of talking. The voice reads what you type, as typed or translated into
 another language, and it can go in the VRChat chatbox too. What other people say (from Listen)
 shows up translated in the same window, so you can follow the whole conversation without switching
-tabs. Handy when you can't or don't want to talk out loud.
+pages. Handy when you can't or don't want to talk out loud.
 
 ![The Text page: type to talk, with the whole conversation translated](docs/text.png)
 
@@ -58,8 +65,13 @@ SteamVR menu without taking the headset off.
 
 ![The Features page: screen translation, extras for talking, and handy tools](docs/features.png)
 
+**Mini window**: shrink CIMA Box to a small window that stays on top of your game, with the last
+line, the mode, Stop and the switch.
+
+![The mini window](docs/mini.png)
+
 The app itself speaks English, Español, Português, Français, Deutsch, Italiano, Bahasa Indonesia,
-Русский, العربية, 日本語, 한국어 and 简体中文 (Settings, the gear at the top right). Arabic, Persian, Urdu
+Русский, العربية, 日本語, 한국어 and 简体中文 (Settings, bottom left). Arabic, Persian, Urdu
 and Hebrew are shown right to left with joined letters, in the app and in VR.
 
 ![Settings: app language, API keys, hotkeys, updates and service status](docs/settings.png)
@@ -78,10 +90,11 @@ and Hebrew are shown right to left with joined letters, in the app and in VR.
 
 ## Getting started
 
-1. Run `CIMABox.exe`. Click the **gear** (top right), paste your ElevenLabs API key under
-   **Accounts** and click **Load voices and models**.
-2. On **My voice**, pick your microphone (Input), a voice (Voice), and where the new voice goes
-   (Output): choose **CABLE Input** there.
+1. Run `CIMABox.exe`. The first time, a short setup walks you through everything. To do it by
+   hand: click **Settings** (bottom left), paste your ElevenLabs API key under **Accounts** and
+   click **Load voices and models**.
+2. On **My voice**, pick your microphone (Microphone), a voice (Voice and language), and where the
+   new voice goes (Where it goes): choose **CABLE Input** there.
 3. In your game, Discord or any other app, choose **CABLE Output** as your microphone.
 4. Flip the switch at the top right and talk.
 

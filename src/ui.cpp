@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "bidi.h"
 #include "screen.h"
 
 #ifndef CIMA_VERSION
@@ -374,7 +375,11 @@ bool sliderF(const char* label, float* v, float lo, float hi, const char* fmt, f
 bool sliderI(const char* label, int* v, int lo, int hi, const char* fmt) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), TF(fmt), *v);
+    const bool glow = jumpAnchor(label);
+    const ImVec2 top(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + em() * 0.1f);
+    const float rowW = ImGui::GetContentRegionAvail().x;
     sliderHeader(label, buf);
+    if (glow) jumpGlow(top, ImVec2(top.x + rowW, ImGui::GetItemRectMax().y + ImGui::GetFrameHeight()));
     ImGui::PushID(label);
     hideSliderParts();
     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -692,6 +697,46 @@ void subheading(const char* text) {
     gap(0.1f);
 }
 
+// The less-used settings of a section, folded under one row that says what's inside, so the
+// everyday ones stay easy to see. Open or closed is remembered while the app runs. Finding a
+// setting (search) opens it, since the setting may be in there.
+bool moreRow(const char* id, const char* label, const char* inside) {
+    ImGuiStorage* st = ImGui::GetStateStorage();
+    const ImGuiID key = ImGui::GetID(id);
+    bool open = st->GetBool(key, false);
+    if (!gJump.want.empty()) open = true;
+    gap(0.55f);
+    const float w = ImGui::GetContentRegionAvail().x, h = em() * (open ? 2.0f : 2.9f);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::PushID(id);
+    if (ImGui::InvisibleButton("##more", ImVec2(w, h))) open = !open;
+    const bool hot = ImGui::IsItemHovered();
+    ImGui::PopID();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = em() * 0.5f;
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h), col(hot ? kMuted : kLine), r, 0, 1.3f);
+    const float tx = p.x + em() * 0.8f;
+    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase);
+    const char* title = T(open ? "Fewer settings" : label);
+    dl->AddText(ImVec2(tx, p.y + (open ? (h - em()) * 0.5f : em() * 0.45f)), col(hot ? kSignal : kText), title);
+    ImGui::PopFont();
+    if (!open) {
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.86f);
+        dl->PushClipRect(p, ImVec2(p.x + w - em() * 2.f, p.y + h), true);
+        dl->AddText(ImVec2(tx, p.y + em() * 1.55f), col(kMuted), T(inside));
+        dl->PopClipRect();
+        ImGui::PopFont();
+    }
+    // A chevron on the right: down when closed, up when open.
+    const ImVec2 c(p.x + w - em() * 1.0f, p.y + h * 0.5f);
+    const float s = em() * 0.3f, d = open ? -1.f : 1.f;
+    dl->AddLine(ImVec2(c.x - s, c.y - s * 0.5f * d), ImVec2(c.x, c.y + s * 0.5f * d), col(hot ? kSignal : kMuted), 1.8f);
+    dl->AddLine(ImVec2(c.x, c.y + s * 0.5f * d), ImVec2(c.x + s, c.y - s * 0.5f * d), col(hot ? kSignal : kMuted), 1.8f);
+    st->SetBool(key, open);
+    if (open) gap(0.2f);
+    return open;
+}
+
 // ---------------------------------------------------------------- the three stages
 
 void inputPanel(UiModel& m, UiActions& act) {
@@ -708,8 +753,6 @@ void inputPanel(UiModel& m, UiActions& act) {
     if (c.activation == kVoiceActivity) {
         sliderF("Opens above", &c.thresholdDb, -70.f, 0.f, "%.0f dB");
         note("Set the marker just right of where the meter sits when you are silent.");
-        sliderI("Pause that ends a phrase", &c.holdMs, 150, 1500, "%d ms");
-        note("Shorter replies sooner, but splits sentences at small pauses.");
     } else {
         fieldLabel("Key");
         keyBinder(m, 0, c.pttKey);
@@ -722,7 +765,23 @@ void inputPanel(UiModel& m, UiActions& act) {
         note(c.pttRealVoice ? "People hear your own voice. Hold the key for a line in the new voice: your mic goes quiet from the press until that line has played."
                             : "People hear nothing until you hold the key, then only the new voice.");
     }
+    if (!moreRow("##moremic", "More microphone settings",
+                 c.activation == kVoiceActivity ? "Pause length, sentence wait, longest phrase, live transcription"
+                                                : "Longest phrase, live transcription"))
+        return;
+    if (c.activation == kVoiceActivity) {
+        sliderI("Pause that ends a phrase", &c.holdMs, 150, 1500, "%d ms");
+        note("Shorter replies sooner, but splits sentences at small pauses.");
+        sliderI("Wait for the rest of a sentence", &c.sentenceWaitMs, 0, 2000, c.sentenceWaitMs > 0 ? "%d ms" : "Off");
+        note(c.sentenceWaitMs > 0
+                 ? "When you pause mid-sentence (after a comma, \"and\", \"because\"...), Translate and Re-speak wait up to this long for you to go on, then say the whole sentence at once. Finished sentences never wait. Raise it if you often pause to think."
+                 : "Off: a pause ends a phrase even mid-sentence. Sentences cut by a phrase that runs too long are still kept whole.");
+    }
     sliderI("Longest phrase", &c.maxSeconds, 3, 30, "%d s");
+    toggleRow("Live transcription", &c.liveStt);
+    note(c.liveStt
+             ? "Translate and Re-speak: your voice goes to ElevenLabs while you talk, so your words are ready the moment you stop, and \"You said\" fills in as you speak. If it has any problem, that phrase is uploaded the regular way. New in 3.0."
+             : "Translate and Re-speak: send your voice to ElevenLabs while you talk, so the words are ready the moment you stop (a little less delay). New in 3.0.");
 }
 
 void voicePanel(UiModel& m, UiActions& act) {
@@ -737,21 +796,13 @@ void voicePanel(UiModel& m, UiActions& act) {
     voiceCombo(m);
     if (m.voices.empty()) {
         if (c.apiKey.empty()) {
-            note("Add your ElevenLabs API key in Settings (the gear at the top right) to see your voices.");
+            note("Add your ElevenLabs API key in Settings (bottom left) to see your voices.");
         } else {
             ImGui::BeginDisabled(m.loading);
             if (button(m.loading ? "Loading voices" : "Load voices and models", true)) act.loadCatalog = true;
             ImGui::EndDisabled();
         }
     }
-    if (c.engine == kTranslate) {
-        toggleRow("A voice for each language", &c.voicePerLanguage);
-        if (c.voicePerLanguage) note("Picking another language brings back the voice you last used with it.");
-    }
-
-    fieldLabel("Model");
-    modelCombo(m.models, c.engine == kVoiceChanger, c.engine == kVoiceChanger ? c.stsModel : c.ttsModel);
-
     if (c.engine != kVoiceChanger) {
         fieldLabel("I speak");
         languageCombo("##spoken", c.spokenLang, true);
@@ -761,6 +812,21 @@ void voicePanel(UiModel& m, UiActions& act) {
         languageCombo("##target", c.targetLang, false, c.ttsModel);
         dialectPicker(c);
         translationService(c, false);
+    }
+    if (!moreRow("##morevoice", "More voice settings",
+                 c.engine == kVoiceChanger ? "Model, fine-tuning the voice"
+                 : c.engine == kTranslate  ? "Model, a voice per language, gender, emotion, fine-tuning"
+                                           : "Model, emotion, fine-tuning"))
+        return;
+    if (c.engine == kTranslate) {
+        toggleRow("A voice for each language", &c.voicePerLanguage);
+        if (c.voicePerLanguage) note("Picking another language brings back the voice you last used with it.");
+    }
+
+    fieldLabel("Model");
+    modelCombo(m.models, c.engine == kVoiceChanger, c.engine == kVoiceChanger ? c.stsModel : c.ttsModel);
+
+    if (c.engine == kTranslate) {
         if (isAiService(c.translateService)) {
             subheading("Gender");
             note("Many languages change words for who is speaking and who is listening (cansado / cansada).");
@@ -857,7 +923,16 @@ void outputPanel(UiModel& m, UiActions& act) {
         sliderF("Volume##monvol", &c.monVolume, 0.f, 2.f, "%.0f%%", 100.f);
     }
 
-    gap(0.4f);
+    gap(0.3f);
+    toggleRow("Show in VRChat chatbox", &c.chatbox);
+    if (c.chatbox) {
+        static const char* const kShow[] = {"What I said", "Spoken as", "Both"};
+        segmented("##chatboxshow", kShow, 3, &c.chatboxShow);
+        note(c.engine == kVoiceChanger ? "Changer mode doesn't write anything down, so this also transcribes each phrase "
+                                         "(at the same time as the voice, so no added delay, but it is billed)."
+                                       : "Needs OSC turned on in VRChat. At most one message every 1.6 seconds.");
+    }
+    if (!moreRow("##moreout", "More output settings", "Audio quality, pass my mic through, match my mic, rescan devices")) return;
     fieldLabel("Audio quality");
     static const char* const kQualities[] = {"Standard", "High", "Best"};
     segmented("##quality", kQualities, 3, &c.quality);
@@ -884,16 +959,6 @@ void outputPanel(UiModel& m, UiActions& act) {
                  "your real voice. Relearns when you pick another mic. No added delay.");
         }
         if (button("Relearn my mic")) act.resetMatch = true;
-    }
-
-    gap(0.4f);
-    toggleRow("Show in VRChat chatbox", &c.chatbox);
-    if (c.chatbox) {
-        static const char* const kShow[] = {"What I said", "Spoken as", "Both"};
-        segmented("##chatboxshow", kShow, 3, &c.chatboxShow);
-        note(c.engine == kVoiceChanger ? "Changer mode doesn't write anything down, so this also transcribes each phrase "
-                                         "(at the same time as the voice, so no added delay, but it is billed)."
-                                       : "Needs OSC turned on in VRChat. At most one message every 1.6 seconds.");
     }
     gap(0.1f);
     if (button("Rescan devices")) act.rescanDevices = true;
@@ -956,47 +1021,6 @@ void serviceRows(UiModel& m, UiActions& act) {
 
 // ---------------------------------------------------------------- what's left (bottom of every page)
 
-// One quiet line at the bottom right: "ElevenLabs 12.4k credits left   DeepL 380k characters left".
-// Amber when running low, red when it's used up. Hover for the numbers.
-void usageLine(const UiModel& m, float height) {
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.86f);
-    const float gapW = em() * 1.5f, nameGap = em() * 0.4f;
-    float total = 0.f;
-    for (const UsageItem& u : m.usage)
-        total += ImGui::CalcTextSize(u.name.c_str()).x + nameGap + ImGui::CalcTextSize(u.text.c_str()).x + gapW;
-    total -= gapW;
-    const ImVec2 at = ImGui::GetCursorScreenPos();
-    const float right = at.x + ImGui::GetContentRegionAvail().x;
-    float x = std::max(at.x, right - total);
-    const float y = std::floor(at.y + (height - ImGui::GetFontSize()) * 0.5f + em() * 0.1f);
-    for (size_t i = 0; i < m.usage.size(); ++i) {
-        const UsageItem& u = m.usage[i];
-        const ImVec2 ns = ImGui::CalcTextSize(u.name.c_str()), vs = ImGui::CalcTextSize(u.text.c_str());
-        const float w = ns.x + nameGap + vs.x;
-        ImGui::SetCursorScreenPos(ImVec2(x, y));
-        ImGui::PushID(int(i));
-        ImGui::InvisibleButton("##usage", ImVec2(w, ns.y));
-        const bool hot = ImGui::IsItemHovered();
-        ImGui::PopID();
-        const ImVec4 vc = u.level == kUsageOut ? kDanger : u.level == kUsageLow ? kSignal : u.level == kUsageUnknown ? kMuted
-                          : hot ? kText : ImVec4(kText.x, kText.y, kText.z, 0.72f);
-        dl->AddText(ImVec2(x, y), col(kMuted), u.name.c_str());
-        dl->AddText(ImVec2(x + ns.x + nameGap, y), col(vc), u.text.c_str());
-        if (hot && !u.detail.empty()) {
-            ImGui::PopFont();
-            ImGui::BeginTooltip();
-            ImGui::PushTextWrapPos(em() * 24.f);
-            ImGui::TextUnformatted(u.detail.c_str());
-            ImGui::PopTextWrapPos();
-            ImGui::EndTooltip();
-            ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.86f);
-        }
-        x += w + gapW;
-    }
-    ImGui::PopFont();
-}
-
 // ---------------------------------------------------------------- spending limit notice
 
 // A thin amber bar under the header, on every page, until it's acknowledged.
@@ -1047,28 +1071,34 @@ struct Findable {
 };
 #define TOGGLE(expr) [](Settings& c) -> bool* { return &c.expr; }
 const Findable kFindables[] = {
+    // Home
+    {"Quick toggles", kPageHome, "Home", "shortcuts tiles quick home toggles edit", nullptr},
     // My voice
-    {"Microphone", kPageVoice, "Input", "mic input device", nullptr},
-    {"Start talking by", kPageVoice, "Input", "push to talk voice activation ptt", nullptr},
-    {"While not holding the key", kPageVoice, "Input", "push to talk real voice between presses passthrough", nullptr},
-    {"Voice", kPageVoice, "Voice", "voice pick choose elevenlabs", nullptr},
-    {"A voice for each language", kPageVoice, "Voice", "remember voice per language", TOGGLE(voicePerLanguage)},
-    {"Model", kPageVoice, "Voice", "eleven model v3 v4 flash", nullptr},
-    {"Translate to", kPageVoice, "Voice", "target language translation output language", nullptr},
-    {"I speak", kPageVoice, "Voice", "my language source", nullptr},
-    {"Translation service", kPageVoice, "Voice", "claude gemini openai deepl free ai", nullptr},
-    {"How you talk", kPageVoice, "Voice", "style polite casual very casual formal slang my own", nullptr},
-    {"Match how they talk to me", kPageVoice, "Voice", "mirror match style", TOGGLE(mirror)},
-    {"Dialect", kPageVoice, "Voice", "accent region variety kansai gulf egyptian mexican", nullptr},
-    {"I am", kPageVoice, "Voice", "gender man woman me", nullptr},
-    {"Talking to", kPageVoice, "Voice", "gender listener who", nullptr},
-    {"Carry my emotion", kPageVoice, "Voice", "emotion tone feelings excited whisper", TOGGLE(emotion)},
-    {"Remove background noise", kPageVoice, "Voice", "noise", TOGGLE(removeNoise)},
-    {"Send the new voice to", kPageVoice, "Output", "output cable virtual device speakers", nullptr},
-    {"Hear it yourself too", kPageVoice, "Output", "monitor hear myself headphones", TOGGLE(monitor)},
-    {"Pass my mic through when off", kPageVoice, "Output", "passthrough real voice off", TOGGLE(passthrough)},
-    {"Match my mic", kPageVoice, "Output", "mic tone level sound like my mic", TOGGLE(matchMic)},
-    {"Show in VRChat chatbox", kPageVoice, "Output", "chatbox osc vrchat text bubble", TOGGLE(chatbox)},
+    {"Microphone", kPageVoice, "Microphone", "mic input device", nullptr},
+    {"Start talking by", kPageVoice, "Microphone", "push to talk voice activation ptt", nullptr},
+    {"While not holding the key", kPageVoice, "Microphone", "push to talk real voice between presses passthrough", nullptr},
+    {"Pause that ends a phrase", kPageVoice, "Microphone", "silence pause hold phrase end split", nullptr},
+    {"Wait for the rest of a sentence", kPageVoice, "Microphone", "sentence pause split broken grammar story wait join", nullptr},
+    {"Longest phrase", kPageVoice, "Microphone", "long phrase max seconds split story", nullptr},
+    {"Live transcription", kPageVoice, "Microphone", "realtime real time streaming speech to text faster delay latency scribe", TOGGLE(liveStt)},
+    {"Voice", kPageVoice, "Voice and language", "voice pick choose elevenlabs", nullptr},
+    {"A voice for each language", kPageVoice, "Voice and language", "remember voice per language", TOGGLE(voicePerLanguage)},
+    {"Model", kPageVoice, "Voice and language", "eleven model v3 v4 flash", nullptr},
+    {"Translate to", kPageVoice, "Voice and language", "target language translation output language", nullptr},
+    {"I speak", kPageVoice, "Voice and language", "my language source", nullptr},
+    {"Translation service", kPageVoice, "Voice and language", "claude gemini openai deepl free ai", nullptr},
+    {"How you talk", kPageVoice, "Voice and language", "style polite casual very casual formal slang my own", nullptr},
+    {"Match how they talk to me", kPageVoice, "Voice and language", "mirror match style", TOGGLE(mirror)},
+    {"Dialect", kPageVoice, "Voice and language", "accent region variety kansai gulf egyptian mexican", nullptr},
+    {"I am", kPageVoice, "Voice and language", "gender man woman me", nullptr},
+    {"Talking to", kPageVoice, "Voice and language", "gender listener who", nullptr},
+    {"Carry my emotion", kPageVoice, "Voice and language", "emotion tone feelings excited whisper", TOGGLE(emotion)},
+    {"Remove background noise", kPageVoice, "Voice and language", "noise", TOGGLE(removeNoise)},
+    {"Send the new voice to", kPageVoice, "Where it goes", "output cable virtual device speakers", nullptr},
+    {"Hear it yourself too", kPageVoice, "Where it goes", "monitor hear myself headphones", TOGGLE(monitor)},
+    {"Pass my mic through when off", kPageVoice, "Where it goes", "passthrough real voice off", TOGGLE(passthrough)},
+    {"Match my mic", kPageVoice, "Where it goes", "mic tone level sound like my mic", TOGGLE(matchMic)},
+    {"Show in VRChat chatbox", kPageVoice, "Where it goes", "chatbox osc vrchat text bubble", TOGGLE(chatbox)},
     // Text
     {"Say it out loud", kPageText, "Voice", "typed text speak", TOGGLE(textSpeak)},
     // Listen
@@ -1186,7 +1216,7 @@ void findWindow(UiModel& m) {
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) selected = std::max(0, selected - 1);
     selected = std::max(0, std::min(selected, int(hits.size()) - 1));
     const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
-    static const char* const kPageNames[] = {"My voice", "Listen", "VR", "Settings", "Text", "Features"};
+    static const char* const kPageNames[] = {"My voice", "Listen", "VR", "Settings", "Text", "Features", "Home"};
     gap(0.3f);
     if (hits.empty()) note("Nothing by that name. Try another word, like \"swear\", \"key\" or \"chatbox\".");
     for (size_t i = 0; i < hits.size(); ++i) {
@@ -1230,201 +1260,6 @@ void findWindow(UiModel& m) {
     ImGui::PopStyleVar();
 }
 
-void header(UiModel& m, UiActions& act) {
-    const float h = em() * 2.3f, w = ImGui::GetContentRegionAvail().x;
-    const ImVec2 p = ImGui::GetCursorScreenPos();
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    float x = p.x;
-    if (m.logoTexture != 0 && m.logoSize > 0) {
-        const float side = std::floor(std::min(m.logoSize, h * 0.92f));
-        const ImVec2 a(x, std::floor(p.y + (h - side) * 0.5f));
-        dl->AddImageRounded(ImTextureRef(ImTextureID(m.logoTexture)), a, ImVec2(a.x + side, a.y + side), ImVec2(0, 0),
-                            ImVec2(1, 1), IM_COL32_WHITE, side * 0.22f);
-        x += side + em() * 0.6f;
-    }
-    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.45f);
-    const float nameY = p.y + (h - ImGui::GetFontSize()) * 0.5f, nameSize = ImGui::GetFontSize();
-    dl->AddText(ImVec2(x, nameY), col(kText), "CIMA Box");
-    x += ImGui::CalcTextSize("CIMA Box").x + em() * 0.45f;
-    ImGui::PopFont();
-    // Version, small and on the same baseline as the name.
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.95f);
-    dl->AddText(ImVec2(x, nameY + nameSize - ImGui::GetFontSize() - em() * 0.12f), col(kMuted), CIMA_VERSION);
-    x += ImGui::CalcTextSize(CIMA_VERSION).x + em() * 1.1f;
-    ImGui::PopFont();
-
-    // The two halves of the app: changing your own voice, and reading what others say.
-    ImGui::SetCursorScreenPos(ImVec2(x, std::floor(p.y + (h - ImGui::GetFrameHeight()) * 0.5f)));
-    static const char* const kPages[] = {"My voice", "Text", "Listen", "VR", "Features"};
-    static const int kPageIds[] = {kPageVoice, kPageText, kPageListen, kPageVR, kPageFeatures};
-    float tabW = 0.f;  // as wide as the longest name needs, in whatever language
-    for (const char* pg : kPages) tabW = std::max(tabW, ImGui::CalcTextSize(shown(pg).c_str()).x);
-    const ImVec2 tabsAt = ImGui::GetCursorScreenPos();
-    // Long languages: the tabs give way before they'd run into the state and switch on the right
-    // (their names shrink a little to fit).
-    const float tabsW = std::min((tabW + em() * 1.6f) * 5.f + em() * 0.4f, p.x + w - tabsAt.x - em() * 17.5f);
-    int tab = -1;
-    for (int i = 0; i < 5; ++i)
-        if (kPageIds[i] == m.cfg.page) tab = i;
-    if (segmented("##page", kPages, 5, &tab, tabsW)) m.cfg.page = kPageIds[tab];
-    float pillX = tabsAt.x + tabsW + em() * 0.9f;
-
-    // A new version: a small amber button next to the tabs, to Settings where it installs.
-    if (m.update.stage == kUpdateAvailable || m.update.stage == kUpdateDownloading || m.update.stage == kUpdateReady) {
-        char label[160];
-        std::snprintf(label, sizeof(label), TF("Update to %s"), m.update.latest.c_str());
-        ImGui::SetCursorScreenPos(ImVec2(pillX, tabsAt.y));
-        const float pw = ImGui::CalcTextSize(label).x + em() * 1.6f;
-        if (button((std::string(label) + "##updatepill").c_str(), true, pw)) m.cfg.page = kPageSettings;
-        pillX += pw + em() * 0.6f;
-    }
-
-    // Screen translation is watching a window: always visible, so it's never running unnoticed.
-    if (!m.capturing.empty()) {
-        char label[200];
-        std::snprintf(label, sizeof(label), TF("Capturing: %s"), m.capturing.c_str());
-        const float room = p.x + w - em() * 16.5f - pillX;
-        if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) std::snprintf(label, sizeof(label), "%s", m.capturing.c_str());
-        if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) label[0] = 0;  // no room for words: the red dot alone (hover says the rest)
-        const ImVec2 ls = ImGui::CalcTextSize(label);
-        const float pw = label[0] ? ls.x + em() * 2.0f : em() * 1.4f, ph = ImGui::GetFrameHeight();
-        const ImVec2 a(pillX, tabsAt.y);
-        ImGui::SetCursorScreenPos(a);
-        if (ImGui::InvisibleButton("##capturepill", ImVec2(pw, ph))) m.cfg.page = kPageFeatures;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", T("Screen translation is watching this window. Click to change it."));
-        dl->AddRect(a, ImVec2(a.x + pw, a.y + ph), col(ImVec4(kDanger.x, kDanger.y, kDanger.z, 0.6f)), ImGui::GetStyle().FrameRounding);
-        dl->AddCircleFilled(ImVec2(a.x + em() * 0.7f, a.y + ph * 0.5f), em() * 0.24f, col(kDanger), 16);
-        if (label[0]) dl->AddText(ImVec2(a.x + em() * 1.2f, a.y + (ph - ls.y) * 0.5f), col(kText), label);
-        pillX += pw + em() * 0.6f;
-    }
-
-    // A service you use reports problems on its status page: say so, so it isn't mistaken for the app.
-    if (const ServiceStatus* bad = troubleInUse(m)) {
-        char label[160];
-        std::snprintf(label, sizeof(label), TF("%s: problems"), bad->name.c_str());
-        // Leave room for the state and switch on the right; in long languages just the name, or the dot.
-        const float room = p.x + w - em() * 16.5f - pillX;
-        if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) std::snprintf(label, sizeof(label), "%s", bad->name.c_str());
-        if (ImGui::CalcTextSize(label).x + em() * 2.0f > room) label[0] = 0;
-        const ImVec2 ls = ImGui::CalcTextSize(label);
-        const float pw = label[0] ? ls.x + em() * 2.0f : em() * 1.4f, ph = ImGui::GetFrameHeight();
-        const ImVec2 a(pillX, tabsAt.y);
-        ImGui::SetCursorScreenPos(a);
-        if (ImGui::InvisibleButton("##servicepill", ImVec2(pw, ph))) act.openUrl = bad->page;
-        const bool hot = ImGui::IsItemHovered();
-        const ImVec4 c = healthColor(bad->health);
-        dl->AddRect(a, ImVec2(a.x + pw, a.y + ph), col(ImVec4(c.x, c.y, c.z, hot ? 0.9f : 0.5f)), ImGui::GetStyle().FrameRounding);
-        dl->AddCircleFilled(ImVec2(a.x + em() * 0.7f, a.y + ph * 0.5f), em() * 0.24f, col(c), 16);
-        dl->AddText(ImVec2(a.x + em() * 1.2f, a.y + (ph - ls.y) * 0.5f), col(hot ? kText : c), label);
-        if (hot) {
-            ImGui::BeginTooltip();
-            ImGui::PushTextWrapPos(em() * 26.f);
-            ImGui::TextUnformatted(T(bad->detail));
-            ImGui::TextColored(kMuted, "%s", T("This is on their side, not in CIMA Box. Click to open their status page."));
-            ImGui::PopTextWrapPos();
-            ImGui::EndTooltip();
-        }
-    }
-
-    // Settings: a gear at the far right.
-    const float gs = std::floor(h * 0.62f);
-    const ImVec2 gp(p.x + w - gs, p.y + (h - gs) * 0.5f);
-    ImGui::SetCursorScreenPos(gp);
-    const bool onSettings = m.cfg.page == kPageSettings;
-    static int lastPage = kPageVoice;
-    if (!onSettings) lastPage = m.cfg.page;
-    if (ImGui::InvisibleButton("##settings", ImVec2(gs, gs))) m.cfg.page = onSettings ? lastPage : kPageSettings;
-    {
-        const bool hot = ImGui::IsItemHovered();
-        if (hot) ImGui::SetTooltip("%s", T(onSettings ? "Back" : "Settings"));
-        const ImU32 gc = col(onSettings ? kSignal : hot ? kText : kMuted);
-        const ImVec2 c(gp.x + gs * 0.5f, gp.y + gs * 0.5f);
-        const float ro = gs * 0.5f, ri = gs * 0.36f;
-        for (int i = 0; i < 8; ++i) {  // teeth
-            const float a = float(i) * 3.14159265f / 4.f, ca = std::cos(a), sa = std::sin(a), tw = gs * 0.11f;
-            const ImVec2 d(ca, sa), n(-sa, ca);
-            auto at = [&](float r, float t) { return ImVec2(c.x + d.x * r + n.x * t, c.y + d.y * r + n.y * t); };
-            dl->AddQuadFilled(at(ri * 0.8f, -tw), at(ro, -tw * 0.8f), at(ro, tw * 0.8f), at(ri * 0.8f, tw), gc);
-        }
-        dl->AddCircleFilled(c, ri, gc, 32);
-        dl->AddCircleFilled(c, gs * 0.15f, col(kBg), 24);
-    }
-    // Find a setting: a magnifier left of the gear (Ctrl+F too).
-    const ImVec2 fp(gp.x - em() * 0.9f - gs, gp.y);
-    ImGui::SetCursorScreenPos(fp);
-    if (ImGui::InvisibleButton("##find", ImVec2(gs, gs))) m.findOpen = true;
-    {
-        const bool hot = ImGui::IsItemHovered();
-        if (hot) ImGui::SetTooltip("%s", T("Find a setting (Ctrl+F)"));
-        const ImU32 fc = col(m.findOpen ? kSignal : hot ? kText : kMuted);
-        const ImVec2 c(fp.x + gs * 0.42f, fp.y + gs * 0.42f);
-        dl->AddCircle(c, gs * 0.3f, fc, 24, gs * 0.11f);
-        dl->AddLine(ImVec2(c.x + gs * 0.22f, c.y + gs * 0.22f), ImVec2(fp.x + gs * 0.92f, fp.y + gs * 0.92f), fc, gs * 0.13f);
-    }
-    const float rightX = fp.x;  // things to the left of the magnifier end here
-    if (onSettings) {
-        const char* title = T("Settings");
-        ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.1f);
-        const ImVec2 ts = ImGui::CalcTextSize(title);
-        dl->AddText(ImVec2(rightX - em() * 0.8f - ts.x, p.y + (h - ts.y) * 0.5f), col(kText), title);
-        ImGui::PopFont();
-        ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
-        ImGui::Dummy(ImVec2(w, em() * 0.35f));
-        return;
-    }
-
-    // State and on/off switch of the half that is showing.
-    const bool listen = m.cfg.page == kPageListen || m.cfg.page == kPageText, vrPageOn = m.cfg.page == kPageVR;
-    bool& on = vrPageOn ? m.cfg.vr.on : listen ? m.cfg.listen.on : m.cfg.enabled;
-    const char* state = "Off";
-    ImVec4 color = kMuted;
-    if (vrPageOn) {
-        if (on && m.vr.visible) { state = "Showing"; color = kSignal; }
-        else if (on && m.vr.connected) { state = "Connected"; color = kText; }
-        else if (on) { state = "Waiting for SteamVR"; color = kBusy; }
-    } else if (on && listen) {
-        if (!m.listen.error.empty()) { state = "Problem"; color = kDanger; }
-        else if (m.listen.hearing) { state = "Hearing speech"; color = kSignal; }
-        else if (m.listen.busy) { state = "Translating"; color = kBusy; }
-        else { state = "Listening"; color = kText; }
-    } else if (!listen && !vrPageOn && !on && m.passing) {
-        state = "Your mic";
-        color = kText;
-    } else if (on) {
-        if (m.recording) { state = "Recording"; color = kSignal; }
-        else if (m.busy) { state = "Converting"; color = kBusy; }
-        else if (m.passing) { state = "Your mic"; color = kText; }  // push to talk, real voice between presses
-        else { state = "Listening"; color = kText; }
-    }
-    state = T(state);
-    const float sh = std::floor(em() * 1.5f), sw = sh * 1.8f;
-    const ImVec2 sp(rightX - em() * 1.1f - sw, p.y + (h - sh) * 0.5f);
-    ImGui::SetCursorScreenPos(sp);
-    if (ImGui::InvisibleButton("##master", ImVec2(sw, sh))) on = !on;
-    drawSwitch(sp, sh, on, ImGui::IsItemHovered(), ImGui::GetID(vrPageOn ? "##vranim" : listen ? "##listenanim" : "##masteranim"));
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", T(vrPageOn ? (on ? "Stop showing captions in VR" : "Show captions in VR")
-                                  : listen ? (on ? "Stop captioning" : "Start captioning")
-                                           : (on ? "Turn the voice changer off" : "Turn the voice changer on")));
-
-    const ImVec2 ts = ImGui::CalcTextSize(state);
-    float tx = sp.x - em() * 0.9f - ts.x;
-    const float ty = p.y + (h - ts.y) * 0.5f;
-    if (tx - em() * 1.2f < pillX) {  // no room for the words: the coloured dot alone, the words on hover
-        tx = sp.x - em() * 0.4f;
-        const ImVec2 dc(tx - em() * 0.7f, p.y + h * 0.5f);
-        if (ImGui::IsMouseHoveringRect(ImVec2(dc.x - em() * 0.6f, dc.y - em() * 0.6f), ImVec2(dc.x + em() * 0.6f, dc.y + em() * 0.6f)))
-            ImGui::SetTooltip("%s", state);
-    } else {
-        dl->AddText(ImVec2(tx, ty), col(color), state);
-    }
-    dl->AddCircleFilled(ImVec2(tx - em() * 0.7f, p.y + h * 0.5f), em() * 0.26f, col(color), 16);
-
-    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
-    ImGui::Dummy(ImVec2(w, em() * 0.35f));
-}
-
 std::string timingLine(const UiModel& m) {
     if (!m.cfg.enabled) return T("The voice changer is off.");
     if (m.totalMs <= 0) return T("Say something to hear the new voice.");
@@ -1436,7 +1271,7 @@ std::string timingLine(const UiModel& m) {
         std::snprintf(b, sizeof(b), "%s%s %.2f s", parts.empty() ? "" : ", ", name, ms / 1000.0);  // name: translated
         parts += b;
     };
-    add(T("transcribe"), m.sttMs);
+    add(m.sttLive ? T("transcribe (live)") : T("transcribe"), m.sttMs);
     add(m.translateVia.empty() ? T("translate") : (std::string(T("translate")) + " (" + m.translateVia + ")").c_str(), m.translateMs);
     add(T("voice"), m.voiceMs);
     if (!parts.empty() && (m.sttMs > 0 || m.translateMs > 0)) s += " (" + parts + ")";
@@ -1455,60 +1290,6 @@ void statusLine(const char* label, const std::string& text, const ImVec4& color)
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
-}
-
-void statusStrip(UiModel& m, UiActions& act, float height) {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.05f, em() * 0.7f));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));  // like the panels above: shade, no outline
-    ImGui::BeginChild("status", ImVec2(0, height), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
-
-    const float buttonW = em() * 8.5f;
-    const float leftW = ImGui::GetContentRegionAvail().x - buttonW - em();
-    if (m.firstRun) {  // nothing works without the ElevenLabs key: say how to start
-        ImGui::BeginChild("lines", ImVec2(leftW, 0), 0, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
-        ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase);
-        ImGui::TextUnformatted(T("Welcome to CIMA Box. Three steps to start:"));
-        ImGui::PopFont();
-        ImGui::TextColored(kMuted, "%s", T("1. Add your ElevenLabs API key in Settings (the gear, top right)."));
-        ImGui::TextColored(kMuted, "%s", T("2. Pick your microphone under Input.   3. Pick where the voice goes under Output."));
-        ImGui::EndChild();
-        ImGui::SameLine(0, em());
-        ImGui::BeginGroup();
-        gap(0.15f);
-        if (button("Open settings", true, buttonW)) m.cfg.page = kPageSettings;
-        ImGui::EndGroup();
-        ImGui::EndChild();
-        return;
-    }
-    ImGui::BeginChild("lines", ImVec2(leftW, 0), 0, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
-    if (!m.lastError.empty()) {
-        statusLine("Problem", T(m.lastError), kDanger);
-        if (const ServiceStatus* bad = troubleInUse(m)) {
-            char b[400];
-            std::snprintf(b, sizeof(b), TF("%s's status page reports: %s"), bad->name.c_str(), bad->detail.c_str());
-            statusLine("Not the app", b, healthColor(bad->health));
-        }
-    }
-    else if (!m.pendingSay.empty()) statusLine("About to say", m.pendingSay, kSignal);
-    else if (!m.heardText.empty()) statusLine("You said", m.heardText, kText);
-    else ImGui::TextColored(kMuted, "%s", T(m.cfg.engine == kVoiceChanger ? "Changer mode sends your voice straight through, without text."
-                                                                           : "What you say will show up here."));
-    if (m.cfg.engine != kVoiceChanger && !m.sentText.empty() && m.lastError.empty()) statusLine("Spoken as", m.sentText, kSignal);
-    if (m.cfg.engine != kVoiceChanger && m.cfg.emotion && !m.delivery.empty()) ImGui::TextColored(kMuted, "%s", m.delivery.c_str());
-    ImGui::TextColored(kMuted, "%s", timingLine(m).c_str());
-    ImGui::EndChild();
-
-    ImGui::SameLine(0, em());
-    ImGui::BeginGroup();
-    gap(0.15f);
-    if (!m.pendingSay.empty()) {
-        if (button("Cancel##strip", true, buttonW)) act.cancelPending = true;
-    } else if (button("Stop speaking", false, buttonW)) act.stopSpeaking = true;
-    if (m.queued > 0) ImGui::TextColored(kMuted, TF("%d waiting"), m.queued);
-    ImGui::EndGroup();
-    ImGui::EndChild();
 }
 
 void chevron(ImDrawList* dl, ImVec2 c, float s, ImU32 color) {
@@ -2190,7 +1971,7 @@ void textVoicePanel(UiModel& m, UiActions& act) {
     voiceCombo(m);
     if (m.voices.empty()) {
         if (c.apiKey.empty()) {
-            note("Add your ElevenLabs API key in Settings (the gear at the top right) to see your voices.");
+            note("Add your ElevenLabs API key in Settings (bottom left) to see your voices.");
         } else {
             ImGui::BeginDisabled(m.loading);
             if (button(m.loading ? "Loading voices" : "Load voices and models", true)) act.loadCatalog = true;
@@ -2423,39 +2204,6 @@ void textPage(UiModel& m, UiActions& act) {
 }
 
 // ---------------------------------------------------------------- My voice: the three stages
-
-void voicePage(UiModel& m, UiActions& act) {
-    // The three panels follow the audio: microphone -> voice -> output.
-    const bool fourLines = m.cfg.engine != kVoiceChanger && m.cfg.emotion;
-    const float gapW = em() * 1.6f, stripH = em() * (fourLines ? 7.4f : 5.6f);
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float bodyH = std::max(em() * 8.f, avail.y - stripH - ImGui::GetStyle().ItemSpacing.y);
-    const float colW = std::floor((avail.x - gapW * 2) / 3.f);
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-
-    beginPanel("input", ImVec2(colW, bodyH), "Input");
-    inputPanel(m, act);
-    ImGui::EndChild();
-
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));
-    beginPanel("voice", ImVec2(colW, bodyH), "Voice");
-    voicePanel(m, act);
-    ImGui::EndChild();
-
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + (colW + gapW) * 2, origin.y));
-    beginPanel("output", ImVec2(colW, bodyH), "Output");
-    outputPanel(m, act);
-    ImGui::EndChild();
-
-    // Arrows between the stages light up while sound is moving through them.
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float cy = origin.y + bodyH * 0.5f, s = em() * 0.42f;
-    chevron(dl, ImVec2(origin.x + colW + gapW * 0.5f, cy), s, col(m.recording ? kSignal : kLine));
-    chevron(dl, ImVec2(origin.x + colW * 2 + gapW * 1.5f, cy), s, col(m.busy ? kSignal : kLine));
-
-    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + bodyH + ImGui::GetStyle().ItemSpacing.y));
-    statusStrip(m, act, stripH);
-}
 
 // ---------------------------------------------------------------- setup walkthrough
 // Language first (before a single other word), then one question per screen.
@@ -3117,7 +2865,7 @@ void setupDone(UiModel& m) {
     if (m.setupUse & kUseText) setupPageRow("Text", "Type at the bottom and press Enter. What others say shows up there too.");
     if (m.setupUse & kUseRead) setupPageRow("Listen", "Flip the switch at the top right, and captions appear as people talk.");
     gap(0.3f);
-    note("Settings (the gear, top right) has your keys, hotkeys and the app's language, and can run this setup again.");
+    note("Settings (bottom left) has your keys, hotkeys and the app's language, and can run this setup again.");
 }
 
 void finishSetup(UiModel& m) {
@@ -3132,9 +2880,7 @@ void finishSetup(UiModel& m) {
     else if (has(m.cfg.geminiKey)) m.cfg.translateService = kGemini;
     else if (has(m.cfg.openaiKey)) m.cfg.translateService = kOpenAI;
     else if (has(m.cfg.deeplKey)) m.cfg.translateService = kDeepL;
-    if (m.setupUse & kUseVoice) m.cfg.page = kPageVoice;
-    else if (m.setupUse & kUseText) m.cfg.page = kPageText;
-    else if (m.setupUse & kUseRead) m.cfg.page = kPageListen;
+    m.cfg.page = kPageHome;  // everything at a glance, with what's worth turning on
 }
 
 void setupView(UiModel& m, UiActions& act) {
@@ -4039,6 +3785,8 @@ void lookPreset(LookSettings& l, int preset) {
     l.text = kPresets[preset].text;
 }
 
+#include "ui3.inl"
+
 UiActions uiDraw(UiModel& m) {
     UiActions act;
     const bool picture = m.pictureTexture != 0 && m.pictureW > 0 && m.pictureH > 0;
@@ -4058,7 +3806,8 @@ UiActions uiDraw(UiModel& m) {
     }
     ImGui::SetNextWindowPos(vp->WorkPos);
     ImGui::SetNextWindowSize(vp->WorkSize);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.1f, em() * 0.8f));
+    const bool framed = !m.captionsOnly && !m.mini && m.setupStep < 0;  // sidebar and pages
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, framed ? ImVec2(0, 0) : ImVec2(em() * 1.1f, em() * 0.8f));
     ImGui::Begin("root", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                      ImGuiWindowFlags_NoBringToFrontOnFocus);
@@ -4069,27 +3818,12 @@ UiActions uiDraw(UiModel& m) {
     if (pictureOpen) ImGui::BeginDisabled();
     if (m.captionsOnly) {
         captionsOnlyView(m, act);
+    } else if (m.mini) {
+        miniView(m, act);
     } else if (m.setupStep >= 0) {
         setupView(m, act);
     } else {
-        header(m, act);
-        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F, false)) m.findOpen = true;
-        if (!gJump.want.empty() && --gJump.framesLeft < 0) gJump.want.clear();  // not shown right now (hidden by another choice)
-        if (!m.spendAlert.empty()) spendBanner(m, act);
-        const bool footer = !m.usage.empty();
-        const float footH = footer ? std::floor(em() * 1.6f) : 0.f;
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::BeginChild("page", ImVec2(0, ImGui::GetContentRegionAvail().y - footH), ImGuiChildFlags_None,
-                          ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        ImGui::PopStyleVar();
-        if (m.cfg.page == kPageListen) listenPage(m, act);
-        else if (m.cfg.page == kPageText) textPage(m, act);
-        else if (m.cfg.page == kPageVR) vrPage(m, act);
-        else if (m.cfg.page == kPageFeatures) featuresPage(m, act);
-        else if (m.cfg.page == kPageSettings) settingsPage(m, act);
-        else voicePage(m, act);
-        ImGui::EndChild();
-        if (footer) usageLine(m, footH);
+        appFrame(m, act, picture);
     }
 
     findWindow(m);

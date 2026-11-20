@@ -3,6 +3,9 @@
 #include "extras.h"
 
 #include <atomic>
+#include <map>
+#include <mutex>
+#include <future>
 
 #include <algorithm>
 #include <chrono>
@@ -446,12 +449,15 @@ bool claude(Http& http, const TranslateSetup& st, const std::string& instruction
 }
 
 bool gemini(Http& http, const TranslateSetup& st, const std::string& instructions, const std::string& source,
-            const std::string& text, int timeoutMs, std::string& out, std::string& err, int& why, bool& noThinkingLevel) {
+            const std::string& text, int timeoutMs, std::string& out, std::string& err, int& why, int& thinking) {
     why = kFailOther;
     if (st.geminiKey.empty()) { err = "Add your Gemini (Google AI Studio) API key"; return false; }
-    for (int attempt = 0; attempt < 2; ++attempt) {
+    // Thinking takes time, and a one-line translation doesn't need it: "minimal" (Flash models) is
+    // the fastest; a model that refuses it gets "low", and one with no levels at all gets nothing.
+    static const char* const kLevels[] = {"minimal", "low"};
+    for (int attempt = 0; attempt < 3; ++attempt) {
         json gen = {{"maxOutputTokens", 1024}};
-        if (!noThinkingLevel) gen["thinkingConfig"] = {{"thinkingLevel", "low"}};  // as little thinking as allowed
+        if (thinking < 2) gen["thinkingConfig"] = {{"thinkingLevel", kLevels[thinking]}};
         // Swearing, insults between friends and rough talk are part of real speech, and the person
         // chose to say them: Google's filters are turned off so a line isn't silently dropped.
         json safety = json::array();
@@ -475,8 +481,8 @@ bool gemini(Http& http, const TranslateSetup& st, const std::string& instruction
         json j = json::parse(body, nullptr, false);
         if (status != 200) {
             const std::string msg = errorMessage(j);
-            if (status == 400 && !noThinkingLevel && lowerCopy(msg).find("thinking") != std::string::npos) {
-                noThinkingLevel = true;  // a model without thinking levels: ask again without the setting
+            if (status == 400 && thinking < 2 && lowerCopy(msg).find("thinking") != std::string::npos) {
+                ++thinking;  // that level isn't offered by this model: one step up, or none at all
                 continue;
             }
             if (status == 429 || status == 503) why = kFailBusy;  // the free plan's per-minute limit, or busy
@@ -740,6 +746,11 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         if (!st.wordNote.empty()) s += "\n" + st.wordNote;
         if (!st.context.empty())
             s += "\n\nEarlier lines of the conversation, for context only (don't translate them):\n" + st.context;
+        if (!st.before.empty()) {
+            s += "\n\nThis line goes on from what the speaker said just before (already translated; for context only, don't "
+                 "translate it again):\n";
+            for (const auto& b : st.before) s += "- " + b.first + "\n  (translated: " + b.second + ")\n";
+        }
         if (st.readGender)
             return s + "\n\nAnswer with only the translation, inside <line></line>. Then, only if the speaker's own words in "
                        "the original clearly show their gender (like Spanish \"estoy cansada\", or \"I'm a girl\"), add "
@@ -858,9 +869,65 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                          "small step toward them, never further:\n"
                        : "Keep the style described above:\n") +
              st.context;
+    if (!st.before.empty()) {
+        // A story or a long explanation, sentence by sentence: the line before, so this one fits on.
+        s += "\nThis line goes on from what they said just before, which you already said for them (for context only). "
+             "Don't say it again and don't add to it: say only the new line, so it follows on naturally, with the same "
+             "words for the same things and the same style:\n";
+        for (const auto& b : st.before) s += "- They said: " + b.first + "\n  You said: " + b.second + "\n";
+    }
     if (!check.empty()) s += "\n" + check;
     return s + "\nAnswer with only the line to say, inside <line></line>, and nothing outside it.";
 }
+
+namespace {
+
+// What each model accepts, learned once and shared by every translator, per model (so a newly
+// picked model is checked again). Claude: 0 effort "low", 1 no effort setting. Gemini: 0 thinking
+// "minimal", 1 "low", 2 no thinking setting. OpenAI: 0 reasoning "none", 1 "low", 2 no setting.
+std::mutex gLearnMx;
+std::map<std::string, int> gLearned;
+
+std::string modelKey(const TranslateSetup& st) {
+    return st.service == kClaude   ? "claude:" + (st.claudeModel.empty() ? std::string("claude-haiku-5-5") : st.claudeModel)
+           : st.service == kGemini ? "gemini:" + (st.geminiModel.empty() ? std::string("gemini-3.5-flash-lite") : st.geminiModel)
+                                   : "openai:" + (st.openaiModel.empty() ? std::string("gpt-6-luna") : st.openaiModel);
+}
+int learned(const std::string& key) {
+    std::lock_guard<std::mutex> lk(gLearnMx);
+    const auto it = gLearned.find(key);
+    return it == gLearned.end() ? 0 : it->second;
+}
+void learn(const std::string& key, int level) {
+    std::lock_guard<std::mutex> lk(gLearnMx);
+    int& x = gLearned[key];
+    x = std::max(x, level);
+}
+
+// One request to the chosen AI service, on connection `h`.
+bool aiCall(Http& h, const TranslateSetup& st, const std::string& instructions, const std::string& source,
+            const std::string& text, int ms, std::string& out, std::string& err, int& why) {
+    const std::string key = modelKey(st);
+    int level = learned(key);
+    bool ok;
+    if (st.service == kClaude) {
+        bool noEffort = level > 0;
+        ok = claude(h, st, instructions, source, text, ms, out, err, why, noEffort);
+        level = noEffort ? 1 : 0;
+    } else if (st.service == kGemini) {
+        ok = gemini(h, st, instructions, source, text, ms, out, err, why, level);
+    } else {
+        ok = openai(h, st, instructions, source, text, ms, out, err, why, level);
+    }
+    learn(key, level);
+    return ok;
+}
+
+int msSince(std::chrono::steady_clock::time_point t) {
+    return int(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t).count());
+}
+
+}  // namespace
 
 bool Translator::readPicture(const TranslateSetup& st, const std::string& png64, const Language& to,
                              std::vector<std::pair<std::string, std::string>>& lines, std::string& err) {
@@ -899,7 +966,8 @@ bool Translator::readPicture(const TranslateSetup& st, const std::string& png64,
                                                                 {{"type", "input_image"}, {"image_url", "data:image/png;base64," + png64}}})}}})},
                {"max_output_tokens", 2048},
                {"store", false}};
-        if (openaiReasoning_ < 2) req["reasoning"] = {{"effort", openaiReasoning_ == 0 ? "none" : "low"}};
+        const int reasoning = learned(modelKey(st));
+        if (reasoning < 2) req["reasoning"] = {{"effort", reasoning == 0 ? "none" : "low"}};
         r.url = "https://api.openai.com/v1/responses";
         r.headers = {"Authorization: Bearer " + st.openaiKey, "Content-Type: application/json"};
     }
@@ -958,36 +1026,50 @@ bool Translator::romanize(const TranslateSetup& st, const std::string& text, con
         "others. Keep names and punctuation. Don't translate or explain. Answer with only the reading, inside <line></line>.";
     int why = kFailOther;
     const int ms = std::max(4000, st.timeoutMs * 2);
-    return st.service == kClaude   ? claude(http, st, instructions, text, text, ms, out, err, why, claudeNoEffort_)
-           : st.service == kGemini ? gemini(http, st, instructions, text, text, ms, out, err, why, geminiNoThinking_)
-                                   : openai(http, st, instructions, text, text, ms, out, err, why, openaiReasoning_);
+    return aiCall(http, st, instructions, text, text, ms, out, err, why);
 }
 
 void Translator::warm(const TranslateSetup& st) {
-    if (http.idleSeconds() < 15.0) return;
-    HttpRequest r;
-    if (st.service == kDeepL) {
-        if (st.deeplKey.empty()) return;
-        r.url = deeplHost(st.deeplKey) + "/v2/languages";
-    } else if (st.service == kClaude) {
-        r.url = "https://api.anthropic.com/v1/messages";
-    } else if (st.service == kGemini) {
-        r.url = "https://generativelanguage.googleapis.com/v1beta/models";
-    } else if (st.service == kOpenAI) {
-        r.url = "https://api.openai.com/v1/models";
-    } else {
-        r.url = "https://api.mymemory.translated.net/";
+    // Opens (or checks) each connection a line will use, all at once, while the person is still
+    // talking. A connection that doesn't answer in 3 s is dropped, and the real request opens a new one.
+    auto one = [](Http& h, const std::string& url) {
+        if (h.idleSeconds() < 15.0) return;
+        HttpRequest r;
+        r.url = url;
+        r.headOnly = true;  // just opens the connection, so the real request skips that step
+        r.timeoutSec = 3;
+        long status = 0;
+        std::string body, err;
+        h.perform(r, status, body, err);
+    };
+    const std::string deeplOrFreeUrl = !st.deeplKey.empty() ? deeplHost(st.deeplKey) + "/v2/languages"
+                                                             : std::string("https://api.mymemory.translated.net/");
+    if (!isAiService(st.service)) {
+        if (st.service == kDeepL && st.deeplKey.empty()) return;
+        one(http, deeplOrFreeUrl);
+        return;
     }
-    r.headOnly = true;  // just opens the connection, so the real request skips that step
-    r.timeoutSec = 5;
-    long status = 0;
-    std::string body, err;
-    http.perform(r, status, body, err);
+    const std::string aiUrl = st.service == kClaude   ? "https://api.anthropic.com/v1/messages"
+                              : st.service == kGemini ? "https://generativelanguage.googleapis.com/v1beta/models"
+                                                      : "https://api.openai.com/v1/models";
+    auto a = std::async(std::launch::async, [&] { one(spare_, aiUrl); });
+    auto b = std::async(std::launch::async, [&] { one(backupHttp_, deeplOrFreeUrl); });
+    auto c = std::async(std::launch::async, [&] { one(wordsHttp_, deeplOrFreeUrl); });  // listed or swear words
+    one(http, aiUrl);
+    a.get();
+    b.get();
+    c.get();
 }
 
 bool Translator::translate(const TranslateSetup& st, const std::string& text, const Language* from, const Language& to,
                            std::string& out, std::string& err) {
     via.clear();
+    // DeepL's own context: the sentence just before, so it reads this one the same way (not translated,
+    // not billed). Only for this call.
+    std::string beforeText;
+    for (const auto& b : st.before) beforeText += (beforeText.empty() ? "" : " ") + b.first;
+    tlContext = beforeText;
+    struct ClearContext { ~ClearContext() { tlContext.clear(); } } clearContext;
     tlFormality = st.faithful || st.level == kLevelCustom ? "" : st.level == kLevelPolite ? "prefer_more" : "prefer_less";
     auto deeplOrFree = [&](bool deeplFirst) {
         if (deeplFirst && !st.deeplKey.empty()) {
@@ -1017,16 +1099,82 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
         std::string ask = text;
         int lastWhy = kFailOther;
         wordsGender = 0;
-        auto call = [&](const std::string& source, const std::string& sent, int ms, std::string& o, int& why) {
-            return st.service == kClaude   ? claude(http, st, instructions, source, sent, ms, o, err, why, claudeNoEffort_)
-                   : st.service == kGemini ? gemini(http, st, instructions, source, sent, ms, o, err, why, geminiNoThinking_)
-                                           : openai(http, st, instructions, source, sent, ms, o, err, why, openaiReasoning_);
+        // A second copy of a slow request: same AI, same model, same instructions, on a connection of
+        // its own. A slow answer is usually one stuck at the service for a moment, and a fresh copy
+        // often comes back sooner. The first good answer is used and the other copy is stopped.
+        // It waits a bit longer than this AI usually takes (learned as it goes), and only while there's
+        // still time for the copy to answer.
+        const std::string key = modelKey(st);
+        if (key != typicalKey_) {
+            typicalKey_ = key;
+            typicalMs_ = 0;
+        }
+        auto spareAfter = [&](int ms) {
+            if (std::chrono::steady_clock::now() < busyUntil_) return 0;  // it's busy: a copy would only add to that
+            // Clearly later than usual: a quarter longer than this AI usually takes (half the time limit
+            // until that's known). The copy is only sent if it still has its usual time to answer.
+            const int wait = std::max(500, typicalMs_ > 0 ? typicalMs_ * 5 / 4 + 150 : ms / 2);
+            const int need = std::max(500, typicalMs_);
+            return ms - wait >= need ? wait : 0;
         };
-        // Fills [[1]], [[2]]... in an AI answer with those words as DeepL (or Free) translates them.
-        // `fillBy` says which really did ("DeepL", "Free", or both), for the bottom strip.
+        auto call = [&](const std::string& source, const std::string& sent, int ms, std::string& o, int& why) {
+            struct Shot { std::string out, err, raw; int why = kFailOther, ms = 0; };
+            Shot shots[2];
+            const auto t0 = std::chrono::steady_clock::now();
+            const int winner = sendWithSpare(
+                http, spare_, spareAfter(ms),
+                [&](Http& h, int i) {
+                    const int time = ms - msSince(t0);
+                    if (time < 300) {
+                        shots[i].err = "timed out";
+                        return false;
+                    }
+                    const auto s0 = std::chrono::steady_clock::now();
+                    const bool ok = aiCall(h, st, instructions, source, sent, time, shots[i].out, shots[i].err, shots[i].why);
+                    shots[i].raw = tlRaw;
+                    shots[i].ms = msSince(s0);
+                    return ok;
+                },
+                [&] { return shots[0].why != kFailRejected; });  // it declined the line: a copy would too
+            if (shots[0].why == kFailBusy || shots[1].why == kFailBusy) busyUntil_ = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            const Shot& w = shots[winner >= 0 ? winner : 0];
+            o = w.out;
+            why = w.why;
+            tlRaw = w.raw;
+            if (winner < 0) {
+                err = w.err;
+                return false;
+            }
+            const int took = std::min(w.ms, 4000);
+            typicalMs_ = typicalMs_ > 0 ? (typicalMs_ * 3 + took) / 4 : took;
+            return true;
+        };
+        // The listed (or swear) words, translated by DeepL (or Free) on a connection of their own,
+        // started at the same moment as the AI call so neither waits for the other.
+        struct WordResult { std::string word; int by = 0; };  // by: 1 DeepL, 2 Free, 0 neither
+        const std::string formality = tlFormality;
+        auto lookUpWords = [&](const std::vector<std::string>& found) {
+            return std::async(std::launch::async, [this, found, &st, from, &to, formality, text, cancel = http.cancel] {
+                Http& h = wordsHttp_;  // kept open between lines
+                h.cancel = cancel;
+                tlFormality = formality;
+                tlContext = text;  // the whole sentence, so DeepL knows what each word means here
+                std::vector<WordResult> res(found.size());
+                for (size_t i = 0; i < found.size(); ++i) {
+                    std::string e;
+                    bool refused = false;
+                    if (!st.deeplKey.empty() && deepl(h, st.deeplKey, found[i], from, to, st.deeplVariant, res[i].word, e, refused)) res[i].by = 1;
+                    else if (from && myMemory(h, found[i], *from, to, res[i].word, e)) res[i].by = 2;
+                    else res[i].word.clear();
+                }
+                tlContext.clear();
+                return res;
+            });
+        };
+        // Fills [[1]], [[2]]... in an AI answer with those words.
+        // `fillBy` says which service really did them ("DeepL", "Free", or both), for the bottom strip.
         std::string fillBy;
-        auto fillIn = [&](std::string masked, const std::vector<std::string>& found, std::string& filled) {
-            bool byDeepl = false, byFree = false;
+        auto fillIn = [&](std::string masked, const std::vector<std::string>& found, std::vector<WordResult> words, std::string& filled) {
             for (size_t i = 0; i < found.size(); ++i)
                 if (masked.find("[[" + std::to_string(i + 1) + "]]") == std::string::npos) return false;  // a marker got lost
             auto wordsIn = [](const std::string& t) {
@@ -1039,13 +1187,11 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                 }
                 return n;
             };
-            tlContext = text;  // the whole sentence, so DeepL knows what each word means here
-            for (size_t i = 0; i < found.size(); ++i) {
-                std::string word = found[i], e;
-                bool refused = false;
-                if (!st.deeplKey.empty() && deepl(http, st.deeplKey, found[i], from, to, st.deeplVariant, word, e, refused)) byDeepl = true;
-                else if (from && myMemory(http, found[i], *from, to, word, e)) byFree = true;
-                else word.clear();  // neither could translate it: left out, never said as it was
+            bool byDeepl = false, byFree = false;
+            for (size_t i = 0; i < found.size() && i < words.size(); ++i) {
+                std::string word = words[i].word;
+                byDeepl = byDeepl || words[i].by == 1;
+                byFree = byFree || words[i].by == 2;
                 // A word that comes back as a whole phrase wasn't translated, it was swapped for something
                 // else (DeepL does this with some words it won't translate). Like the AI, leave it out
                 // rather than put words in their mouth.
@@ -1055,7 +1201,6 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                 for (size_t at = masked.find(mark); at != std::string::npos; at = masked.find(mark, at + word.size()))
                     masked.replace(at, mark.size(), word);
             }
-            tlContext.clear();
             fillBy = byDeepl && byFree ? "DeepL and Free" : byFree ? "Free" : byDeepl ? "DeepL" : "nobody: left out";
             for (size_t at = masked.find("  "); at != std::string::npos; at = masked.find("  ")) masked.erase(at, 1);
             for (const char* p : {" ?", " !", " ,", " ."})
@@ -1074,7 +1219,9 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             if (!found.empty()) {
                 std::string masked;
                 int why = kFailOther;
-                if (call(marked, marked + markerNote, std::max(1200, left()), masked, why) && fillIn(masked, found, out)) {
+                auto words = lookUpWords(found);  // at the same time as the AI
+                const bool aiOk = call(marked, marked + markerNote, std::max(1200, left()), masked, why);
+                if (aiOk && fillIn(masked, found, words.get(), out)) {
                     via = std::string(name) + " (your words by " + fillBy + ")";
                     return true;
                 }
@@ -1088,6 +1235,41 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                 return false;
             }
         }
+        // A backup, ready early: if the AI hasn't answered 0.7 s before the time limit, DeepL (or Free)
+        // starts on its own connection, so if the AI then misses the limit the backup is already
+        // there (or nearly) instead of only starting then. When the AI answers in time, the backup is
+        // stopped and dropped. It costs DeepL characters only on lines where the AI was slow.
+        std::atomic<bool> backupStop{false}, backupNow{false};
+        std::string backupOut, backupErr, backupVia;
+        auto backup = std::async(std::launch::async, [&, formality = tlFormality, userCancel = http.cancel] {
+            // DeepL usually answers in well under 0.7 s: starting then leaves the AI (and its second
+            // copy) as much of the time as possible, and DeepL is only paid for on lines that need it.
+            const auto wait = std::chrono::milliseconds(std::max(600, budget - 700));
+            while (std::chrono::steady_clock::now() - started < wait && !backupStop && !backupNow &&
+                   !(http.cancel && *http.cancel))
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (backupStop || (http.cancel && *http.cancel)) return false;
+            Http& h = backupHttp_;  // kept open between lines
+            h.cancel = userCancel;
+            h.stop = &backupStop;
+            struct Unstop { Http& h; ~Unstop() { h.stop = nullptr; } } unstop{h};
+            tlFormality = formality;
+            tlContext = beforeText;
+            bool refused = false;
+            if (!st.deeplKey.empty() && deepl(h, st.deeplKey, text, from, to, st.deeplVariant, backupOut, backupErr, refused)) {
+                backupVia = "DeepL";
+                return true;
+            }
+            if (!st.deeplKey.empty() && !refused) return false;
+            if (from && myMemory(h, text, *from, to, backupOut, backupErr)) {
+                backupVia = "Free";
+                return true;
+            }
+            return false;
+        });
+        // Whatever way this function returns, the backup is told to stop first (declared after the
+        // future, so it runs before the future's destructor waits for the backup thread).
+        struct StopBackup { std::atomic<bool>& f; ~StopBackup() { f = true; } } stopBackup{backupStop};
         for (int attempt = 0; attempt < 2 && !good; ++attempt) {
             const int ms = left();
             if (ms < 350) {  // not enough time for another try
@@ -1099,6 +1281,13 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             lastWhy = why;
             if (good || err == "cancelled") break;
             if (attempt == 0) firstErr = err;
+            // Declined a line with swearing in it: asking again almost never changes the answer, and it
+            // costs a whole extra wait. Go straight to the markers below (the swear words by DeepL).
+            if (why == kFailRejected) {
+                std::vector<std::string> swears;
+                markSwears(text, swears);
+                if (!swears.empty()) break;
+            }
             // One more try, while there's time, when it's likely to work: the model answered with
             // something other than the line (asked again, more firmly), or it was busy for a moment.
             if (why == kFailRejected)
@@ -1110,6 +1299,7 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                 break;
         }
         if (good) {
+            backupStop = true;  // not needed: stop it if it's running (the future waits for it to end)
             via = name;
             if (st.readGender) {  // the speaker's own words showed their gender
                 if (tlRaw.find("<g>f</g>") != std::string::npos) wordsGender = kGenderWoman;
@@ -1117,7 +1307,10 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             }
             return true;
         }
-        if (err == "cancelled") return false;
+        if (err == "cancelled") {
+            backupStop = true;
+            return false;
+        }
         // The AI declined the line twice, and it has swearing in it: the AI translates the rest with
         // markers where the swear words were, and DeepL (or the free service) translates just those.
         if (lastWhy == kFailRejected) {
@@ -1125,8 +1318,13 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             const std::string marked = markSwears(text, found);
             std::string masked;
             int why = kFailOther;
-            if (!found.empty() && call(marked, marked + markerNote, std::max(1200, st.timeoutMs), masked, why) && fillIn(masked, found, out)) {
+            std::future<std::vector<WordResult>> words;
+            if (!found.empty()) words = lookUpWords(found);
+            // Whatever is left of the time limit (at least 1.2 s), not a whole new time limit on top.
+            if (!found.empty() && call(marked, marked + markerNote, std::max(1200, left()), masked, why) &&
+                fillIn(masked, found, words.get(), out)) {
                 via = std::string(name) + " (swear words by " + fillBy + ")";
+                backupStop = true;
                 return true;
             }
         }
@@ -1137,6 +1335,12 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
         // Too slow or failed: this phrase goes through DeepL (or Free) so the conversation keeps going.
         const bool slow = lowerCopy(err).find("timed out") != std::string::npos || lowerCopy(err).find("timeout") != std::string::npos;
         const std::string why = slow ? std::string(name) + " too slow" : err;
+        backupNow = true;  // the AI is done one way or another: the backup goes now if it hasn't yet
+        if (backup.get()) {
+            out = backupOut;
+            via = backupVia + " (" + why + (backupVia == "Free" && !st.varietyName.empty() ? "; standard " + std::string(to.name) : standardNote) + ")";
+            return true;
+        }
         if (deeplOrFree(true)) {
             via += " (" + why + (via == "Free" && !st.varietyName.empty() ? "; standard " + std::string(to.name) : standardNote) + ")";
             return true;

@@ -44,6 +44,9 @@ struct TranslateSetup {
     int timeoutMs = 2000;       // AI services: after this, use DeepL (or Free) for this phrase instead
                                 // (a dialect gets a little longer: its answers take more work)
     std::string context;        // recent lines of the conversation, oldest first ("Them: ...", "Me: ...")
+    // What the speaker said just before, in the same stretch of talking (oldest first): what they said,
+    // and how it was said for them. This line goes on from it.
+    std::vector<std::pair<std::string, std::string>> before;
     std::string variety;        // the dialect to speak (AI services), e.g. "Kuwaiti Arabic, as spoken in Kuwait"
     std::string varietyName;    // short, for the status line: "Kuwaiti"
     std::string deeplVariant;   // DeepL's regional target for it ("ES-419"), empty = standard
@@ -111,7 +114,11 @@ public:
     static std::string aiInstructions(const TranslateSetup& setup, const Language* from, const Language& to);
 
 private:
-    bool claudeNoEffort_ = false;    // the chosen Claude model refused the effort setting
-    bool geminiNoThinking_ = false;  // the chosen Gemini model refused the thinking setting
-    int openaiReasoning_ = 0;        // 0: ask for no reasoning, 1: "low", 2: leave it out (the model refused the others)
+    // Kept open between lines, so none of them has to connect first:
+    Http spare_;       // a second connection to the AI, for a second copy of a slow request
+    Http wordsHttp_;   // DeepL (or Free) for listed and swear words, alongside the AI
+    Http backupHttp_;  // DeepL (or Free) backup, ready in case the AI runs out of time
+    std::string typicalKey_;  // the service and model typicalMs_ is for
+    int typicalMs_ = 0;       // how long that AI usually takes to answer a line (0 = not known yet)
+    std::chrono::steady_clock::time_point busyUntil_{};  // it said it was busy: no second copies until then
 };

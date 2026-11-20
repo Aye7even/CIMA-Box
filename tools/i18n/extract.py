@@ -67,6 +67,16 @@ for _name in ['const KeyGuideText kKeyGuides', 'const char* top[]', 'const char*
     for _s in literals(_ui[_i:_j]):
         if not _s.startswith('http') and '.com' not in _s and '.io' not in _s: found.append(_s)
 scan_file('main.cpp', ['T','TF','quotaItem'])
+# the 3.0 frame: sidebar, page titles, Home, quick toggles
+scan_file('ui3.inl', calls + ['navRow', 'sectionCard', 'sentenceWithChips', 'languageName'])
+_u3=open(src+'ui3.inl').read()
+for _m in re.finditer(r'return \{"([^"]+)"|return "([^"]+)";|\{kPage\w+, "([^"]+)", "([^"]+)"', _u3):
+    found += [g for g in _m.groups() if g]
+_i=_u3.index('const Tile kTiles[] = {'); _j=_u3.index('};', _i)
+for _line in _u3[_i:_j].split('\n'):
+    _l=literals(_line)
+    if len(_l)==4: found += _l[1:]
+_i=_u3.index('const char* names[3]'); found += literals(_u3[_i:_u3.index('};', _i)])
 # dialect names, overlay/listen statuses
 txt=open(src+'translate.cpp').read()
 for m in re.finditer(r'\{"[a-z]+", "[A-Za-z0-9-]+", "([^"]+)",', txt): found.append(m.group(1))
@@ -87,7 +97,7 @@ def keep(s):
     if s in ('%s','%.2f','%.0f','%d','%.0f dB','%d ms','%.1fx','%.2f s','%s%s %.2f s',', ','.'): return False
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
-drop={'Google Gemini','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','deeplwords','lookpreset','SteamVR: ','Waiting for ',' to start.',
+drop={'Google Gemini','mic','out','chatbox','emotion','listen','vr','#','Ctrl F','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','deeplwords','lookpreset','SteamVR: ','Waiting for ',' to start.',
       'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
           'Working','Some problems','Outage','Maintenance',"Couldn't check",'All Systems Operational','Problems reported',
@@ -112,7 +122,7 @@ found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing s
           "Windows' text reader isn't available on this PC. Use AI reading instead.",
           "This copy was built without Windows' text reader. Use AI reading instead.",
           'AI reading needs Claude, Gemini or OpenAI as the translation service.',
-          'Recording','Converting','Level','Auto','Voice','Search voices','the default speakers','the default input',"Couldn't save there, so your settings stayed where they were.","ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall."]
+          'Recording','Converting','Waiting for more','transcribe (live)','Level','Auto','Voice','Search voices','the default speakers','the default input',"Couldn't save there, so your settings stayed where they were.","ElevenLabs didn't answer within 20 seconds. Check your internet connection, VPN or firewall."]
 uniq=[]
 for s in found:
     if s in drop: continue

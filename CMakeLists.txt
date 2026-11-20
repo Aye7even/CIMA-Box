@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CIMABox VERSION 2.8.3 LANGUAGES C CXX)
+project(CIMABox VERSION 3.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,6 +36,7 @@ if(NOT CURL_FOUND)
   set(BUILD_MISC_DOCS OFF CACHE BOOL "" FORCE)
   set(ENABLE_CURL_MANUAL OFF CACHE BOOL "" FORCE)
   set(HTTP_ONLY ON CACHE BOOL "" FORCE)
+  set(ENABLE_WEBSOCKETS ON CACHE BOOL "" FORCE)  # live transcription (ElevenLabs realtime speech-to-text)
   set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)
   set(CURL_USE_LIBSSH2 OFF CACHE BOOL "" FORCE)
   set(USE_LIBIDN2 OFF CACHE BOOL "" FORCE)
@@ -88,6 +89,7 @@ add_executable(cimabox
   src/vroverlay.cpp
   src/bidi.cpp
   src/extras.cpp
+  src/livestt.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${IMGUI_DRAW_RTL}
   ${imgui_SOURCE_DIR}/imgui_tables.cpp

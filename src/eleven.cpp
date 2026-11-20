@@ -1,4 +1,6 @@
 #include "eleven.h"
+#include <chrono>
+#include <future>
 #include "core.h"
 
 #include <algorithm>
@@ -55,15 +57,23 @@ std::string trimmed(const std::string& s) {
 }  // namespace
 
 void Eleven::warm() {
-    if (apiKey.empty() || http.idleSeconds() < 15.0) return;  // connection is still fresh
-    HttpRequest r;
-    r.url = std::string(kBase) + "/v1/models";
-    r.headers.push_back("xi-api-key: " + apiKey);
-    r.headOnly = true;
-    r.timeoutSec = 5;
-    long status = 0;
-    std::string body, err;
-    http.perform(r, status, body, err);  // the result doesn't matter, only the open connection
+    if (apiKey.empty()) return;
+    // Both connections at once. One that doesn't answer in 3 s is dropped, and the real request
+    // opens a new one instead of waiting on it.
+    auto one = [this](Http& h) {
+        if (h.idleSeconds() < 15.0) return;  // connection is still fresh
+        HttpRequest r;
+        r.url = std::string(kBase) + "/v1/models";
+        r.headers.push_back("xi-api-key: " + apiKey);
+        r.headOnly = true;
+        r.timeoutSec = 3;
+        long status = 0;
+        std::string body, err;
+        h.perform(r, status, body, err);  // the result doesn't matter, only the open connection
+    };
+    auto spare = std::async(std::launch::async, [&] { one(spare_); });
+    one(http);
+    spare.get();
 }
 
 bool Eleven::listVoices(std::vector<Voice>& out, std::string& err) {
@@ -138,17 +148,60 @@ bool Eleven::transcribe(const std::vector<int16_t>& pcm, const std::string& lang
     // A clip that stops dead on the last syllable tends to lose its final word; give it room to end.
     std::vector<int16_t> padded(pcm);
     padded.resize(padded.size() + 16000 * 3 / 10, 0);
-    std::vector<HttpPart> parts = {
-        {"file", makeWav(padded, 16000), "audio.wav", "audio/wav"},
-        {"model_id", "scribe_v2", "", ""},
-        {"tag_audio_events", tokens ? "true" : "false", "", ""},
-    };
-    if (!languageCode.empty()) parts.push_back({"language_code", languageCode, "", ""});
-    HttpRequest r;
-    r.url = std::string(kBase) + "/v1/speech-to-text";
-    r.parts = &parts;
+    const std::string key = trimmed(apiKey);
+    if (key.empty()) { err = "Add your ElevenLabs API key first"; return false; }
     std::string body;
-    if (!call(*this, r, body, err)) return false;
+    for (int attempt = 0;; ++attempt) {
+        std::vector<HttpPart> parts;
+        if (rawPcmUpload_) {
+            // Raw 16 kHz mono PCM: ElevenLabs answers sooner than for a WAV file (no decoding step).
+            std::string raw(reinterpret_cast<const char*>(padded.data()), padded.size() * sizeof(int16_t));
+            parts.push_back({"file", std::move(raw), "audio.pcm", "application/octet-stream"});
+            parts.push_back({"file_format", "pcm_s16le_16", "", ""});
+        } else {
+            parts.push_back({"file", makeWav(padded, 16000), "audio.wav", "audio/wav"});
+        }
+        parts.push_back({"model_id", "scribe_v2", "", ""});
+        parts.push_back({"tag_audio_events", tokens ? "true" : "false", "", ""});
+        if (!languageCode.empty()) parts.push_back({"language_code", languageCode, "", ""});
+        HttpRequest r;
+        r.url = std::string(kBase) + "/v1/speech-to-text";
+        r.parts = &parts;
+        r.headers.push_back("xi-api-key: " + key);
+        r.timeoutSec = 20;  // a phrase is a few seconds of audio: anything near this is stuck, not working
+        // If the answer is slow once the audio is sent, a second copy goes out on the other connection
+        // and the first answer is used. Same audio, same settings: only the waiting changes.
+        const int wait = sttWaitMs_ > 0 ? std::max(900, std::min(3000, sttWaitMs_ * 2 + 300)) : 1500;
+        std::string bodies[2], errs[2];
+        long statuses[2] = {0, 0};
+        int answered[2] = {0, 0};
+        const int winner = sendWithSpare(
+            http, spare_, wait,
+            [&](Http& h, int i) {
+                const bool ok = h.perform(r, statuses[i], bodies[i], errs[i]) && statuses[i] == 200;
+                const long long sent = h.sentAtMs.load();
+                if (ok && sent > 0)
+                    answered[i] = int(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch()).count() - sent);
+                return ok;
+            },
+            // A refusal (bad key, no credits, a setting it doesn't take) would be refused again.
+            [&] { return !(statuses[0] >= 400 && statuses[0] < 500 && statuses[0] != 429); });
+        if (winner >= 0) {
+            body.swap(bodies[winner]);
+            if (answered[winner] > 0) {
+                const int took = std::min(answered[winner], 4000);
+                sttWaitMs_ = sttWaitMs_ > 0 ? (sttWaitMs_ * 3 + took) / 4 : took;
+            }
+            break;
+        }
+        if (attempt == 0 && rawPcmUpload_ && (statuses[0] == 400 || statuses[0] == 422)) {
+            rawPcmUpload_ = false;  // not accepted for this account or model: use a WAV file from now on
+            continue;
+        }
+        err = statuses[0] != 0 && statuses[0] != 200 ? apiError(statuses[0], bodies[0]) : errs[0];
+        return false;
+    }
     json j = json::parse(body, nullptr, false);
     if (!j.is_object() || !j.contains("text") || !j["text"].is_string()) { err = "Unexpected speech-to-text response"; return false; }
     text = j["text"].get<std::string>();

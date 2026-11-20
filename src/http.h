@@ -22,6 +22,19 @@ struct HttpRequest {
 };
 
 // Not thread-safe: use one Http per thread.
+class Http;
+
+// Sends a request on `main`. If the answer is slow, a second copy goes out on `spare` (its own
+// connection) and the first good answer is kept; the other copy is stopped. A slow answer is usually
+// one stuck at the service for a moment, and a fresh copy then often comes back sooner.
+// `shot(h, slot)` makes the request on connection h (slot 0 = first copy, 1 = second) and returns true
+// for a good answer. `waitMs`: how long to wait for the answer once the request is sent before
+// sending the second copy (0 = never). `keepWaiting(slot 0's failure)`: false when the first copy's
+// failure means the second won't help either (it's stopped then). Returns the slot that answered
+// well, or -1.
+int sendWithSpare(Http& main, Http& spare, int waitMs, const std::function<bool(Http&, int)>& shot,
+                  const std::function<bool()>& keepWaiting);
+
 class Http {
 public:
     Http();
@@ -30,6 +43,10 @@ public:
     Http& operator=(const Http&) = delete;
 
     std::atomic<bool>* cancel = nullptr;  // set to true to abort a running request
+    std::atomic<bool>* stop = nullptr;    // a second flag that also aborts it (e.g. the slower of two copies)
+
+    // While a request runs: when its whole body had been sent (steady-clock ms; 0 = not yet, or unknown).
+    std::atomic<long long> sentAtMs{0};
 
     // False on a network failure or cancel (err is set). Otherwise `status` is the HTTP status
     // and `body` the response body (empty for a 200 that went to the sink).
@@ -42,6 +59,7 @@ public:
 
 private:
     void* h_ = nullptr;
+    void* m_ = nullptr;  // runs h_, so a stop or cancel is noticed within 10 ms (and keeps the open connections)
     bool reused_ = false, used_ = false;
     std::chrono::steady_clock::time_point last_;
 };

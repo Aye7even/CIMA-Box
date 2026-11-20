@@ -78,5 +78,7 @@ public:
                       std::string& err, const std::string& outputFormat = "pcm_24000");
 
 private:
-    bool rawPcmUpload_ = true;  // transcribeTurns: send raw PCM (quicker) until the service refuses it
+    bool rawPcmUpload_ = true;  // send raw PCM (quicker, per ElevenLabs) until the service refuses it
+    Http spare_;                // a second connection, for a second copy of a transcription that stalls
+    int sttWaitMs_ = 0;         // how long transcription usually takes once the audio is sent (0 = not known yet)
 };

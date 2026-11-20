@@ -39,6 +39,7 @@
 #include "core.h"
 #include "eleven.h"
 #include "emotion.h"
+#include "livestt.h"
 #include "listen.h"
 #include "micmatch.h"
 #include "applog.h"
@@ -218,9 +219,16 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.activation = j.value("activation", s.activation);
         s.thresholdDb = j.value("threshold_db", s.thresholdDb);
         s.holdMs = j.value("hold_ms", s.holdMs);
+        s.sentenceWaitMs = std::max(0, std::min(3000, j.value("sentence_wait_ms", s.sentenceWaitMs)));
+        s.liveStt = j.value("live_transcription", s.liveStt);
         s.maxSeconds = j.value("max_seconds", s.maxSeconds);
         s.pttKey = j.value("ptt_key", s.pttKey);
         s.page = j.value("page", s.page);
+        if (j.contains("home_tiles") && j["home_tiles"].is_array()) {
+            s.homeTiles.clear();
+            for (const auto& x : j["home_tiles"])
+                if (x.is_string()) s.homeTiles.push_back(x.get<std::string>());
+        }
         s.emotion = j.value("emotion", s.emotion);
         s.quality = j.value("audio_quality", s.quality);
         s.matchMic = j.value("match_mic", s.matchMic);
@@ -316,7 +324,7 @@ static void tidySettings(Settings& s) {
     if (s.engine < kVoiceChanger || s.engine > kTranslate) s.engine = kVoiceChanger;
     if (const Language* l = findLanguage(s.spokenLang)) s.spokenLang = l->code; else s.spokenLang.clear();
     if (!findLanguage(s.targetLang)) s.targetLang = "ja";
-    if (s.page != kPageListen && s.page != kPageVR && s.page != kPageText && s.page != kPageFeatures) s.page = kPageVoice;
+    if (s.page < kPageVoice || s.page > kPageHome) s.page = kPageHome;
     {
         VrSettings& r = s.vr;
         if (r.placement < kVrHead || r.placement > kVrFixed) r.placement = kVrHead;
@@ -483,8 +491,8 @@ static std::string settingsJson(const Settings& s) {
         {"ai_timeout_ms", s.aiTimeoutMs}, {"mirror", s.mirror}, {"input_device", s.inDevice},
         {"output_device", s.outDevice}, {"monitor_device", s.monDevice}, {"monitor", s.monitor},
         {"enabled", s.enabled}, {"activation", s.activation}, {"threshold_db", s.thresholdDb},
-        {"hold_ms", s.holdMs}, {"max_seconds", s.maxSeconds}, {"ptt_key", s.pttKey},
-        {"page", s.page},
+        {"hold_ms", s.holdMs}, {"sentence_wait_ms", s.sentenceWaitMs}, {"live_transcription", s.liveStt}, {"max_seconds", s.maxSeconds}, {"ptt_key", s.pttKey},
+        {"page", s.page}, {"home_tiles", s.homeTiles},
         {"emotion", s.emotion}, {"emotion_strength", s.emotionStrength},
         {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough}, {"ptt_real_voice", s.pttRealVoice},
         {"voice_chatbox", s.chatbox}, {"voice_chatbox_show", s.chatboxShow},
@@ -612,6 +620,8 @@ struct Phrase {
     std::vector<int16_t> full;  // the same at kDeviceRate: the voice changer at High and Best
     std::string text;           // typed on the Text page instead (no audio)
     bool test = false;          // the setup's test sound: only played, nowhere else
+    std::chrono::steady_clock::time_point ended{};  // when you stopped talking (mic phrases)
+    std::shared_future<LiveText> live;  // its words from live transcription (when it was on)
 };
 
 struct Sink {  // one playback device fed by a ring buffer
@@ -657,12 +667,14 @@ struct App {
 
     std::atomic<bool> running{true}, loading{false}, busy{false}, cancel{false};
     std::atomic<bool> pttDown{false}, recording{false};
+    std::atomic<bool> holding{false};           // the start of a sentence, waiting a moment for the rest
     std::atomic<int> listener{0};               // Listener the translation uses (Talking to, resolved)
     std::atomic<float> outGain{1.f}, monGain{1.f};
     std::atomic<int> pttKey{0}, talkKey{0}, talkPresses{0};  // hotkeys, read by the key thread
     std::atomic<bool> binding{false};
     std::atomic<float> levelDb{-100.f};
     std::atomic<int> sttMs{0}, translateMs{0}, voiceMs{0}, totalMs{0};
+    std::atomic<bool> sttLive{false};
 
     ma_context ctx;
     std::vector<ma_device_info> capInfos, playInfos;
@@ -973,6 +985,33 @@ static void keepDevicesAlive(UiModel& ui) {
 
 // ---------------------------------------------------------------- pipeline threads
 
+// Live transcription (My voice, Translate and Re-speak): one connection for the app, fed by the
+// mic loop while you talk. Its words show in "You said" as they come.
+static LiveStt& liveStt() {
+    static LiveStt live;
+    static const bool hooked = [] {
+        live.onLog = [](const std::string& line) { logLine(line); };
+        live.onPartial = [](const std::string& words) {
+            if (words.empty() || !g.recording) return;
+            std::lock_guard<std::mutex> lk(g.mtx);
+            g.heardText = words + "\xE2\x80\xA6";  // "…": still listening
+        };
+        return true;
+    }();
+    (void)hooked;
+    return live;
+}
+
+// A little of what you said last, for live transcription to hear names and the topic (it works best
+// under 50 characters). mtx held.
+static std::string lastWordsSaid() {
+    std::string t = g.heardText;
+    if (t.size() >= 3 && t.compare(t.size() - 3, 3, "\xE2\x80\xA6") == 0) return std::string();  // a phrase still being heard
+    if (t.size() <= 50) return t;
+    size_t at = t.find(' ', t.size() - 50);
+    return at == std::string::npos ? std::string() : t.substr(at + 1);
+}
+
 // Mic -> phrases. Runs continuously, queues each finished phrase for conversion. With the voice
 // changer off and passthrough on, it sends the mic itself to the output instead.
 static void captureLoop() {
@@ -991,6 +1030,8 @@ static void captureLoop() {
     float convOut[kIn];
     bool wasOpen = false;
     bool voiceTurn = false;  // push to talk with your real voice between presses: the new voice's turn
+    bool liveThis = false;   // this phrase is going to live transcription
+    size_t liveSent = 0;     // how much of it has gone
     while (g.running) {
         if (!convOk || g.capRing.size() < size_t(kIn)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -999,7 +1040,8 @@ static void captureLoop() {
         g.capRing.pop(in, kIn);
 
         GateParams p;
-        bool enabled, passthrough, matchMic, realBetween, jobsWaiting;
+        bool enabled, passthrough, matchMic, realBetween, jobsWaiting, liveWanted;
+        LiveStt::Options liveOptions;
         {
             std::lock_guard<std::mutex> lk(g.mtx);
             enabled = g.cfg.enabled && !g.realVoice;   // "my real voice" key: your own mic goes out instead
@@ -1011,6 +1053,15 @@ static void captureLoop() {
             p.thresholdDb = g.cfg.thresholdDb;
             p.holdMs = g.cfg.holdMs;
             p.maxSeconds = g.cfg.maxSeconds;
+            // Live transcription: for the modes that write down what you say.
+            liveWanted = g.cfg.liveStt && !g.cfg.apiKey.empty() &&
+                         (g.cfg.engine == kTranslate || g.cfg.engine == kRespeak);
+            if (liveWanted && !wasOpen) {  // what a phrase starting now goes with
+                liveOptions.apiKey = g.cfg.apiKey;
+                liveOptions.language = g.cfg.spokenLang;
+                liveOptions.timestamps = g.cfg.emotion;
+                liveOptions.previousText = lastWordsSaid();
+            }
         }
         p.pttDown = g.pttDown;
 
@@ -1022,7 +1073,7 @@ static void captureLoop() {
         // heard twice) and lasts until the phrase was recorded, translated and fully played, so people
         // never hear you and the new voice on top of each other.
         if (enabled && realBetween && g.out.on) {
-            if (g.pttDown || g.recording || g.busy || jobsWaiting) voiceTurn = true;
+            if (g.pttDown || g.recording || g.busy || g.holding || jobsWaiting) voiceTurn = true;
             else if (voiceTurn && g.out.ring.size() < size_t(kDeviceRate) / 50) voiceTurn = false;  // played out
             passing = !voiceTurn;
         } else {
@@ -1050,6 +1101,8 @@ static void captureLoop() {
             low.erase(low.begin(), low.begin() + Segmenter::kBlock);
             g.levelDb = seg.levelDb();
             if (!enabled) {
+                if (liveThis) liveStt().discard();
+                liveThis = false;
                 seg.reset();
                 g.recording = false;
                 wasOpen = false;
@@ -1058,13 +1111,40 @@ static void captureLoop() {
             }
             const bool open = seg.open();
             speaking = speaking || open;
-            g.recording = open;
+            // Live transcription: the phrase streams to ElevenLabs while you say it, and is committed
+            // when it ends, so its words are back almost the moment you stop.
+            if (open && !wasOpen) {
+                liveThis = liveWanted && liveStt().available();
+                liveSent = 0;
+                if (liveThis) liveStt().begin(liveOptions);
+            }
+            if (liveThis && open) {
+                const std::vector<int16_t>& sofar = seg.current();
+                if (sofar.size() > liveSent) {
+                    liveStt().audio(sofar.data() + liveSent, sofar.size() - liveSent);
+                    liveSent = sofar.size();
+                }
+            }
+            if (liveThis && done) {
+                if (phrase.pcm.size() > liveSent) liveStt().audio(phrase.pcm.data() + liveSent, phrase.pcm.size() - liveSent);
+                phrase.live = liveStt().commit();
+                liveThis = false;
+            } else if (liveThis && !open) {
+                liveStt().discard();  // too short to be a phrase (a click, a cough)
+                liveThis = false;
+            }
             if (done || (open && !wasOpen)) {
                 std::lock_guard<std::mutex> lk(g.mtx);
-                if (done) g.jobs.push_back(std::move(phrase));
+                if (done) {
+                    phrase.ended = Clock::now();
+                    g.jobs.push_back(std::move(phrase));
+                }
                 else g.warmWanted = true;  // speech just started: connect while the user is still talking
                 g.jobCv.notify_one();
             }
+            // Only now, after a finished phrase is in the queue: the worker never sees "not talking"
+            // and "nothing queued" in between (it would say a cut-off sentence before its rest arrived).
+            g.recording = open;
             wasOpen = open;
         }
         if (matchMic && speaking) g.match.learnMic(in, kIn);  // learns how your mic sounds while you talk
@@ -1099,29 +1179,69 @@ static void workerLoop() {
     translator.http.cancel = &g.cancel;
     captionApi.http.cancel = &g.cancel;
 
+    // Sentence-aware phrases (Translate and Re-speak): the start of a sentence that a pause cut off,
+    // waiting a moment for the rest, so the whole sentence is translated and said as one.
+    struct Held {
+        bool on = false;
+        int engine = kTranslate;
+        std::string text, lang;
+        std::vector<int16_t> pcm;          // its audio (16 kHz), for following your tone
+        std::vector<HeardToken> tokens;    // its words, with times in `pcm`
+        Clock::time_point due{}, since{};  // when to stop waiting for the rest; when it began
+        int pieces = 0;
+    } held;
+    // What you said just before, in this same stretch of talking. The translator gets it as context,
+    // so a story told over several sentences reads as one (who "he" is, the same word for the same thing).
+    struct SaidLine { std::string heard, said; Clock::time_point ended; };
+    std::deque<SaidLine> stretch;
+
     while (g.running) {
         std::vector<int16_t> pcm, full;
         std::string typedText;
         bool testJob = false;
         Settings s;
-        bool haveJob = false, professional = false;
+        bool haveJob = false, professional = false, flushHeld = false;
+        Clock::time_point ended = Clock::now();
+        std::shared_future<LiveText> liveResult;  // the phrase's words from live transcription, if it was on
+        bool heardLive = false;
         {
             std::unique_lock<std::mutex> lk(g.mtx);
-            g.jobCv.wait(lk, [] { return !g.jobs.empty() || g.warmWanted || !g.running; });
+            for (;;) {
+                if (!g.running || !g.jobs.empty() || g.warmWanted) break;
+                // A cut-off sentence: once its wait is over and you're not talking, it's said as it is.
+                if (held.on && !g.recording && Clock::now() >= held.due) {
+                    flushHeld = true;
+                    break;
+                }
+                if (held.on) g.jobCv.wait_for(lk, std::chrono::milliseconds(20));
+                else g.jobCv.wait(lk);
+            }
             if (!g.running) break;
             s = g.cfg;
             g.warmWanted = false;
-            if (!g.jobs.empty()) {
-                pcm = std::move(g.jobs.front().pcm);
-                full = std::move(g.jobs.front().full);
-                typedText = std::move(g.jobs.front().text);
-                testJob = g.jobs.front().test;
-                g.jobs.pop_front();
-                haveJob = true;
-                g.busy = true;  // in the same moment the queue empties, so nothing sees "no job and not busy" in between
+            if (!flushHeld && !g.jobs.empty()) {
+                // With a sentence waiting, only your next phrase from the mic continues it. Typed text
+                // or the setup's test goes after that sentence has been said.
+                const Phrase& next = g.jobs.front();
+                const bool continues = next.text.empty() && !next.test && (s.engine == kTranslate || s.engine == kRespeak);
+                if (held.on && !continues) {
+                    flushHeld = true;
+                } else {
+                    pcm = std::move(g.jobs.front().pcm);
+                    full = std::move(g.jobs.front().full);
+                    typedText = std::move(g.jobs.front().text);
+                    testJob = g.jobs.front().test;
+                    liveResult = g.jobs.front().live;
+                    if (g.jobs.front().ended != Clock::time_point{}) ended = g.jobs.front().ended;
+                    g.jobs.pop_front();
+                    haveJob = true;
+                    g.busy = true;  // in the same moment the queue empties, so nothing sees "no job and not busy" in between
+                }
             }
+            if (flushHeld) g.busy = true;
             for (const Voice& v : g.voices) professional = professional || (v.id == s.voiceId && v.category == "professional");
         }
+        if (flushHeld) s.engine = held.engine;  // said the way it was heard, even if the mode changed since
         if (!typedText.empty()) s.engine = s.textTranslate ? kTranslate : kRespeak;  // the Text page's own choice
         if (testJob) {  // the setup's test: just the voice, as written
             s.engine = kRespeak;
@@ -1132,10 +1252,13 @@ static void workerLoop() {
         g.cancel = false;
         if (!g.running) break;  // quitting: don't start anything that shutdown could no longer cancel
         api.apiKey = captionApi.apiKey = s.apiKey;
-        if (!haveJob) {
-            api.warm();
+        if (!haveJob && !flushHeld) {
+            // All connections at once (each waits 3 s at most), so a phrase that ends soon after
+            // isn't kept waiting behind them.
+            auto warmVoice = std::async(std::launch::async, [&] { api.warm(); });
             if (s.engine == kTranslate) translator.warm(translateSetup(s));
             if (s.engine == kVoiceChanger && s.chatbox) captionApi.warm();
+            warmVoice.get();
             continue;
         }
         g.busy = true;
@@ -1229,15 +1352,145 @@ static void workerLoop() {
             const bool tags = modelTakesTags(s.ttsModel);
             VoiceTrack track;
             std::vector<HeardToken> tokens;
+            // The start of this sentence, if a pause cut it off: this phrase is the rest of it (or,
+            // when flushing, there is no more and it's said as it is).
+            const bool joining = held.on && !typed;
+            Held was;
+            if (joining) was = std::move(held);
+            held = Held();
+            g.holding = false;
+            // All the audio of this sentence: what came before the pause, then this.
+            std::vector<int16_t> heardPcm = was.pcm;
+            heardPcm.insert(heardPcm.end(), pcm.begin(), pcm.end());
             // Measured on this computer while the upload and transcription run, so it adds no wait.
             std::future<VoiceTrack> measuring;
-            if (emotion) measuring = std::async(std::launch::async, [&pcm] { return trackVoice(pcm); });
+            if (emotion) measuring = std::async(std::launch::async, [heardPcm] { return trackVoice(heardPcm); });
+            std::string piece;
+            std::vector<HeardToken> pieceTokens;
             if (typed) heard = typedText;
-            else ok = api.transcribe(pcm, s.spokenLang, heard, detected, err, emotion ? &tokens : nullptr);
-            if (ok && !typed) heard = applyWordFixes(heard, s.fx.words);
+            else if (!flushHeld) {
+                // Live transcription heard it while you talked: the words are normally there already.
+                // It gets a short wait at most; otherwise (or after any live problem) the regular way
+                // below hears the phrase, so nothing you said is lost.
+                if (liveResult.valid()) {
+                    static std::string lastLiveProblem;
+                    std::string problem;
+                    if (liveResult.wait_for(std::chrono::milliseconds(1500)) == std::future_status::ready) {
+                        const LiveText r = liveResult.get();
+                        // The free translator has to be told the language; live may not have said it.
+                        const bool noLanguage = r.language.empty() && s.spokenLang.empty() && s.engine == kTranslate &&
+                                                s.translateService == kMyMemory;
+                        if (r.ok && !noLanguage) {
+                            piece = r.text;
+                            detected = r.language;
+                            if (emotion) pieceTokens = r.words;
+                            heardLive = true;
+                        } else {
+                            problem = r.ok ? "it didn't say the language" : r.err;
+                        }
+                    } else {
+                        problem = "it took too long";
+                    }
+                    if (!problem.empty() && problem != lastLiveProblem)
+                        logLine("Live transcription didn't have a phrase (" + problem + "), so it was uploaded instead.");
+                    lastLiveProblem = problem;
+                }
+                if (!heardLive) ok = api.transcribe(pcm, s.spokenLang, piece, detected, err, emotion ? &pieceTokens : nullptr);
+            }
+            if (ok && !typed && !flushHeld) piece = applyWordFixes(piece, s.fx.words);
+            std::string langCode;
+            if (!typed) {
+                if (!ok && joining && err != "cancelled") {
+                    // The rest couldn't be heard: say the start of the sentence on its own.
+                    logLine("Couldn't hear the rest of a sentence (" + err + "), so its start is said on its own.");
+                    ok = true;
+                    err.clear();
+                    piece.clear();
+                    pieceTokens.clear();
+                }
+                const float offset = float(was.pcm.size()) / float(Segmenter::kRate);  // this piece starts after the first
+                for (HeardToken& tk : pieceTokens) {
+                    if (tk.start >= 0) tk.start += offset;
+                    if (tk.end >= 0) tk.end += offset;
+                }
+                if (detected.empty()) detected = was.lang;
+                const Language* spokenAs = findLanguage(s.spokenLang.empty() ? detected : s.spokenLang);
+                langCode = spokenAs ? spokenAs->code : detected;
+                heard = joining ? joinHeard(was.text, piece, langCode) : piece;
+                tokens = std::move(was.tokens);
+                tokens.insert(tokens.end(), pieceTokens.begin(), pieceTokens.end());
+            }
             if (emotion) track = measuring.get();
             sttMs = msSince(t0);
             const bool blank = heard.find_first_not_of(" \t\r\n") == std::string::npos;
+            const auto lineStarted = joining ? was.since : ended - std::chrono::milliseconds(pcm.size() * 1000 / Segmenter::kRate);
+
+            // Did a pause cut this sentence in half? Then wait a moment for the rest, and translate the
+            // whole sentence at once (half a sentence translated on its own comes out with broken
+            // grammar). A finished sentence never waits. In a long stretch of talking, the sentences
+            // already finished are said right away, and only the last, unfinished one waits.
+            if (ok && !blank && !typed && !testJob && !flushHeld) {
+                const bool ptt = s.activation == kPushToTalk;
+                const bool talking = g.recording;   // already saying more, or still holding the key
+                const int waitMs = ptt ? 0 : s.sentenceWaitMs;  // push to talk: you decide where it ends
+                const int pieces = was.pieces + 1;
+                // Never held forever: after several pieces, or 40 seconds, it's said as it is.
+                const bool enough = pieces >= 6 || Clock::now() - lineStarted > std::chrono::seconds(40);
+                if ((waitMs > 0 || talking) && !enough && sentenceUnfinished(heard, langCode)) {
+                    size_t cut = lastSentenceEnd(heard);
+                    if (cut != std::string::npos && roughWords(heard.substr(0, cut)) < 8) cut = std::string::npos;  // keep short bits together
+                    Held h;
+                    h.on = true;
+                    h.engine = s.engine;
+                    h.lang = langCode;
+                    h.pieces = pieces;
+                    h.due = ended + std::chrono::milliseconds(waitMs);
+                    if (cut == std::string::npos) {
+                        // All of it waits.
+                        h.text = heard;
+                        h.tokens = tokens;
+                        h.pcm = std::move(heardPcm);
+                        h.since = lineStarted;
+                        held = std::move(h);
+                        g.holding = true;
+                        {
+                            std::lock_guard<std::mutex> lk(g.mtx);
+                            g.heardText = heard;  // what it heard so far
+                        }
+                        g.busy = false;
+                        continue;
+                    }
+                    // The finished sentences go now; the unfinished one waits. Its words (and audio, for
+                    // your tone) are found by where the text was cut.
+                    std::string rest = heard.substr(cut);
+                    heard.resize(cut);
+                    while (!heard.empty() && heard.back() == ' ') heard.pop_back();
+                    size_t split = tokens.size(), chars = 0;
+                    for (size_t i = 0; i < tokens.size(); ++i) {
+                        if (tokens[i].kind == kTokSound) continue;
+                        if (chars >= cut && tokens[i].kind == kTokWord) { split = i; break; }
+                        chars += tokens[i].text.size();
+                    }
+                    size_t from = heardPcm.size();
+                    if (split < tokens.size() && tokens[split].start >= 0)
+                        from = size_t(std::max(0.f, tokens[split].start - 0.15f) * Segmenter::kRate);
+                    from = std::min(from, heardPcm.size());
+                    const float shift = float(from) / float(Segmenter::kRate);
+                    for (size_t i = split; i < tokens.size(); ++i) {
+                        HeardToken tk = tokens[i];
+                        if (tk.start >= 0) tk.start = std::max(0.f, tk.start - shift);
+                        if (tk.end >= 0) tk.end = std::max(0.f, tk.end - shift);
+                        h.tokens.push_back(tk);
+                    }
+                    tokens.resize(split);
+                    h.pcm.assign(heardPcm.begin() + std::ptrdiff_t(from), heardPcm.end());
+                    h.text = rest;
+                    h.pieces = 1;
+                    h.since = ended;
+                    held = std::move(h);
+                    g.holding = true;
+                }
+            }
 
             Direction dir;
             if (ok && !blank && emotion) {
@@ -1276,6 +1529,11 @@ static void workerLoop() {
                     std::lock_guard<std::mutex> lk(g.mtx);
                     setup.context = recentConversation(6);
                 }
+                // The line or two you said just before, if this goes on from them (a story, a long
+                // explanation): context only, so the sentences fit together.
+                while (!stretch.empty() && lineStarted - stretch.front().ended > std::chrono::seconds(4)) stretch.pop_front();
+                if (!typed)
+                    for (const SaidLine& l : stretch) setup.before.push_back({l.heard, l.said});
                 const bool ai = isAiService(s.translateService);
                 // Parts that sound different are translated separately (at the same time), each keeping
                 // its own delivery. Not with the AI services: they word a whole sentence more naturally,
@@ -1367,6 +1625,10 @@ static void workerLoop() {
                     return api.textToSpeech(s.voiceId, s.ttsModel, s.vs, say, sayLang, sink, e, format);
                 }, err);
             }
+            if (ok && !blank && !typed) {  // for the next line, if it goes on from this one
+                stretch.push_back({heard, withoutTags(spoken.empty() ? heard : spoken), ended});
+                while (stretch.size() > 2) stretch.pop_front();
+            }
         }
 
         // VRChat chatbox: what you said, what the voice said, or both.
@@ -1403,6 +1665,7 @@ static void workerLoop() {
         }
         if (totalMs > 0) {
             g.sttMs = sttMs;
+            g.sttLive = heardLive;
             g.translateMs = translateMs;
             g.voiceMs = voiceMs;
             g.totalMs = totalMs;
@@ -1985,6 +2248,7 @@ static UsageItem aiItem(int service, const std::string& model) {
 int main() {
     UiModel ui;  // the UI thread's copy of everything; ui.cfg is published to g.cfg every frame
     loadSettings(ui.cfg);
+    ui.cfg.page = kPageHome;  // it opens on Home: everything at a glance
     setUiLanguage(ui.cfg.uiLanguage);
     startLog();
     logLine(std::string("CIMA Box ") + CIMA_FULL_VERSION + " started on " + windowsVersion() + ". Settings: " +
@@ -2069,7 +2333,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 #endif
     const float scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor());
-    int winW = int(1120 * scale), winH = int(800 * scale), minW = int(940 * scale), minH = int(600 * scale);
+    int winW = int(1240 * scale), winH = int(820 * scale), minW = int(980 * scale), minH = int(620 * scale);  // room for the sidebar
     {  // never open larger than the screen
         int x = 0, y = 0, areaW = 0, areaH = 0;
         glfwGetMonitorWorkarea(glfwGetPrimaryMonitor(), &x, &y, &areaW, &areaH);
@@ -2173,8 +2437,10 @@ int main() {
         ui.loading = g.loading;
         ui.recording = g.recording;
         ui.busy = g.busy;
+        ui.holding = g.holding;
         ui.levelDb = g.levelDb;
         ui.sttMs = g.sttMs;
+        ui.sttLive = g.sttLive;
         ui.translateMs = g.translateMs;
         ui.voiceMs = g.voiceMs;
         ui.totalMs = g.totalMs;
@@ -2450,6 +2716,20 @@ int main() {
                 glfwSetWindowSizeLimits(win, minW, minH, GLFW_DONT_CARE, GLFW_DONT_CARE);
             }
             glfwSetWindowAttrib(win, GLFW_FLOATING, ui.captionsOnly ? GLFW_TRUE : GLFW_FALSE);
+        }
+        // The mini window: My voice at a glance, small and on top of the game.
+        if (act.setMini >= 0 && (act.setMini == 1) != ui.mini && !ui.captionsOnly) {
+            ui.mini = act.setMini == 1;
+            if (ui.mini) {
+                glfwRestoreWindow(win);
+                glfwGetWindowSize(win, &fullW, &fullH);
+                glfwSetWindowSizeLimits(win, int(380 * scale), int(170 * scale), GLFW_DONT_CARE, GLFW_DONT_CARE);
+                glfwSetWindowSize(win, int(480 * scale), int(220 * scale));
+            } else {
+                glfwSetWindowSize(win, fullW, fullH);
+                glfwSetWindowSizeLimits(win, minW, minH, GLFW_DONT_CARE, GLFW_DONT_CARE);
+            }
+            glfwSetWindowAttrib(win, GLFW_FLOATING, ui.mini ? GLFW_TRUE : GLFW_FALSE);
         }
         ui.passing = g.passing;
         ui.matchProgress = (g.match.micSeconds() + g.match.voiceSeconds()) / (2.f * MicMatch::kNeedSeconds);

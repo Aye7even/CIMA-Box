@@ -6,6 +6,45 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 3.0.0
+- A new look. The whole window is redesigned to be easier to find your way around, without taking anything away.
+  - The pages are now down the left side, and each one says under its name what's on it ("Voice, language, dialect", "Captions of others"...). A dot next to a page means that part is on.
+  - Settings, the Mini window button and what's left on your accounts are at the bottom left.
+  - Each page has its title at the top, a "Find a setting or feature" box (Ctrl+F still works), and the switch with what it's doing right now.
+- New: Home, where CIMA Box now opens. Everything at a glance:
+  - Your setup in one sentence: "You speak English, they hear Japanese in George." Click any underlined word to change it, and the line under it shows where the voice comes out.
+  - "All voice settings" goes to My voice for everything else: dialect, how you talk, the translation service, the model, the mic and more.
+  - Your mic level, the mode, what you just said and what they heard, and how long it took from your last word to their ears (hearing, translating and the voice, each in its own colour).
+  - Quick toggles: shortcuts to the extras you use most. Click a tile to switch it on or off, or the arrow for its full settings. "Edit tiles" picks which ones show (up to 12).
+  - Around you: the last few captions from Listen. New to you: one feature you haven't tried yet, with a button that takes you to it.
+- New: the Mini window. A small window that stays on top of your game with the last line, the mode, Stop and the switch. "Full window" brings everything back.
+- My voice is now three sections from top to bottom: Microphone, Voice and language, and Where it goes. Each shows the everyday settings, with "More ... settings" at the bottom for the rest (it stays open if you leave it open). The last line and "Try a line" are on the right.
+- The first-time setup now ends on Home. Until you've added your ElevenLabs key, Home shows a "Start the setup" button.
+- All of it is translated into all 11 app languages, and Arabic lays out right to left on Home too.
+- The Read Me and the pictures on GitHub show the new look.
+- New: Live transcription (My voice > Microphone; Translate and Re-speak; off to start, so try it out first). Your voice goes to ElevenLabs while you talk instead of being uploaded when you stop, so your words are ready almost the moment you finish, and "You said" fills in as you speak. The timing under the last line says "transcribe (live)" when it was used.
+  - It keeps everything else the same: CIMA Box still decides where a phrase ends (and keeps sentences whole), so only the waiting for the transcript goes away.
+  - Built to fall back: if the live connection has any problem (it couldn't connect, it dropped, it was slow to answer, the key or credits were refused), that phrase is uploaded the regular way, so nothing you say is lost. After a refusal it uses the regular way for a while by itself, and the log says why.
+  - It only sends audio while you're talking, and closes the connection when you've been quiet for a bit. ElevenLabs bills it per second of audio sent, at their live speech-to-text rate.
+- Sentences stay whole. A pause in the middle of a sentence (to breathe, or after "and", "because", a comma) used to send half a sentence on its own, and translated alone it came out with broken grammar. Now, in Translate and Re-speak, CIMA Box looks at what you said: if the sentence sounds unfinished, it waits a moment for you to go on, then translates and says the whole sentence at once. A sentence you finished is never kept waiting, so short replies are just as quick. While it waits, the top right says "Waiting for more".
+  - New setting: My voice > Microphone > "Wait for the rest of a sentence" (900 ms to start). Raise it if you often stop to think mid-sentence, lower it if it waits when you were done, or set it to 0 to turn it off.
+  - It knows how sentences continue in many languages (English, Spanish, Portuguese, French, German, Italian, Dutch, Indonesian, Malay, Filipino, Russian, Ukrainian, Polish, Turkish, Arabic, Hindi, Vietnamese, Japanese, Korean and Chinese), and the rest of your sentence is only transcribed once, so waiting costs nothing extra.
+  - It never waits forever: after a few pieces, or 40 seconds, what you said goes out as it is. With push to talk you decide where a line ends, so it only joins pieces while you're still holding the key.
+- Stories flow. When you talk for a long time, the sentences you've finished are said while you keep talking, and only the one you're in the middle of waits for its end, so people hear your story about a sentence behind you instead of all at once at the end. A phrase that runs too long is no longer cut mid-sentence.
+  - Each sentence is translated knowing the one or two you said just before (the AI services, and DeepL through its own context option), so "he", "she" and "it" stay right, the same things keep the same words, and the style stays the same across the story.
+- Find a setting now also finds "Pause that ends a phrase", "Wait for the rest of a sentence" and "Longest phrase", and lights them up like the others.
+- Faster, and the AI does more of the translating. A slow moment no longer means waiting or a switch to DeepL:
+  - A second copy of a slow request. If the AI is clearly later than it usually is (it learns its usual time as you talk), the same request goes out again on a second connection, and whichever answers first is used. Same AI, same model, same instructions, so the translation is no different. A request that gets stuck at the service now usually comes back from the AI in time instead of falling back to DeepL. The copy is only sent on slow lines, and never while the service says it's busy (a fraction of a cent each with Claude Haiku).
+  - The same for hearing you: if ElevenLabs is slow to transcribe a phrase, a second copy goes out and the first answer is used. Before, a stuck transcription could hold everything up for up to 2 minutes; now it gives up after 20 seconds at most.
+  - Your mic's audio now goes to ElevenLabs as raw audio instead of a WAV file, which ElevenLabs says it answers sooner (Listen already did this).
+  - Claude: when it won't say a line with swearing in it, it goes straight to the swear words by DeepL after the first no, within your normal time limit. Before, it asked Claude a second time (which almost never works for swearing) and then gave the last step a whole new time limit: up to about 4 seconds of translating, or 8 with Best translations.
+  - Gemini: asks for the least thinking a model offers ("minimal" on Flash models). Models that don't offer it step up to "low", or no setting, on their own.
+  - Words for DeepL: DeepL looks up your listed words at the same time the AI translates the rest of the line, instead of after it (about 0.7 s quicker for two words).
+  - DeepL is kept for last: it only starts 0.7 s before your time limit, as a backup ready in case the AI runs out of time, and is stopped the moment the AI answers.
+  - Every connection CIMA Box uses (the AI, its second connection, ElevenLabs, DeepL) is opened at once while you're still talking and kept open between lines, so no line waits to connect. A connection that doesn't answer is dropped after 3 s instead of 5, so it can't hold up your next phrase.
+  - Stopping a request now takes effect right away. Before, the Cancel key (and a backup that wasn't needed) could take up to a second to let go.
+  - What each AI model accepts (thinking and effort settings) is learned once for the whole app and checked again when you pick a different model, instead of costing an extra request in each part of the app.
+
 ## 2.8.3
 - How you talk, checked line by line: Very casual no longer hints at swearing or teasing (it only swears if you did), "Clean up my swearing" now always wins over Very casual's slang, My own changes how a line sounds but never what it says, and a dialect's own words win over the standard language's casual hints (Kansai gets Kansai endings, not Tokyo ones).
 - The bottom strip now names the service that really translated your listed words: "your words by Free" when DeepL doesn't have the language and the Free service did it (before, it always said DeepL). A word neither can translate is left out.
@@ -22,7 +61,7 @@ starting with `- `. Write them for the people using the app.
 - Learning your usual voice works with more voices: higher and more excited voices are measured now, and shorter phrases count. If it still doesn't move, the log says why.
 
 ## 2.8.2
-- Push to talk can now leave your real voice on between presses (My voice > Input > While not holding the key > My real voice). Talk normally, and hold the key when you want a line translated or in the new voice. Your mic goes quiet from the press until that line has played, so people never hear both at once. Silent, the way it worked before, stays the default.
+- Push to talk can now leave your real voice on between presses (My voice > Microphone > While not holding the key > My real voice). Talk normally, and hold the key when you want a line translated or in the new voice. Your mic goes quiet from the press until that line has played, so people never hear both at once. Silent, the way it worked before, stays the default.
 
 ## 2.8.1
 - Captions are tidier: voices no longer run up to "Voice 10". A voice gets a number only once it has been heard a few times (six at most), a line it can't place gets a plain bar instead of a guess, a voice is named once until the speaker changes, and the language and time show only when they change.

@@ -1,11 +1,15 @@
-CIMA Box 2.8.3
+CIMA Box 3.0.0
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
 say (for example in VRChat) into your language.
 
-It has five pages, switched at the top of the window:
+The pages are on the left side of the window. Each one says under its name what's on it, and a
+dot next to it means that part is on right now:
 
+  Home       Everything at a glance: your mic level, the mode, your setup in one sentence, what
+             you just said and how fast people heard it, shortcuts to the extras you use most,
+             what people around you are saying, and one feature you haven't tried yet.
   My voice   Your microphone goes to ElevenLabs and comes back as a different voice, which is
              played on any output device (for example a virtual cable that Discord or VRChat
              uses as its microphone). It can also re-speak or translate what you say.
@@ -17,12 +21,16 @@ It has five pages, switched at the top of the window:
   Features   Extras you can turn on one by one: screen translation, a voice reading captions
              in your ear, quick phrases, profiles and more.
 
-Can't find something? Click the magnifier next to the gear (or press Ctrl+F) and type what you're
+Settings (your keys, hotkeys, the app's language and the look) is at the bottom left, under the
+Mini window button and what's left on your accounts.
+
+Can't find something? Click "Find a setting or feature" at the top (or press Ctrl+F) and type what you're
 looking for, like "swear", "key", "chatbox" or "spending". Pick a result to go straight to it; it
 lights up for a moment. On/off settings have their switch right in the list.
 
-The switch at the top right turns the page you're on on or off. The gear next to it opens
-Settings: the app's language, your API keys and hotkeys.
+The switch at the top right turns the page you're on on or off (on Home, it's the voice
+changer), and the word next to it says what that part is doing: Listening, Recording,
+Converting, Waiting for more...
 
 
 YOUR KEYS, YOUR COSTS
@@ -61,11 +69,11 @@ Doing it by hand instead:
 
 1. Put CIMABox.exe anywhere you like (Desktop, Documents...) and run it. Your settings save by
    themselves, so you can move or update the program any time without losing them.
-2. Click the gear (top right) to open Settings, paste your ElevenLabs API key under Accounts and
-   click "Load voices and models". (Until you do, the bottom of the window shows these steps.)
+2. Click Settings (bottom left), paste your ElevenLabs API key under Accounts and click "Load
+   voices and models". (Until you do, Home shows a "Start the setup" button.)
    Want the menus in another language? Pick it under App language in the same place.
-3. Under Voice, pick a voice.
-4. Under Input, pick your microphone. Under Output, pick where the new voice goes.
+3. Open My voice. Under "Voice and language", pick a voice.
+4. Under Microphone, pick your mic. Under "Where it goes", pick where the new voice goes.
 5. To use the voice in Discord, VRChat, OBS or a game: install a virtual cable (for example
    VB-Audio Virtual Cable), choose "CABLE Input" under "Send the new voice to", and choose
    "CABLE Output" as the microphone in the other program.
@@ -74,12 +82,59 @@ Doing it by hand instead:
 Don't share cimabox.json with anyone. It holds your API keys.
 
 
+HOME
+----
+
+Where CIMA Box opens. It's a summary, with the most-used choices one click away; everything it
+shows also has its full settings on its own page.
+
+You right now
+  The bars ................. Your mic level over the last few seconds. Amber bars were loud
+                             enough to record.
+  Changer / Re-speak / Translate
+                             The mode, the same as on My voice.
+  The sentence ............. Your setup in plain words, like "You speak English, they hear
+                             Japanese in George." Click an underlined word to change it: your
+                             language, the language they hear (with its dialect) or the voice.
+  Comes out of ............. Where the new voice goes. Click it to pick another device.
+  All voice settings ....... Opens My voice, which has everything else: dialect, how you talk,
+                             the translation service, the model, gender, the mic, fine-tuning...
+  You said / They heard .... The last line.
+  Last word to their ears .. How long it took from the end of your sentence until the voice
+                             started, split into hearing it, translating it and the voice.
+
+Quick toggles
+  Shortcuts for the extras you use most. Click a tile to switch it on or off. The arrow on its
+  right opens its full settings. "Edit tiles" picks which ones Home shows (up to 12); "Back to
+  the usual ones" puts the first eight back. A few tiles open something instead (Captions over
+  the game opens the caption window, Quick phrases opens the Text page), and Screen translation
+  asks you to agree to its note the first time.
+
+Around you
+  The last few captions from Listen, or a button to turn Listen on.
+
+New to you
+  One feature you haven't turned on yet. "Show me" goes straight to it; "Another" shows the next.
+
+
+MINI WINDOW
+-----------
+
+The Mini window button (bottom left) shrinks CIMA Box to a small window that stays on top of
+your game: what's happening, your mic, the language pair, the last line (what they heard, and
+what you said under it), the mode, Stop and the switch. "Full window" brings everything back.
+
+
 MY VOICE PAGE
 -------------
 
-The page goes left to right in the order the sound travels: Input, then Voice, then Output.
+Everything about your voice, in three sections from top to bottom, in the order the sound
+travels: Microphone, then Voice and language, then Where it goes. Each section shows the
+everyday settings first; click "More ... settings" at the bottom of a section for the rest (they
+stay open next time). Ctrl+F finds anything, even when it's folded away. On the right: the last
+line, and "Try a line".
 
-Input
+Microphone
   Microphone ............... The mic you talk into.
   Start talking by ......... Voice activation: records whenever you talk.
                              Push to talk: records only while you hold a key.
@@ -88,6 +143,14 @@ Input
                              when you're silent.
   Pause that ends a phrase . How long a pause sends what you said. Shorter = less delay, but
                              it may cut you off between words.
+  Wait for the rest of a sentence
+                             (Voice activation; Translate and Re-speak) When you pause in the
+                             middle of a sentence (after a comma, "and", "because", "the"...),
+                             it waits up to this long for you to go on, then translates and says
+                             the whole sentence at once, so the grammar stays right. A sentence
+                             you finished is never kept waiting. While it waits, the top right
+                             says "Waiting for more". Raise it if you often stop to think mid-
+                             sentence; 0 turns it off. Default 900 ms.
   Key ...................... (Push to talk) Click it, then press the key you want to use.
   While not holding the key  (Push to talk) Silent: people hear nothing until you hold the key,
                              then only the new voice. My real voice: people hear your own voice
@@ -96,8 +159,19 @@ Input
                              press until that line has finished playing, so the two never
                              overlap. Needs the voice changer switch on.
   Longest phrase ........... If you talk without pausing, it is sent after this many seconds.
+                             The sentences you finished go out then, and the one you're in the
+                             middle of waits for its end, so a long story is said sentence by
+                             sentence while you keep talking, and never cut mid-sentence.
+  Live transcription ....... (Translate and Re-speak; new in 3.0, off to start) Your voice
+                             goes to ElevenLabs while you talk instead of being uploaded when
+                             you stop, so your words are ready almost the moment you finish,
+                             and "You said" fills in as you speak. The bottom strip then says
+                             "transcribe (live)". If the live connection has any problem, that
+                             phrase is uploaded the regular way, so nothing you say is lost.
+                             ElevenLabs bills it per second of audio sent, at their live
+                             (realtime) speech-to-text rate; CIMA Box only sends while you talk.
 
-Voice
+Voice and language
   Mode
     Changer ................ Changes your voice and keeps your timing, emotion and accent.
                              Fastest and most natural. Best choice for most uses.
@@ -182,7 +256,7 @@ Voice
                              voice. Off = the value saved on the ElevenLabs website.
   Voice and model IDs ...... For pasting an ID by hand. Not needed normally.
 
-Output
+Where it goes
   Send the new voice to .... Where the new voice plays (usually the virtual cable).
     Volume ................. How loud the new voice is there (100% = as it comes, up to 200%).
                              Your passed-through mic isn't affected.
@@ -213,7 +287,7 @@ Output
                              each phrase, which ElevenLabs bills.
   Rescan devices ........... Refreshes the device lists after plugging something in.
 
-Bottom strip
+Last line (on the right)
   Shows what it heard ("You said"), what the voice was told to say ("Spoken as"), how the
   phrase sounded (with Carry my emotion on), and how long each step took.
   Stop speaking ............ Cancels everything that is playing or waiting.
@@ -462,10 +536,10 @@ Screen translation
   overlay and screen-capture tools, so check them before using it there.
 
 
-SETTINGS (THE GEAR)
--------------------
+SETTINGS
+--------
 
-Click the gear at the top right; click it again (or any page name) to go back.
+Click Settings at the bottom left; click any page name to go back.
 
 App language
   The language of the menus: English, Español, Português (Brasil), Français, Deutsch, Italiano,
@@ -511,7 +585,7 @@ Accounts
   Show keys ................ Shows the keys instead of dots.
 
 Hotkeys
-  Push to talk ............. The key to hold while talking (when Input is set to push to talk).
+  Push to talk ............. The key to hold while talking (when "Start talking by" is set to push to talk).
   Next "Talking to" ........ Each press goes to the next choice: Auto, Don't know, A guy,
                              A girl, A group. Works while a game has focus.
   Clear .................... Removes a hotkey.
@@ -532,7 +606,7 @@ TIPS
 ----
 
 - Lowest delay: Changer mode, Standard quality, a short "Pause that ends a phrase". For
-  Re-speak/Translate, use v4 Turbo or Flash.
+  Re-speak/Translate, use v4 Turbo or Flash, and turn on Live transcription.
 - Most natural sound: Changer mode, Stability around 0.5, Style 0, a voice described as
   conversational, or a clone of yourself made from casual talking.
 - Two mics (for example a VR headset and a desk mic): turn on Match my mic, and keep the same
@@ -560,10 +634,10 @@ Press OK on the notice to carry on: the next notice comes after another full lim
 credits can only be counted if the key is allowed to read usage (User: Read).
 
 
-WHAT'S LEFT (BOTTOM RIGHT)
---------------------------
+WHAT'S LEFT (BOTTOM LEFT)
+-------------------------
 
-A small line at the bottom of every page shows what's left for the services you use:
+A small card at the bottom left, above Settings, shows what's left for the services you use:
   ElevenLabs ... credits left this month, read from your account. If it says "not available",
                  the key was made without permission to read the account (allow User: Read).
   DeepL ........ characters left this month.
@@ -599,10 +673,20 @@ Nothing happens when I talk ............ Check the switch at the top right is on
 The other app doesn't hear the voice ... That app's microphone must be the other end of the
                                          virtual cable ("CABLE Output").
 It cuts off my last word ............... Make "Pause that ends a phrase" a bit longer.
+It splits my sentences in two .......... Raise "Wait for the rest of a sentence" (My voice >
+                                         Microphone > More), for example to 1500 ms.
+"transcribe (live)" never shows ........ Live transcription is off, or it couldn't connect: the
+                                         log (Settings > Report a problem) says why. It goes
+                                         back to the regular way by itself meanwhile.
+It waits after I've finished ........... Your sentence ended on a word like "and" or "because",
+                                         or without a full stop. Lower "Wait for the rest of a
+                                         sentence" if it happens a lot.
 "Free translation limit reached" ....... Switch to DeepL, Claude, Gemini or OpenAI, or wait until
                                          tomorrow.
 "(Claude too slow)" in the bottom strip  That phrase was done by DeepL or Free instead. Raise
-                                         the Time limit a little if it happens a lot.
+                                         the Time limit a little if it happens a lot (CIMA Box
+                                         already sends a second copy to the AI when it's slow,
+                                         so a higher limit rarely adds any wait).
 VR page says "Waiting for SteamVR" ..... Start SteamVR. It connects by itself.
 No CIMA Box tab in the SteamVR menu .... Turn on "CIMA Box tab in the SteamVR menu" on the VR
                                          page, and switch VR on at the top right.
