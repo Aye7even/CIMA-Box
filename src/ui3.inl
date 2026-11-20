@@ -6,7 +6,8 @@
 
 enum IconKind {
     kIcHome, kIcMic, kIcText, kIcHeadphones, kIcVR, kIcGrid, kIcSliders, kIcMini, kIcWave, kIcFace, kIcChat,
-    kIcSpeaker, kIcScreen, kIcCaptions, kIcBookmark, kIcSwap, kIcClock, kIcBook, kIcStar, kIcBeep, kIcCancel, kIcWords
+    kIcSpeaker, kIcScreen, kIcCaptions, kIcBookmark, kIcSwap, kIcClock, kIcBook, kIcStar, kIcBeep, kIcCancel, kIcWords,
+    kIcCheck
 };
 
 void drawIcon(ImDrawList* dl, int kind, ImVec2 c, float s, ImU32 color) {
@@ -105,6 +106,10 @@ void drawIcon(ImDrawList* dl, int kind, ImVec2 c, float s, ImU32 color) {
     case kIcCancel:
         dl->AddCircle(P(0.5f, 0.5f), 0.4f * s, color, 24, t);
         L(0.36f, 0.36f, 0.64f, 0.64f); L(0.64f, 0.36f, 0.36f, 0.64f);
+        break;
+    case kIcCheck:
+        dl->AddCircle(P(0.5f, 0.5f), 0.4f * s, color, 24, t);
+        L(0.32f, 0.52f, 0.45f, 0.65f); L(0.45f, 0.65f, 0.7f, 0.37f);
         break;
     case kIcWords:
         R(0.1f, 0.24f, 0.9f, 0.76f, 0.12f);
@@ -398,6 +403,180 @@ void pageHeader(UiModel& m, UiActions& act) {
     ImGui::Dummy(ImVec2(w, em() * 0.5f));
 }
 
+// ---------------------------------------------------------------- notices and fixes
+
+// A notice for a couple of seconds at the bottom of the window (any view: the full window, the
+// mini window, the caption window over the game), so a hotkey pressed in a game shows it worked.
+void noticeToast(const UiModel& m) {
+    static int seen = 0;
+    static double at = -100.0;
+    if (m.noticeSerial != seen) { seen = m.noticeSerial; at = ImGui::GetTime(); }
+    const double age = ImGui::GetTime() - at;
+    if (m.notice.empty() || age > 2.6) return;
+    const float alpha = age < 0.15 ? float(age / 0.15) : age > 2.1 ? float((2.6 - age) / 0.5) : 1.f;
+    char text[256];
+    std::snprintf(text, sizeof(text), TF(m.notice.c_str()), T(m.noticeArg.c_str()));
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    const ImVec2 ws = ImGui::GetMainViewport()->Size, wp = ImGui::GetMainViewport()->Pos;
+    ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase);
+    const ImVec2 ts = ImGui::CalcTextSize(text, nullptr, false, ws.x - em() * 4.f);
+    const ImVec2 pad(em() * 1.1f, em() * 0.6f);
+    // The mini window has its controls at the bottom: the notice goes near the top there.
+    const float y = m.mini ? wp.y + em() * 2.6f : wp.y + ws.y - ts.y - pad.y * 2 - em() * 1.2f;
+    const ImVec2 a(wp.x + (ws.x - ts.x) * 0.5f - pad.x, y);
+    const ImVec2 b(a.x + ts.x + pad.x * 2, a.y + ts.y + pad.y * 2);
+    dl->AddRectFilled(a, b, col(ImVec4(kPanel.x, kPanel.y, kPanel.z, 0.97f * alpha)), em() * 0.6f);
+    dl->AddRect(a, b, col(ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.8f * alpha)), em() * 0.6f, 0, 1.4f);
+    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(a.x + pad.x, a.y + pad.y), col(ImVec4(kText.x, kText.y, kText.z, alpha)),
+                text, nullptr, ws.x - em() * 4.f);
+    ImGui::PopFont();
+}
+
+// What fixes a problem: the setting to go to, or looking for devices again. Never a payment page.
+struct ErrorFix { const char* label; const char* jumpTo; bool rescan; };
+ErrorFix errorFix(const std::string& e) {
+    auto has = [&e](const char* s) { return e.find(s) != std::string::npos; };
+    if (has("microphone")) return {"Pick a microphone", "Microphone", true};
+    if (has("output device")) return {"Pick where it goes", "Send the new voice to", true};
+    if (has("API key") || has("key was rejected")) return {"Open Accounts", "Accounts", false};
+    if (has("translation service") || has("Switch to DeepL") || has("DeepL key")) return {"Change the service", "Translation service", false};
+    if (has("Pick a voice")) return {"Pick a voice", "Voice", false};
+    if (has("spoken language")) return {"Pick your language", "I speak", false};
+    return {nullptr, nullptr, false};
+}
+void errorFixButtons(UiModel& m, UiActions& act, const std::string& e) {
+    const ErrorFix f = errorFix(e);
+    if (!f.label) return;
+    auto w = [](const char* l) { return ImGui::CalcTextSize(T(l)).x + em() * 2.4f; };
+    if (button(f.label, true, w(f.label))) findJumpTo(m, f.jumpTo);
+    if (f.rescan) {
+        ImGui::SameLine(0, em() * 0.5f);
+        if (button("Look for devices again", false, w("Look for devices again"))) act.rescanDevices = true;
+    }
+}
+
+// ---------------------------------------------------------------- Check my setup
+
+void checkWindow(UiModel& m, UiActions& act) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(em() * 38.f, vp->Size.x - em() * 2.f), 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, vp->Size.y - em() * 2.f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, kPopup);
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, kPanel);
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, kPanel);
+    ImGui::PushStyleColor(ImGuiCol_Border, kLine);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(em() * 1.4f, em() * 1.2f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, em() * 0.8f);
+    bool open = true;
+    char title[96];
+    std::snprintf(title, sizeof(title), "%s###checksetup", T("Check my setup"));
+    if (ImGui::Begin(title, &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(0.f);
+        note("Each step says what to do. It takes about a minute.");
+        if (!m.checkPrompt.empty()) {  // what to do now, in a box that's hard to miss
+            gap(0.3f);
+            const ImVec2 a = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            ImGui::GetWindowDrawList()->ChannelsSplit(2);
+            ImGui::GetWindowDrawList()->ChannelsSetCurrent(1);
+            ImGui::SetCursorScreenPos(ImVec2(a.x + em() * 0.8f, a.y + em() * 0.55f));
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w - em() * 1.6f);
+            ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.05f);
+            ImGui::TextUnformatted(T(m.checkPrompt));
+            ImGui::PopFont();
+            ImGui::PopTextWrapPos();
+            const float h = ImGui::GetItemRectMax().y - a.y + em() * 0.55f;
+            ImGui::GetWindowDrawList()->ChannelsSetCurrent(0);
+            ImGui::GetWindowDrawList()->AddRectFilled(a, ImVec2(a.x + w, a.y + h), col(ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.16f)), em() * 0.5f);
+            ImGui::GetWindowDrawList()->AddRect(a, ImVec2(a.x + w, a.y + h), col(kSignal), em() * 0.5f, 0, 1.4f);
+            ImGui::GetWindowDrawList()->ChannelsMerge();
+            ImGui::SetCursorScreenPos(ImVec2(a.x, a.y + h));
+            ImGui::Dummy(ImVec2(w, 0));
+        }
+        gap(0.4f);
+        const ImVec4 kGood = kVoices[2];
+        for (size_t i = 0; i < m.check.size(); ++i) {
+            const CheckItem& c = m.check[i];
+            ImGui::PushID(int(i));
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 dot(p.x + em() * 0.6f, p.y + em() * 0.65f);
+            const float r = em() * 0.5f;
+            switch (c.state) {
+            case kCheckNow: {
+                const float pulse = 0.55f + 0.45f * std::sin(float(ImGui::GetTime()) * 5.f);
+                dl->AddCircleFilled(dot, r, col(ImVec4(kSignal.x, kSignal.y, kSignal.z, pulse)), 20);
+                break;
+            }
+            case kCheckOk:
+                dl->AddCircleFilled(dot, r, col(kGood), 20);
+                dl->AddLine(ImVec2(dot.x - r * 0.45f, dot.y), ImVec2(dot.x - r * 0.1f, dot.y + r * 0.38f), col(kBg), 2.f);
+                dl->AddLine(ImVec2(dot.x - r * 0.1f, dot.y + r * 0.38f), ImVec2(dot.x + r * 0.5f, dot.y - r * 0.38f), col(kBg), 2.f);
+                break;
+            case kCheckProblem:
+                dl->AddCircleFilled(dot, r, col(kDanger), 20);
+                dl->AddLine(ImVec2(dot.x, dot.y - r * 0.5f), ImVec2(dot.x, dot.y + r * 0.12f), col(kBg), 2.2f);
+                dl->AddCircleFilled(ImVec2(dot.x, dot.y + r * 0.45f), 1.4f, col(kBg));
+                break;
+            case kCheckNote:
+                dl->AddCircle(dot, r, col(kMuted), 20, 1.5f);
+                dl->AddLine(ImVec2(dot.x - r * 0.4f, dot.y), ImVec2(dot.x + r * 0.4f, dot.y), col(kMuted), 1.8f);
+                break;
+            default:
+                dl->AddCircle(dot, r, col(kLine), 20, 1.5f);
+                break;
+            }
+            ImGui::SetCursorScreenPos(ImVec2(p.x + em() * 1.7f, p.y));
+            ImGui::BeginGroup();
+            ImGui::PushTextWrapPos(0.f);
+            ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase);
+            ImGui::TextColored(c.state == kCheckWaiting ? kMuted : kText, "%s", T(c.title));
+            ImGui::PopFont();
+            if (!c.detail.empty()) {
+                char b[1200];
+                std::snprintf(b, sizeof(b), TF(c.detail.c_str()), c.arg1.c_str(), c.arg2.c_str());
+                ImGui::TextColored(c.state == kCheckProblem ? kDanger : kMuted, "%s", b);
+            }
+            if (!c.fix.empty()) {
+                if (button(c.fix.c_str(), true, ImGui::CalcTextSize(T(c.fix)).x + em() * 2.4f)) {
+                    if (c.fixJump == "sound") act.openSoundPanel = true;
+                    else {
+                        m.checkOpen = false;
+                        if (m.mini) act.setMini = 0;
+                        findJumpTo(m, c.fixJump.c_str());
+                    }
+                }
+            }
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+            ImGui::PopID();
+            gap(0.45f);
+        }
+        gap(0.2f);
+        if (m.checkRunning) {
+            if (button("Stop the check", false, em() * 9.f)) act.stopCheck = true;
+        } else {
+            int problems = 0;
+            for (const CheckItem& c : m.check) problems += c.state == kCheckProblem;
+            if (!m.check.empty() && m.check.back().state != kCheckWaiting) {
+                ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase);
+                ImGui::TextColored(problems ? kDanger : kGood, "%s", T(problems ? "Fix the red ones, then run it again." : "Everything looks good."));
+                ImGui::PopFont();
+                gap(0.2f);
+            }
+            if (button("Run it again", true, em() * 9.f)) act.startCheck = true;
+            ImGui::SameLine(0, em() * 0.6f);
+            if (button("Close", false, em() * 7.f)) { m.checkOpen = false; act.stopCheck = true; }
+        }
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(4);
+    if (!open) { m.checkOpen = false; act.stopCheck = true; }
+}
+
 // ---------------------------------------------------------------- Home
 
 // A rounded card that grows to fit what's in it.
@@ -544,6 +723,9 @@ const Tile kTiles[] = {
     {"learn", kIcBook, "Learning mode", "See how to read what's said", "Learning mode"},
     {"deeplwords", kIcWords, "Words for DeepL", "Words the AI softens, kept as said", "Words for DeepL"},
     {"phrases", kIcBookmark, "Quick phrases", "One click for lines you say a lot", "Quick phrases"},
+    {"check", kIcCheck, "Check my setup", "A one-minute test of your mic, cable and keys", "Check my setup"},
+    {"words", kIcWords, "My word list", "Names written your way, never translated", "My word list"},
+    {"share", kIcChat, "Share a setup", "Copy your setup for a friend, without your keys", "Profiles"},
 };
 const char* const kDefaultTiles[] = {"live", "emotion", "chatbox", "listen", "ear", "screen", "overlay", "answer"};
 
@@ -593,6 +775,8 @@ void tileClick(UiModel& m, UiActions& act, const Tile& t) {
     else if (id == "deeplwords") { if (c.fx.deeplWords.empty() && !c.fx.deeplWordsOn) findJumpTo(m, t.settingsLabel); else c.fx.deeplWordsOn = !c.fx.deeplWordsOn; }
     else if (id == "overlay") act.openCaptionWindow = true;
     else if (id == "phrases") m.cfg.page = kPageText;
+    else if (id == "check") act.startCheck = true;
+    else if (id == "words" || id == "share") findJumpTo(m, t.settingsLabel);
 }
 
 std::vector<const Tile*> homeTiles(const UiModel& m) {
@@ -639,7 +823,7 @@ void tileGrid(UiModel& m, UiActions& act) {
         const ImVec2 ia(a.x + pad, a.y + pad);
         dl->AddRectFilled(ia, ImVec2(ia.x + isz, ia.y + isz), col(on == 1 ? ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.18f) : kField), em() * 0.45f);
         drawIcon(dl, t.icon, ImVec2(ia.x + isz * 0.5f, ia.y + isz * 0.5f), isz * 0.58f, col(on == 1 ? kSignal : kMuted));
-        const char* state = on == 1 ? T("On") : on == 0 ? T("Off") : t.icon == kIcCaptions ? T("Open") : T("Edit");
+        const char* state = on == 1 ? T("On") : on == 0 ? T("Off") : t.icon == kIcCaptions ? T("Open") : t.icon == kIcCheck ? T("Run") : T("Edit");
         ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 0.82f);
         const ImVec2 ss = ImGui::CalcTextSize(state);
         dl->AddText(ImVec2(b.x - armW - pad * 0.7f - ss.x, ia.y + (isz - ss.y) * 0.5f), col(on == 1 ? kSignal : kMuted), state);
@@ -698,13 +882,14 @@ void editTilesPopup(UiModel& m) {
 // The extras someone hasn't tried, one at a time, so new people find what makes the app useful.
 void newToYou(UiModel& m, UiActions& act) {
     static int at = 0;
-    static const char* const kIdeas[] = {"screen", "ear", "listen", "chatbox", "live", "emotion", "overlay", "answer", "cancel", "learn", "history", "phrases"};
+    static const char* const kIdeas[] = {"screen", "words", "ear", "listen", "share", "chatbox", "live", "emotion", "overlay", "answer", "cancel", "check", "learn", "history", "phrases"};
     const int n = int(sizeof(kIdeas) / sizeof(kIdeas[0]));
     const Tile* pick = nullptr;
     for (int k = 0; k < n && !pick; ++k) {
         const char* id = kIdeas[(at + k) % n];
         if (tileOn(m, id) == 1) continue;
         if (std::strcmp(id, "phrases") == 0 && !m.cfg.fx.quickPhrases.empty()) continue;
+        if (std::strcmp(id, "words") == 0 && !m.cfg.fx.words.empty()) continue;
         for (const Tile& t : kTiles)
             if (std::strcmp(t.id, id) == 0) pick = &t;
         if (pick) at = (at + k) % n;
@@ -719,10 +904,12 @@ void newToYou(UiModel& m, UiActions& act) {
     heading(pick->name, 1.08f);
     note(pick->what);
     gap(0.4f);
-    if (button("Show me", true, em() * 7.f)) findJumpTo(m, pick->settingsLabel);
+    if (button(std::strcmp(pick->id, "check") == 0 ? "Run it" : "Show me", true, em() * 7.f)) {
+        if (std::strcmp(pick->id, "check") == 0) act.startCheck = true;
+        else findJumpTo(m, pick->settingsLabel);
+    }
     ImGui::SameLine(0, em() * 0.6f);
     if (button("Another", false, em() * 6.f)) at = (at + 1) % n;
-    (void)act;
 }
 
 // What others are saying, from Listen.
@@ -845,7 +1032,9 @@ void homePage(UiModel& m, UiActions& act) {
         gap(0.35f);
         {
             const char* label = T("All voice settings");
+            ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase);
             const ImVec2 ls = ImGui::CalcTextSize(label);
+            ImGui::PopFont();
             const float bw = ls.x + em() * 3.0f, bh = ImGui::GetFrameHeight() * 1.15f;
             const ImVec2 a = ImGui::GetCursorScreenPos();
             if (ImGui::InvisibleButton("##allvoice", ImVec2(bw, bh))) c.page = kPageVoice;
@@ -872,6 +1061,7 @@ void homePage(UiModel& m, UiActions& act) {
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + leftW);
         if (!m.lastError.empty()) {
             statusLine("Problem", T(m.lastError), kDanger);
+            errorFixButtons(m, act, m.lastError);
         } else if (!m.pendingSay.empty()) {
             statusLine("About to say", m.pendingSay, kSignal);
         } else if (!m.heardText.empty()) {
@@ -1012,6 +1202,7 @@ void lastLineCard(UiModel& m, UiActions& act) {
             std::snprintf(b, sizeof(b), TF("%s's status page reports: %s"), bad->name.c_str(), bad->detail.c_str());
             ImGui::TextColored(healthColor(bad->health), "%s", b);
         }
+        errorFixButtons(m, act, m.lastError);
     } else if (!m.pendingSay.empty()) {
         ImGui::TextColored(kMuted, "%s", T("About to say"));
         ImGui::TextColored(kSignal, "%s", m.pendingSay.c_str());
@@ -1140,6 +1331,10 @@ void miniView(UiModel& m, UiActions& act) {
         ImGui::PushTextWrapPos(0.f);
         if (!m.lastError.empty()) {
             ImGui::TextColored(kDanger, "%s", T(m.lastError));
+            if (const ErrorFix f = errorFix(m.lastError); f.label && button(f.label, true)) {
+                act.setMini = 0;
+                findJumpTo(m, f.jumpTo);
+            }
         } else if (!m.pendingSay.empty()) {
             ImGui::TextColored(kMuted, "%s", T("About to say"));
             ImGui::TextColored(kSignal, "%s", m.pendingSay.c_str());

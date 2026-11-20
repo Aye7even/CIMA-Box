@@ -31,6 +31,10 @@ struct VrSettings {
     PanelStyle style;         // text size, lines, colours, panel, glow (style.showSub follows showOriginal)
     bool dashboard = true;    // a "CIMA Box" tab in the SteamVR menu: switch who you're talking to
     bool showTalkingTo = true;  // small "Talking to: ..." note on the caption panel
+    // Push to talk with a controller button (SteamVR Input). Connects to SteamVR for it even when
+    // the captions are off.
+    bool pttButton = false;
+    bool buzz = true;           // a short vibration when recording starts and stops
 };
 
 // What the SteamVR menu tab shows (texts come translated from the app).
@@ -47,6 +51,10 @@ struct VrState {
     std::string status;   // "Showing in SteamVR", "Waiting for SteamVR to start", ...
     bool connected = false;
     bool visible = false;
+    // The push-to-talk button
+    std::string button;   // "Not picked yet", "Ready", ... (empty when it isn't used)
+    bool buttonBound = false;
+    bool buttonDown = false;
 };
 
 class VrOverlay {
@@ -68,6 +76,11 @@ public:
     bool takeTalkingTo(int& choice);                                 // a button was pressed in the SteamVR menu
     void setThumbnail(const uint8_t* rgba, int size);                // the menu tab's icon (square RGBA)
     VrState state() const;
+    // Push to talk with a controller button.
+    void setActionManifest(const std::string& path);  // SteamVR Input's description of CIMA Box's actions
+    bool buttonDown() const;                          // cheap, any thread
+    void buzz();                                      // a short vibration on the hand that pressed it
+    void openBindings();                              // SteamVR's screen for picking the button
 
 private:
     struct Impl;

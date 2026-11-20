@@ -91,6 +91,7 @@ bool Eleven::listVoices(std::vector<Voice>& out, std::string& err) {
         x.name = str(v, "name");
         if (x.name.empty()) x.name = x.id;
         x.category = str(v, "category");
+        x.previewUrl = str(v, "preview_url");
         if (!x.id.empty()) out.push_back(std::move(x));
     }
     return true;

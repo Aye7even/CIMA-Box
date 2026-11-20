@@ -66,7 +66,16 @@ for _name in ['const KeyGuideText kKeyGuides', 'const char* top[]', 'const char*
     _i=_ui.index(_name); _j=_ui.index('};' if not _name.startswith('for') else '})', _i)
     for _s in literals(_ui[_i:_j]):
         if not _s.startswith('http') and '.com' not in _s and '.io' not in _s: found.append(_s)
-scan_file('main.cpp', ['T','TF','quotaItem'])
+scan_file('main.cpp', ['T','TF','quotaItem','notice'])
+# Check my setup: every sentence in it is shown (translated) in the check window
+_m=open(src+'main.cpp').read()
+_i=_m.index('// ---------------------------------------------------------------- Check my setup'); _j=_m.index('static SetupCheck gCheck;')
+found += [x for x in literals(_m[_i:_j]) if ' ' in x and not x.startswith('/')]
+# the VR push-to-talk button's state
+_v=open(src+'vroverlay.cpp').read()
+for _line in _v.splitlines():
+    if 'st.button =' in _line: found += literals(_line)
+found += ['Connecting to SteamVR']
 # the 3.0 frame: sidebar, page titles, Home, quick toggles
 scan_file('ui3.inl', calls + ['navRow', 'sectionCard', 'sentenceWithChips', 'languageName'])
 _u3=open(src+'ui3.inl').read()
@@ -97,7 +106,7 @@ def keep(s):
     if s in ('%s','%.2f','%.0f','%d','%.0f dB','%d ms','%.1fx','%.2f s','%s%s %.2f s',', ','.'): return False
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
-drop={'Google Gemini','mic','out','chatbox','emotion','listen','vr','#','Ctrl F','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','deeplwords','lookpreset','SteamVR: ','Waiting for ',' to start.',
+drop={'Google Gemini','mic','out','check','share','stop','sound','CABLE Input (VB-Audio ...)','CABLE Output (VB-Audio ...)','chatbox','emotion','listen','vr','#','Ctrl F','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','deeplwords','lookpreset','SteamVR: ','Waiting for ',' to start.',
       'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
           'Working','Some problems','Outage','Maintenance',"Couldn't check",'All Systems Operational','Problems reported',

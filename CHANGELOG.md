@@ -6,6 +6,19 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 3.0.2
+- New: Check my setup (My voice > Where it goes, or a quick toggle on Home). A one-minute test that walks you through it: your mic hears you, the voice goes to a cable, both ends of the cable run at the same rate, a quiet test beep goes in and comes out, nothing else sends your mic into the cable (why people sometimes hear you twice), push to talk works, and your ElevenLabs key loads your voices. Anything wrong comes with a button to the fix.
+- New: push to talk with a VR controller button (any SteamVR headset). Turn on "A VR controller button too" under push to talk and pick the button in SteamVR's controller bindings. It buzzes when recording starts and stops, and works with the VR captions off.
+- New: tap to talk. Under push to talk, "Tap to start and stop": tap once to start recording and again to stop, instead of holding. Great for long stories or a VR button.
+- New: hear a voice before picking it. The play button next to each voice plays its sample in your headphones, for free, and nobody in your call hears it.
+- When a hotkey or the SteamVR menu changes something, a short note says so at the bottom of the window ("Talking to: A girl", "Stopped speaking"), also in the mini window and the caption window over your game.
+- Problems come with a button that fixes them: "Pick a microphone", "Open Accounts", "Look for devices again" and so on, on Home, in the Last line card and in the mini window.
+- My word list and Share a setup are easier to find: Home's "New to you" suggests them, and they can be quick toggles.
+- Your real voice no longer crackles going through VB-Cable (or any virtual cable). When CIMA Box passes your own mic through (with the switch off and "Pass my mic through" on, the "my real voice" key, or push to talk set to "My real voice"), it now keeps 50 ms of sound ready before playing, so a block that arrives a little late is no longer a gap.
+- The mic and the cable each keep their own time and slowly drift apart. CIMA Box now evens that out one sample at a time, which you can't hear, instead of skipping 10 ms at once, which clicked.
+- Sound moves through the app more evenly: Windows' timer is set to 1 ms while CIMA Box runs (it rounds short waits up to about 15 ms otherwise).
+- Messages and tips that still pointed to the old layout ("under Input", "bottom of the window") point to the right places.
+
 ## 3.0.1
 - Home shows which service translated each line again ("Translated by Claude", or Gemini, OpenAI or DeepL), next to how long it took. 3.0.0 only said "Translated".
 

@@ -20,7 +20,7 @@ struct VoiceSettings {
     float cloneStrength = 0.0f;
 };
 
-struct Voice { std::string id, name, category; };
+struct Voice { std::string id, name, category, previewUrl; };  // previewUrl: ElevenLabs' free sample (MP3)
 struct Model { std::string id, name; bool voiceConversion = false, textToSpeech = false; };
 
 struct SpeakerTurn {

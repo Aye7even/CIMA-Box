@@ -95,6 +95,8 @@ and Hebrew are shown right to left with joined letters, in the app and in VR.
    click **Load voices and models**.
 2. On **My voice**, pick your microphone (Microphone), a voice (Voice and language), and where the
    new voice goes (Where it goes): choose **CABLE Input** there.
+   Then click **Check my setup** right there: a one-minute test that makes sure people will hear
+   you, once, without crackling, and shows how to fix anything that's off.
 3. In your game, Discord or any other app, choose **CABLE Output** as your microphone.
 4. Flip the switch at the top right and talk.
 

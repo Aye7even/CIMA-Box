@@ -14,6 +14,7 @@
 #include <shellapi.h>  // ShellExecuteW: "Open settings folder"
 #include <commdlg.h>   // GetOpenFileNameW: Settings > Look > Choose a picture
 #include <shlobj.h>    // SHGetKnownFolderPath: the Documents folder
+#include <timeapi.h>   // timeBeginPeriod: 1 ms timer precision
 #endif
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -269,10 +270,13 @@ static void settingsFromJson(const json& j, Settings& s) {
             r.style.panelOpacity = v.value("panel_opacity", r.style.panelOpacity);
             r.style.glow = v.value("glow", r.style.glow);
             r.showTalkingTo = v.value("show_talking_to", r.showTalkingTo);
+            r.pttButton = v.value("ptt_button", r.pttButton);
+            r.buzz = v.value("buzz", r.buzz);
         }
         s.matchAmount = j.value("match_amount", s.matchAmount);
         s.passthrough = j.value("passthrough", s.passthrough);
         s.pttRealVoice = j.value("ptt_real_voice", s.pttRealVoice);
+        s.pttTap = j.value("ptt_tap", s.pttTap);
         s.chatbox = j.value("voice_chatbox", s.chatbox);
         s.chatboxShow = j.value("voice_chatbox_show", s.chatboxShow);
         s.textTranslate = j.value("text_translate", s.textTranslate);
@@ -494,7 +498,7 @@ static std::string settingsJson(const Settings& s) {
         {"hold_ms", s.holdMs}, {"sentence_wait_ms", s.sentenceWaitMs}, {"live_transcription", s.liveStt}, {"max_seconds", s.maxSeconds}, {"ptt_key", s.pttKey},
         {"page", s.page}, {"home_tiles", s.homeTiles},
         {"emotion", s.emotion}, {"emotion_strength", s.emotionStrength},
-        {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough}, {"ptt_real_voice", s.pttRealVoice},
+        {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough}, {"ptt_real_voice", s.pttRealVoice}, {"ptt_tap", s.pttTap},
         {"voice_chatbox", s.chatbox}, {"voice_chatbox_show", s.chatboxShow},
         {"text_translate", s.textTranslate}, {"text_speak", s.textSpeak}, {"setup_done", s.setupDone},
         {"setup_at", s.setupAt}, {"setup_use", s.setupUse}, {"setup_route", s.setupRoute}, {"setup_ai", s.setupAi},
@@ -521,6 +525,7 @@ static std::string settingsJson(const Settings& s) {
             {"opacity", r.opacity}, {"text_px", r.style.textPx}, {"max_lines", r.style.maxLines},
             {"text_color", r.style.textColor}, {"accent_color", r.style.accentColor}, {"me_color", r.style.meColor},
             {"panel_opacity", r.style.panelOpacity}, {"glow", r.style.glow}, {"show_talking_to", r.showTalkingTo},
+            {"ptt_button", r.pttButton}, {"buzz", r.buzz},
         };
     }
     const ListenSettings& ls = s.listen;
@@ -627,6 +632,11 @@ struct Phrase {
 struct Sink {  // one playback device fed by a ring buffer
     SpscRing<int16_t> ring{size_t(kDeviceRate) * 120};
     std::atomic<bool> flush{false};
+    // Your real voice comes from the mic 10 ms at a time, and not exactly on time. While it plays,
+    // the device waits for this many samples before starting (and again after running dry), so a
+    // late block becomes a short wait at the start instead of a gap (a crackle) in the middle.
+    std::atomic<int> cushion{0};
+    std::atomic<bool> filling{false};
     ma_device dev;
     std::atomic<bool> on{false};
     // What was asked for, so a device that disappears (unplugged) can be opened again.
@@ -671,6 +681,8 @@ struct App {
     std::atomic<int> listener{0};               // Listener the translation uses (Talking to, resolved)
     std::atomic<float> outGain{1.f}, monGain{1.f};
     std::atomic<int> pttKey{0}, talkKey{0}, talkPresses{0};  // hotkeys, read by the key thread
+    std::atomic<bool> pttTap{false}, pttActive{false}, vrButton{false};  // push to talk: tap mode, in use, VR button
+    std::atomic<bool> checkQuiet{false};  // Check my setup: send nothing to the output for a moment
     std::atomic<bool> binding{false};
     std::atomic<float> levelDb{-100.f};
     std::atomic<int> sttMs{0}, translateMs{0}, voiceMs{0}, totalMs{0};
@@ -699,6 +711,7 @@ struct App {
 
     // ---- Features page
     Sink ear;                     // "Hear them in my ear" and learning-mode replays
+    Sink preview;                 // voice samples, in your headphones (opened when first used)
     std::deque<std::pair<std::string, std::string>> earJobs;  // text, language code; guarded by mtx
     std::condition_variable earCv;
     std::atomic<float> earGain{0.9f};
@@ -713,6 +726,28 @@ struct App {
 static App g;
 static Listener gListen;  // the Listen page's own pipeline; runs next to the voice changer
 static VrOverlay gVr;     // captions inside the headset (idle unless switched on)
+
+// Push to talk from the key or the VR controller button, held or tapped (tap to start, tap again
+// to stop). The controller gives a short buzz when recording starts and stops.
+struct PttInput {
+    bool was = false, latched = false, last = false;
+    bool update(bool physical, bool tap, bool active) {
+        if (!active) latched = false;
+        bool down;
+        if (tap) {
+            if (physical && !was) latched = !latched;
+            down = latched;
+        } else {
+            latched = false;
+            down = physical;
+        }
+        was = physical;
+        down = down && active;
+        if (down != last && g.vrButton) gVr.buzz();
+        last = down;
+        return down;
+    }
+};
 static StatusWatcher gStatus;  // ElevenLabs, Claude, Gemini, DeepL status pages
 static UsageWatcher gUsage;    // ElevenLabs credits and DeepL characters left
 static const auto gStart = std::chrono::steady_clock::now();
@@ -869,7 +904,13 @@ static void deviceNoteCb(const ma_device_notification* n) {
 static void playCb(ma_device* d, void* out, const void*, ma_uint32 frames) {
     auto* s = static_cast<Sink*>(d->pUserData);
     if (s->flush.exchange(false)) s->ring.clear();
-    s->ring.pop(static_cast<int16_t*>(out), frames);  // miniaudio pre-fills the rest with silence
+    const size_t cushion = size_t(std::max(0, s->cushion.load()));
+    if (cushion > 0 && s->filling) {
+        if (s->ring.size() < cushion + frames) return;  // still filling up: silence (pre-filled by miniaudio)
+        s->filling = false;
+    }
+    const size_t got = s->ring.pop(static_cast<int16_t*>(out), frames);  // miniaudio pre-fills the rest with silence
+    if (cushion > 0 && got < frames) s->filling = true;  // ran dry: build the cushion up again
 }
 
 static void refreshDeviceList(UiModel& ui) {
@@ -920,7 +961,7 @@ static void openCapture(const std::string& name) {
     } else {
         logQuietly("Microphone: couldn't open " + (name.empty() ? std::string("the system default") : name));
         std::lock_guard<std::mutex> lk(g.mtx);
-        g.lastError = "Couldn't open the microphone. Pick another one under Input.";
+        g.lastError = "Couldn't open the microphone. Pick another one under My voice > Microphone.";
     }
 }
 
@@ -947,13 +988,297 @@ static void openSink(Sink& s, const std::string& name, bool wanted) {
     } else {
         logQuietly(std::string(s.what) + ": couldn't open " + (name.empty() ? std::string("the system default") : name));
         std::lock_guard<std::mutex> lk(g.mtx);
-        g.lastError = "Couldn't open that output device. Pick another one under Output.";
+        g.lastError = "Couldn't open that output device. Pick another one under My voice > Where it goes.";
     }
 }
 
 // Unplugged headsets, Bluetooth that reconnects, a driver that resets: notices a device that
 // stopped by itself, or a named device that is back after the system default stood in for it,
 // and opens it again. Checked every few seconds, and right away when a device reports a change.
+// ---------------------------------------------------------------- voice samples
+// A voice's free sample (an MP3 ElevenLabs keeps for every voice), played in your headphones: the
+// "Hear it yourself" device, or the default speakers. Never into the cable.
+struct VoicePreview {
+    std::thread worker;
+    std::atomic<bool> stop{false}, loading{false};
+    std::string playing;  // voice id (UI thread)
+
+    void play(const std::string& id, const std::string& url, const std::string& headphones) {
+        halt();
+        if (!g.preview.on || g.preview.name != headphones) openSink(g.preview, headphones, true);
+        if (!g.preview.on) return;
+        playing = id;
+        stop = false;
+        loading = true;
+        worker = std::thread([this, url] {
+            Http http;
+            http.cancel = &stop;
+            HttpRequest r;
+            r.url = url;
+            r.timeoutSec = 15;
+            r.followRedirects = true;
+            long status = 0;
+            std::string body, err;
+            const bool ok = http.perform(r, status, body, err) && status == 200 && !body.empty();
+            if (ok && !stop) {
+                VoiceOut dec(kDeviceRate);
+                dec.begin("mp3_44100_128");
+                const VoiceOut::Emit emit = [](int16_t* s, size_t n) { g.preview.ring.push(s, n); };
+                dec.push(body.data(), body.size(), emit);
+                dec.finish(emit);
+            } else if (!ok) {
+                logQuietly("Voice sample: couldn't download it (" + (err.empty() ? std::to_string(status) : err) + ")");
+            }
+            loading = false;
+        });
+    }
+    void halt() {
+        stop = true;
+        if (worker.joinable()) worker.join();
+        g.preview.flush = true;
+        playing.clear();
+        loading = false;
+    }
+    // What the UI shows as playing: until the sample has played out.
+    const std::string& shown() {
+        if (!playing.empty() && !loading && g.preview.ring.size() == 0) playing.clear();
+        return playing;
+    }
+};
+static VoicePreview gPreview;
+
+// ---------------------------------------------------------------- Check my setup
+// A guided test, one step at a time: the mic hears you, the voice goes to a cable, both ends of the
+// cable run at the same rate, a test beep goes in one end and comes out the other, nothing else sends
+// your mic into the cable, push to talk works, and the ElevenLabs key loads your voices.
+struct SetupCheck {
+    enum Step { kMic, kOut, kRates, kTone, kRoute, kPtt, kKey, kDone };
+    int step = kDone;
+    double stepAt = 0;
+    std::string cableIn, cableOut;    // the two ends of the cable (empty when there's none)
+    // Listening on the cable's far end
+    ma_device probe;
+    bool probeOn = false;
+    std::atomic<float> probeDb{-100.f}, tone{0.f};
+    // The route check
+    double spokeFor = 0, last = 0;
+    float quietDb = -100.f, loudDb = -100.f;
+    bool toneSent = false;
+
+    static void probeCb(ma_device* d, void*, const void* in, ma_uint32 frames) {
+        auto* self = static_cast<SetupCheck*>(d->pUserData);
+        const float* x = static_cast<const float*>(in);
+        if (!x || frames == 0) return;
+        double sum = 0, s1 = 0, s2 = 0;
+        const double k = 2.0 * std::cos(2.0 * 3.14159265358979 * 880.0 / kDeviceRate);  // Goertzel at the beep's pitch
+        for (ma_uint32 i = 0; i < frames; ++i) {
+            sum += double(x[i]) * x[i];
+            const double s0 = x[i] + k * s1 - s2;
+            s2 = s1;
+            s1 = s0;
+        }
+        const double power = std::max(0.0, s1 * s1 + s2 * s2 - k * s1 * s2);
+        self->probeDb = float(10.0 * std::log10(sum / frames + 1e-12));
+        const float amp = float(2.0 * std::sqrt(power) / frames);
+        if (amp > self->tone) self->tone = amp;
+    }
+    void openProbe() {
+        closeProbe();
+        const ma_device_id* id = findDevice(g.capInfos, cableOut);
+        if (!id) return;
+        ma_device_config c = ma_device_config_init(ma_device_type_capture);
+        c.capture.pDeviceID = id;
+        c.capture.format = ma_format_f32;
+        c.capture.channels = 1;
+        c.sampleRate = kDeviceRate;
+        c.dataCallback = probeCb;
+        c.pUserData = this;
+        if (ma_device_init(&g.ctx, &c, &probe) == MA_SUCCESS) {
+            if (ma_device_start(&probe) == MA_SUCCESS) probeOn = true;
+            else ma_device_uninit(&probe);
+        }
+    }
+    void closeProbe() {
+        if (probeOn) ma_device_uninit(&probe);
+        probeOn = false;
+    }
+    static int nativeRate(ma_device_type type, const std::string& name) {
+        const ma_device_id* id = findDevice(type == ma_device_type_playback ? g.playInfos : g.capInfos, name);
+        if (!id) return 0;
+        ma_device_info info;
+        if (ma_context_get_device_info(&g.ctx, type, id, &info) != MA_SUCCESS) return 0;
+        for (ma_uint32 i = 0; i < info.nativeDataFormatCount; ++i)  // the rate Windows mixes at (shared mode)
+            if (!(info.nativeDataFormats[i].flags & MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE)) return int(info.nativeDataFormats[i].sampleRate);
+        return 0;
+    }
+
+    void start(UiModel& ui) {
+        ui.check.clear();
+        for (const char* t : {"Your microphone", "Where the new voice goes", "Both ends of the cable match",
+                              "Sound reaches the cable", "Nothing else sends your mic into the cable", "Push to talk",
+                              "Your ElevenLabs key"})
+            ui.check.push_back({t, "", "", "", kCheckWaiting, "", ""});
+        ui.checkOpen = ui.checkRunning = true;
+        step = kMic;
+        stepAt = nowSeconds();
+        ui.check[kMic].state = kCheckNow;
+        cableIn.clear();
+        cableOut.clear();
+        toneSent = false;
+        last = 0;
+        spokeFor = 0;
+        quietDb = loudDb = -100.f;
+    }
+    void stop(UiModel& ui) {
+        closeProbe();
+        g.checkQuiet = false;
+        step = kDone;
+        ui.checkRunning = false;
+        ui.checkPrompt.clear();
+        for (CheckItem& c : ui.check)
+            if (c.state == kCheckNow || c.state == kCheckWaiting) c.state = kCheckWaiting;
+    }
+    void finish(UiModel& ui, int state, const char* detail, const std::string& a1 = "", const std::string& a2 = "",
+                const char* fix = "", const char* jump = "") {
+        CheckItem& c = ui.check[size_t(step)];
+        c.state = state;
+        c.detail = detail;
+        c.arg1 = a1;
+        c.arg2 = a2;
+        c.fix = fix;
+        c.fixJump = jump;
+        ++step;
+        stepAt = nowSeconds();
+        g.checkQuiet = false;
+        if (step < kDone) ui.check[size_t(step)].state = kCheckNow;
+        else stop(ui);
+    }
+    void skipCableChecks(UiModel& ui, const char* why) {
+        while (step >= kRates && step <= kRoute) finish(ui, kCheckNote, why);
+    }
+
+    void update(UiModel& ui) {
+        if (step >= kDone) return;
+        const double t = nowSeconds() - stepAt;
+        switch (step) {
+        case kMic:
+            ui.checkPrompt = "Say something, like \"testing, one, two\".";
+            if (g.levelDb > -42.f) finish(ui, kCheckOk, "It hears you.");
+            else if (t > 10.0)
+                finish(ui, kCheckProblem, "Nothing came through from %s. Pick the microphone you talk into.",
+                       ui.cfg.inDevice.empty() ? std::string("the default microphone") : ui.cfg.inDevice, "", "Pick a microphone", "Microphone");
+            break;
+        case kOut: {
+            ui.checkPrompt.clear();
+            const std::string& out = ui.cfg.outDevice;
+            if (out.empty()) {
+                finish(ui, kCheckProblem, "The new voice goes to your default speakers, so games and Discord won't hear it. Pick CABLE Input.", "", "",
+                       "Pick where it goes", "Send the new voice to");
+                skipCableChecks(ui, "Skipped: the voice isn't going to a cable.");
+                break;
+            }
+            // The other end of the cable: "CABLE Input (VB-Audio ...)" -> "CABLE Output (VB-Audio ...)".
+            std::string pair = out;
+            const size_t at = pair.find("Input");
+            if (at != std::string::npos) pair.replace(at, 5, "Output");
+            const bool found = at != std::string::npos && findDevice(g.capInfos, pair) != nullptr;
+            if (found) {
+                cableIn = out;
+                cableOut = pair;
+                finish(ui, kCheckOk, "It goes into %s. Your game and Discord should use %s as their microphone.", out, pair);
+            } else {
+                finish(ui, kCheckNote, "It goes to %s. If that isn't a virtual cable, only you will hear the new voice.", out);
+                skipCableChecks(ui, "Skipped: couldn't find the other end of this cable.");
+            }
+            break;
+        }
+        case kRates: {
+            const int a = nativeRate(ma_device_type_playback, cableIn), b = nativeRate(ma_device_type_capture, cableOut);
+            if (a <= 0 || b <= 0) finish(ui, kCheckNote, "Couldn't read the cable's settings, so this was skipped.");
+            else if (a != b)
+                finish(ui, kCheckProblem,
+                       "One end runs at %s Hz and the other at %s Hz, which makes voices crackle. In Windows Sound settings, set both "
+                       "CABLE Input (Playback tab) and CABLE Output (Recording tab) to 48000 Hz: Properties > Advanced.",
+                       std::to_string(a), std::to_string(b), "Open Sound settings", "sound");
+            else finish(ui, kCheckOk, "Both ends run at %s Hz.", std::to_string(a));
+            break;
+        }
+        case kTone: {
+            ui.checkPrompt = "Playing a short, quiet beep into the cable. Stay quiet for a moment.";
+            g.checkQuiet = true;
+            if (!probeOn && t < 0.1) {
+                g.out.flush = true;  // anything still playing goes, so the beep is heard right away
+                openProbe();
+            }
+            if (!probeOn) { finish(ui, kCheckNote, "Couldn't listen to %s, so this was skipped.", cableOut); break; }
+            if (!toneSent && t > 0.4) {  // 0.7 s at 880 Hz, faded in and out
+                std::vector<int16_t> beep(size_t(kDeviceRate) * 7 / 10);
+                for (size_t i = 0; i < beep.size(); ++i) {
+                    const double env = std::min(1.0, std::min(double(i), double(beep.size() - i)) / (kDeviceRate * 0.02));
+                    beep[i] = int16_t(std::sin(2.0 * 3.14159265358979 * 880.0 * double(i) / kDeviceRate) * env * 0.12 * 32767.0);
+                }
+                tone = 0.f;
+                g.out.ring.push(beep.data(), beep.size());
+                toneSent = true;
+            }
+            if (toneSent && tone > 0.02f) finish(ui, kCheckOk, "A test beep went into %s and came out of %s.", cableIn, cableOut);
+            else if (t > 3.0)
+                finish(ui, kCheckProblem, "A test beep went into %s but nothing came out of %s. Reinstall VB-Cable, or check it isn't muted or disabled.",
+                       cableIn, cableOut, "Open Sound settings", "sound");
+            break;
+        }
+        case kRoute: {
+            ui.checkPrompt = "Now talk normally for a few seconds. CIMA Box sends nothing meanwhile.";
+            g.checkQuiet = true;
+            if (!probeOn) openProbe();
+            if (!probeOn) { finish(ui, kCheckNote, "Couldn't listen to %s, so this was skipped.", cableOut); break; }
+            const double now = nowSeconds();
+            const double dt = last > 0 ? std::min(0.1, now - last) : 0.0;
+            last = now;
+            if (t < 0.6) break;  // the beep and anything still playing go out first
+            if (g.levelDb > -40.f) {
+                spokeFor += dt;
+                loudDb = std::max(loudDb, probeDb.load());
+            } else {
+                quietDb = std::max(quietDb, probeDb.load());
+            }
+            if (spokeFor > 2.0 || t > 9.0) {
+                if (spokeFor < 0.8) finish(ui, kCheckNote, "Didn't hear you talk, so this was skipped.");
+                else if (loudDb > -50.f && loudDb > quietDb + 10.f)
+                    finish(ui, kCheckProblem,
+                           "Your voice reached %s while CIMA Box sent nothing, so something else sends your mic into the cable and people hear "
+                           "you twice. Usually it's \"Listen to this device\" on your microphone (Sound settings > Recording > your mic > "
+                           "Properties > Listen), or another audio app.",
+                           cableOut, "", "Open Sound settings", "sound");
+                else finish(ui, kCheckOk, "Only CIMA Box sends sound into the cable.");
+            }
+            break;
+        }
+        case kPtt: {
+            closeProbe();
+            if (ui.cfg.activation != kPushToTalk) { finish(ui, kCheckNote, "You use voice activation: nothing to press."); break; }
+            const bool vr = ui.cfg.vr.pttButton;
+            if (ui.cfg.pttKey <= 0 && !vr) {
+                finish(ui, kCheckProblem, "No push-to-talk key is set.", "", "", "Set the key", "Start talking by");
+                break;
+            }
+            ui.checkPrompt = vr ? "Press your push-to-talk key or VR button." : "Press your push-to-talk key.";
+            if (keyDown(ui.cfg.pttKey) || (vr && gVr.buttonDown())) finish(ui, kCheckOk, "Push to talk works.");
+            else if (t > 10.0)
+                finish(ui, kCheckProblem, "Didn't see the key or button being pressed. Check which one is set.", "", "", "Set the key", "Start talking by");
+            break;
+        }
+        case kKey:
+            ui.checkPrompt.clear();
+            if (ui.cfg.apiKey.empty()) finish(ui, kCheckProblem, "No ElevenLabs key yet.", "", "", "Open Accounts", "Accounts");
+            else if (ui.voices.empty()) finish(ui, kCheckProblem, "Your voices didn't load. Check the key.", "", "", "Open Accounts", "Accounts");
+            else finish(ui, kCheckOk, "It works: %s voices loaded.", std::to_string(ui.voices.size()));
+            break;
+        }
+    }
+};
+static SetupCheck gCheck;
+
 static void keepDevicesAlive(UiModel& ui) {
     static double lastCheck = 0;
     static bool capDown = false, outDown = false, monDown = false;
@@ -1044,8 +1369,8 @@ static void captureLoop() {
         LiveStt::Options liveOptions;
         {
             std::lock_guard<std::mutex> lk(g.mtx);
-            enabled = g.cfg.enabled && !g.realVoice;   // "my real voice" key: your own mic goes out instead
-            passthrough = g.cfg.passthrough || g.realVoice;
+            enabled = g.cfg.enabled && !g.realVoice && !g.checkQuiet;   // "my real voice" key: your own mic goes out instead
+            passthrough = (g.cfg.passthrough || g.realVoice) && !g.checkQuiet;
             matchMic = g.cfg.matchMic;
             p.pushToTalk = g.cfg.activation == kPushToTalk;
             realBetween = p.pushToTalk && g.cfg.pttRealVoice;
@@ -1082,7 +1407,24 @@ static void captureLoop() {
         for (int i = 0; i < kIn; ++i) pass[i] = int16_t(std::max(-1.f, std::min(1.f, in[i])) * 32767.f);
         fullQ.insert(fullQ.end(), pass, pass + kIn);
         if (passing) {
-            if (g.out.ring.size() < size_t(kDeviceRate) * 15 / 100) g.out.ring.push(pass, kIn);
+            // 50 ms of cushion (see Sink::cushion). The mic and the output have their own clocks, so the
+            // amount slowly drifts: one sample left out or said twice now and then keeps it near 50 ms
+            // without anything you could hear (dropping 10 ms at once would click).
+            const size_t target = size_t(kDeviceRate) / 20, have = g.out.ring.size();
+            if (!g.passing) { g.out.cushion = int(target); g.out.filling = true; }
+            if (have > target * 3) {
+                // far behind (it was busy, or the AI voice was still playing): just wait for it to play out
+            } else if (have > target * 2) {
+                g.out.ring.push(pass, kIn - 1);
+            } else if (have < target / 2 && !g.out.filling) {
+                g.out.ring.push(pass, kIn);
+                g.out.ring.push(pass + kIn - 1, 1);
+            } else {
+                g.out.ring.push(pass, kIn);
+            }
+        } else if (g.passing) {
+            g.out.cushion = 0;  // the new voice plays as it comes
+            g.out.filling = false;
         }
         g.passing = passing;
 
@@ -2246,6 +2588,9 @@ static UsageItem aiItem(int service, const std::string& model) {
 // ---------------------------------------------------------------- main
 
 int main() {
+#ifdef _WIN32
+    timeBeginPeriod(1);  // short waits really are short (otherwise about 15 ms), so audio moves evenly
+#endif
     UiModel ui;  // the UI thread's copy of everything; ui.cfg is published to g.cfg every frame
     loadSettings(ui.cfg);
     ui.cfg.page = kPageHome;  // it opens on Home: everything at a glance
@@ -2285,6 +2630,7 @@ int main() {
     refreshDeviceList(ui);
     g.mon.what = "Monitor output";
     g.ear.what = "Hear them output";
+    g.preview.what = "Voice samples";
     openCapture(ui.cfg.inDevice);
     openSink(g.out, ui.cfg.outDevice, true);
     openSink(g.mon, ui.cfg.monDevice, ui.cfg.monitor);
@@ -2292,10 +2638,11 @@ int main() {
     std::thread capThread(captureLoop), workThread(workerLoop), earThread(earLoop), screenThread(screenLoop);
     std::thread keyThread([] {  // global hotkeys (Windows): checked every 8 ms whatever the window is doing
         bool talkWas = false, stopWas = false, cancelWas = false, overlayWas = false, screenWas = false;
+        PttInput ptt;
         while (g.running) {
             if (kGlobalHotkey) {
                 const bool binding = g.binding;
-                g.pttDown = !binding && keyDown(g.pttKey);
+                g.pttDown = ptt.update(!binding && (keyDown(g.pttKey) || (g.vrButton && gVr.buttonDown())), g.pttTap, g.pttActive);
                 const bool t = !binding && keyDown(g.talkKey);
                 if (t && !talkWas) ++g.talkPresses;
                 talkWas = t;
@@ -2317,6 +2664,29 @@ int main() {
     gStatus.start();
     gUsage.start();
     gVr.setThumbnail(kLogos[0].rgba, kLogos[0].size);  // the SteamVR menu tab's icon
+    // SteamVR Input: CIMA Box's controls, so a controller button can be push to talk. You pick the
+    // button in SteamVR's controller bindings (VRChat still gets that button too).
+    {
+        const fs::path actions = appDataDir() / "steamvr_actions.json";
+        const json manifest = {
+            {"default_bindings", json::array()},
+            {"action_sets", {{{"name", "/actions/cimabox"}, {"usage", "leftright"}}}},
+            {"actions", {{{"name", "/actions/cimabox/in/push_to_talk"}, {"type", "boolean"}, {"requirement", "optional"}},
+                         {{"name", "/actions/cimabox/out/buzz"}, {"type", "vibration"}}}},
+            {"localization", {{{"language_tag", "en_US"},
+                               {"/actions/cimabox", "CIMA Box"},
+                               {"/actions/cimabox/in/push_to_talk", "Push to talk"},
+                               {"/actions/cimabox/out/buzz", "Buzz when recording starts and stops"}}}},
+        };
+        std::error_code ec;
+        fs::create_directories(appDataDir(), ec);
+        std::ofstream f(actions, std::ios::binary | std::ios::trunc);
+        if (f) {
+            f << manifest.dump(2);
+            f.close();
+            gVr.setActionManifest(actions.u8string());
+        }
+    }
     gVr.start();
     if (!ui.cfg.apiKey.empty()) refreshCatalog(ui.cfg.apiKey);
 
@@ -2449,13 +2819,26 @@ int main() {
         g.pttKey = ui.cfg.pttKey;
         g.talkKey = ui.cfg.talkKey;
         g.binding = ui.binding;
+        g.pttTap = ui.cfg.pttTap;
+        g.pttActive = ui.cfg.activation == kPushToTalk && ui.cfg.enabled;
+        g.vrButton = ui.cfg.vr.pttButton;
         if (!kGlobalHotkey) {
-            g.pttDown = !ui.binding && keyDown(ui.cfg.pttKey);
+            static PttInput ptt;
+            g.pttDown = ptt.update(!ui.binding && (keyDown(ui.cfg.pttKey) || (g.vrButton && gVr.buttonDown())), g.pttTap, g.pttActive);
             const bool t = !ui.binding && keyDown(ui.cfg.talkKey);
             if (t && !talkWasDown) ++g.talkPresses;
             talkWasDown = t;
         }
-        for (int n = g.talkPresses.exchange(0); n > 0; --n) ui.cfg.talkingTo = (ui.cfg.talkingTo + 1) % kTalkCount;
+        static const char* const kTalkNotice[] = {"Auto (their voice)", "Don't know", "A guy", "A girl", "A group"};
+        auto notice = [&ui](const char* text, const char* arg = "") {
+            ui.notice = text;
+            ui.noticeArg = arg;
+            ++ui.noticeSerial;
+        };
+        if (int n = g.talkPresses.exchange(0); n > 0) {
+            ui.cfg.talkingTo = (ui.cfg.talkingTo + n) % kTalkCount;
+            notice("Talking to: %s", kTalkNotice[ui.cfg.talkingTo % kTalkCount]);
+        }
         if (const uint64_t v = gListen.version(); v != captionVersion) {
             captionVersion = v;
             gListen.captions(ui.captions);
@@ -2541,8 +2924,11 @@ int main() {
             press(ui.cfg.fx.overlayKey, overlayWas, g.overlayPresses);
             press(g.screenKey, screenWas, g.screenPresses);
         }
-        if (g.stopPresses.exchange(0) > 0) stopSpeaking();
-        if (g.cancelPresses.exchange(0) > 0) g.cancelPending = true;
+        if (g.stopPresses.exchange(0) > 0) { stopSpeaking(); notice("Stopped speaking"); }
+        if (g.cancelPresses.exchange(0) > 0) {
+            g.cancelPending = true;
+            notice(ui.pendingSay.empty() ? "Nothing to cancel" : "Cancelled");
+        }
         {
             std::lock_guard<std::mutex> lk(g.mtx);
             ui.pendingSay = g.pendingSay;
@@ -2554,7 +2940,10 @@ int main() {
         {
             int vrChoice;
             if (gVr.takeTalkingTo(vrChoice)) {  // picked in the SteamVR dashboard
-                if (vrChoice < kTalkCount) ui.cfg.talkingTo = vrChoice;
+                if (vrChoice < kTalkCount) {
+                    ui.cfg.talkingTo = vrChoice;
+                    notice("Talking to: %s", kTalkNotice[vrChoice % kTalkCount]);
+                }
                 else vrScreen = true;  // the "Translate screen" button after them
             }
             int resolved = kListenerUnknown;
@@ -2692,6 +3081,23 @@ int main() {
             act = uiDraw(ui);
         }
         if (act.placeVrHere) gVr.placeHere();
+        if (act.openVrBindings) gVr.openBindings();
+        if (!ui.previewWanted.empty()) {
+            const std::string want = ui.previewWanted;
+            ui.previewWanted.clear();
+            std::string url;
+            for (const Voice& v : ui.voices)
+                if (v.id == want) url = v.previewUrl;
+            if (want == "stop" || url.empty()) gPreview.halt();
+            else gPreview.play(want, url, ui.cfg.monDevice);
+        }
+        ui.previewing = gPreview.shown();
+        if (act.startCheck) gCheck.start(ui);
+        if (act.stopCheck) { gCheck.stop(ui); ui.checkOpen = false; }
+        gCheck.update(ui);
+#ifdef _WIN32
+        if (act.openSoundPanel) ShellExecuteW(nullptr, L"open", L"control.exe", L"mmsys.cpl,,0", nullptr, SW_SHOWNORMAL);
+#endif
 
         if (act.rescanDevices) refreshDeviceList(ui);
         keepDevicesAlive(ui);
@@ -3016,7 +3422,10 @@ int main() {
             }
         }
         {   // the caption window: see-through, and clicks go to the game while click-through is on
-            if (g.overlayPresses.exchange(0) > 0 && ui.captionsOnly) ui.overlayClickThrough = !ui.overlayClickThrough;
+            if (g.overlayPresses.exchange(0) > 0 && ui.captionsOnly) {
+                ui.overlayClickThrough = !ui.overlayClickThrough;
+                notice(ui.overlayClickThrough ? "Caption window: clicks go through to the game" : "Caption window: you can move it now");
+            }
             static bool through = false;
             static float opacity = 1.f;
             const bool wantThrough = ui.captionsOnly && ui.overlayClickThrough && ui.cfg.fx.overlayKey != 0;
@@ -3036,6 +3445,7 @@ int main() {
             vrScreen = false;
             std::lock_guard<std::mutex> lk(gScreen.mtx);
             if (snap && ui.cfg.screen.on) {
+                if (!act.screenSnapshot) notice("Translating the screen");
                 gScreen.snapshot = true;
                 // From a key or VR you're in the game: no preview to click.
                 gScreen.direct = ui.cfg.screen.skipPreview || !act.screenSnapshot;
@@ -3236,6 +3646,8 @@ int main() {
     earThread.join();
     screenThread.join();
     keyThread.join();
+    gPreview.halt();
+    openSink(g.preview, "", false);
     gVr.stop();
     gListen.stop();
     gStatus.stop();

@@ -448,27 +448,56 @@ void languageCombo(const char* id, std::string& code, bool allowAuto, const std:
     }
 }
 
+// A small play button for a voice's free sample, in your headphones (a square while it plays).
+bool sampleButton(const char* id, const Voice& v, const UiModel& m, float size) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(id, ImVec2(size, size));
+    const bool hot = ImGui::IsItemHovered(), playing = m.previewing == v.id;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + size, p.y + size), col(hot ? kFieldHover : kField), size * 0.25f);
+    const ImVec2 c(p.x + size * 0.5f, p.y + size * 0.5f);
+    const float r = size * 0.2f;
+    if (playing) dl->AddRectFilled(ImVec2(c.x - r * 0.8f, c.y - r * 0.8f), ImVec2(c.x + r * 0.8f, c.y + r * 0.8f), col(kSignal), 1.5f);
+    else dl->AddTriangleFilled(ImVec2(c.x - r * 0.7f, c.y - r), ImVec2(c.x - r * 0.7f, c.y + r), ImVec2(c.x + r, c.y), col(hot ? kSignal : kMuted));
+    if (hot) ImGui::SetTooltip("%s", T(playing ? "Stop the sample" : "Hear a sample (free, only in your headphones)"));
+    return pressed;
+}
+
 void voiceCombo(UiModel& m) {
     Settings& c = m.cfg;
     std::string current = c.voiceId.empty() ? T("Pick a voice") : c.voiceId;
+    const Voice* picked = nullptr;
     for (const Voice& v : m.voices)
-        if (v.id == c.voiceId) current = v.name;
-    ImGui::SetNextItemWidth(-FLT_MIN);
+        if (v.id == c.voiceId) { current = v.name; picked = &v; }
+    const float side = ImGui::GetFrameHeight();
+    const bool canHear = picked && !picked->previewUrl.empty();
+    ImGui::SetNextItemWidth(canHear ? ImGui::GetContentRegionAvail().x - side - ImGui::GetStyle().ItemSpacing.x : -FLT_MIN);
     if (ImGui::BeginCombo("##voice", current.c_str(), ImGuiComboFlags_HeightLarge)) {
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##filter", T("Search voices"), &m.voiceFilter);
+        const float rowH = ImGui::GetTextLineHeight();
         for (const Voice& v : m.voices) {
             if (!m.voiceFilter.empty() && !containsNoCase(v.name, m.voiceFilter)) continue;
             ImGui::PushID(v.id.c_str());
-            if (ImGui::Selectable(v.name.c_str(), v.id == c.voiceId)) c.voiceId = v.id;
-            if (!v.category.empty()) {
+            const float w = ImGui::GetContentRegionAvail().x - (v.previewUrl.empty() ? 0.f : rowH + ImGui::GetStyle().ItemSpacing.x);
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            if (ImGui::Selectable("##pick", v.id == c.voiceId, 0, ImVec2(w, 0))) c.voiceId = v.id;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddText(at, col(kText), v.name.c_str());
+            if (!v.category.empty())
+                dl->AddText(ImVec2(at.x + ImGui::CalcTextSize(v.name.c_str()).x + em() * 0.6f, at.y), col(kMuted), v.category.c_str());
+            if (!v.previewUrl.empty()) {
                 ImGui::SameLine();
-                ImGui::TextColored(kMuted, "%s", v.category.c_str());
+                if (sampleButton("##sample", v, m, rowH)) m.previewWanted = m.previewing == v.id ? std::string("stop") : v.id;
             }
             ImGui::PopID();
         }
         ImGui::EndCombo();
+    }
+    if (canHear) {
+        ImGui::SameLine();
+        if (sampleButton("##samplepicked", *picked, m, side)) m.previewWanted = m.previewing == picked->id ? std::string("stop") : picked->id;
     }
 }
 
@@ -758,7 +787,28 @@ void inputPanel(UiModel& m, UiActions& act) {
         keyBinder(m, 0, c.pttKey);
         note(kGlobalHotkey ? "Works while another window has focus. Recording runs a moment past release so the last word isn't cut."
                            : "Works while this window has focus. Recording runs a moment past release so the last word isn't cut.");
-        fieldLabel("While not holding the key");
+        fieldLabel("Hold or tap");
+        static const char* const kHow[] = {"Hold the key", "Tap to start and stop"};
+        int how = c.pttTap ? 1 : 0;
+        if (segmented("##ptthow", kHow, 2, &how)) c.pttTap = how == 1;
+        note(c.pttTap ? "Tap once to start recording and again to stop. Handy for long stories, or a VR button."
+                      : "Records while you hold it down.");
+        // A controller button (SteamVR) as push to talk as well.
+        toggleRow("A VR controller button too", &c.vr.pttButton);
+        if (c.vr.pttButton) {
+            const VrState& v = m.vr;
+            const char* state = !v.connected ? v.status.c_str() : v.button.empty() ? "Connecting to SteamVR" : v.button.c_str();
+            const ImVec4 sc = !v.connected ? kMuted : v.buttonDown ? kSignal : v.buttonBound ? kText : kBusy;
+            ImGui::TextColored(sc, "%s", T(state));
+            ImGui::BeginDisabled(!v.connected);
+            if (button("Pick the button")) act.openVrBindings = true;
+            ImGui::EndDisabled();
+            note(v.connected ? "Opens SteamVR's controller bindings for CIMA Box: choose \"Push to talk\" and press the button you want. "
+                               "The game still gets that button too, so pick one it doesn't use much (like a thumbstick click)."
+                             : "Start SteamVR, then pick the button here.");
+            toggleRow("Buzz when recording starts and stops", &c.vr.buzz);
+        }
+        fieldLabel(c.pttTap ? "While not recording" : "While not holding the key");
         static const char* const kUp[] = {"Silent", "My real voice"};
         int up = c.pttRealVoice ? 1 : 0;
         if (segmented("##pttup", kUp, 2, &up)) c.pttRealVoice = up == 1;
@@ -914,6 +964,14 @@ void outputPanel(UiModel& m, UiActions& act) {
     fieldLabel("Send the new voice to");
     if (deviceCombo("##out", m.outputDevices, c.outDevice)) act.reopenOutput = true;
     note("For Discord or a game, pick a virtual cable here and choose the same cable as the microphone there.");
+    {
+        const bool glow = jumpAnchor("Check my setup");
+        if (button("Check my setup", false, ImGui::CalcTextSize(T("Check my setup")).x + em() * 2.4f)) act.startCheck = true;
+        if (glow) jumpGlow(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+        ImGui::SameLine(0, em() * 0.6f);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(kMuted, "%s", T("A one-minute test of your mic, cable and keys."));
+    }
     sliderF("Volume##outvol", &c.outVolume, 0.f, 2.f, "%.0f%%", 100.f);
 
     gap(0.1f);
@@ -1076,7 +1134,9 @@ const Findable kFindables[] = {
     // My voice
     {"Microphone", kPageVoice, "Microphone", "mic input device", nullptr},
     {"Start talking by", kPageVoice, "Microphone", "push to talk voice activation ptt", nullptr},
+    {"Hold or tap", kPageVoice, "Microphone", "push to talk tap toggle hold press once start stop", nullptr},
     {"While not holding the key", kPageVoice, "Microphone", "push to talk real voice between presses passthrough", nullptr},
+    {"A VR controller button too", kPageVoice, "Microphone", "vr controller button steamvr index quest touch push to talk ptt vibration buzz", TOGGLE(vr.pttButton)},
     {"Pause that ends a phrase", kPageVoice, "Microphone", "silence pause hold phrase end split", nullptr},
     {"Wait for the rest of a sentence", kPageVoice, "Microphone", "sentence pause split broken grammar story wait join", nullptr},
     {"Longest phrase", kPageVoice, "Microphone", "long phrase max seconds split story", nullptr},
@@ -1094,6 +1154,7 @@ const Findable kFindables[] = {
     {"Talking to", kPageVoice, "Voice and language", "gender listener who", nullptr},
     {"Carry my emotion", kPageVoice, "Voice and language", "emotion tone feelings excited whisper", TOGGLE(emotion)},
     {"Remove background noise", kPageVoice, "Voice and language", "noise", TOGGLE(removeNoise)},
+    {"Check my setup", kPageVoice, "Where it goes", "test check setup cable crackle double echo hear twice not working problem", nullptr},
     {"Send the new voice to", kPageVoice, "Where it goes", "output cable virtual device speakers", nullptr},
     {"Hear it yourself too", kPageVoice, "Where it goes", "monitor hear myself headphones", TOGGLE(monitor)},
     {"Pass my mic through when off", kPageVoice, "Where it goes", "passthrough real voice off", TOGGLE(passthrough)},
@@ -1909,7 +1970,7 @@ void settingsPage(UiModel& m, UiActions& act) {
     beginPanel("setkeys2", ImVec2(avail.x - (colW + gapW) * 2, avail.y), "Hotkeys");
     fieldLabel("Push to talk");
     keyBinder(m, 0, c.pttKey);
-    note("Used when Input is set to push to talk.");
+    note("Used when My voice > Microphone is set to push to talk.");
     fieldLabel("Next \"Talking to\"");
     keyBinder(m, 1, c.talkKey);
     note(kGlobalHotkey ? "Each press steps through Auto, Don't know, A guy, A girl and A group. Works while a game has focus."
@@ -3541,7 +3602,7 @@ void usageNoticeWindow(UiModel& m, bool inSetup) {
         para("So please keep an eye on it:");
         bullet("Voices, captions and translations use credits or tokens for as long as they're switched on. Switch off what you aren't using.");
         bullet("Some settings use a lot more: Listen left running, Captions while they talk, Hear them in my ear, Best translations and AI screen reading.");
-        bullet("Set a spending limit in Settings > Accounts, and look at what's left at the bottom of the window now and then.");
+        bullet("Set a spending limit in Settings > Accounts, and look at what's left at the bottom left now and then.");
         bullet("If you share a key with friends, what they use counts on your account too.");
         gap(0.4f);
         para("The maker of CIMA Box isn't responsible for charges, used-up credits or tokens, or anything else that comes from using it. You choose the settings, so you use it at your own risk.", kMuted);
@@ -3825,6 +3886,8 @@ UiActions uiDraw(UiModel& m) {
     } else {
         appFrame(m, act, picture);
     }
+    if (m.checkOpen && !m.captionsOnly) checkWindow(m, act);
+    noticeToast(m);
 
     findWindow(m);
     usageNoticeWindow(m, m.setupStep >= 0 || m.captionsOnly);

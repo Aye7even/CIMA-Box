@@ -1,4 +1,4 @@
-CIMA Box 3.0.1
+CIMA Box 3.0.2
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -152,7 +152,19 @@ Microphone
                              says "Waiting for more". Raise it if you often stop to think mid-
                              sentence; 0 turns it off. Default 900 ms.
   Key ...................... (Push to talk) Click it, then press the key you want to use.
-  While not holding the key  (Push to talk) Silent: people hear nothing until you hold the key,
+  Hold or tap .............. (Push to talk) Hold the key: records while you hold it down. Tap to
+                             start and stop: tap once to start recording and again to stop. Handy
+                             for long stories, or a VR controller button.
+  A VR controller button too (Push to talk) Use a button on your VR controller as well (any
+                             SteamVR headset: Index, Quest, Vive, WMR). Start SteamVR, click "Pick
+                             the button", choose "Push to talk" in SteamVR's controller bindings
+                             and press the button you want. The game still gets that button too,
+                             so pick one it doesn't use much, like clicking a thumbstick. It works
+                             with the VR captions off.
+    Buzz when recording starts and stops
+                             A short vibration on that hand, so you know it's listening without
+                             looking.
+  While not holding the key  (Push to talk; "While not recording" with tap) Silent: people hear nothing until you hold the key,
                              then only the new voice. My real voice: people hear your own voice
                              normally, and a line said while holding the key comes out in the
                              new voice (or translated). Your mic goes quiet from the moment you
@@ -178,7 +190,9 @@ Voice and language
     Re-speak ............... Writes down what you said, then the voice reads it out in its own
                              delivery. Use it to hide your accent or delivery.
     Translate .............. Like Re-speak, but translated into another language first.
-  Voice .................... The ElevenLabs voice to use. Type in the box to search.
+  Voice .................... The ElevenLabs voice to use. Type in the box to search. The play
+                             button next to a voice plays its sample in your headphones: free,
+                             and nobody in your call hears it.
   A voice for each language  (Translate) Picking another language (or dialect) brings back the
                              voice you last used with it.
   Model .................... The ElevenLabs model. v4 Turbo and Flash are the fastest. Only v3
@@ -258,6 +272,14 @@ Voice and language
 
 Where it goes
   Send the new voice to .... Where the new voice plays (usually the virtual cable).
+  Check my setup ........... A one-minute test that says, step by step, what to do: it checks
+                             that your mic hears you, that the voice goes to a cable, that both
+                             ends of the cable run at the same rate (a mismatch makes voices
+                             crackle), that a short quiet test beep goes in one end and comes out
+                             the other, that nothing else sends your mic into the cable (the
+                             reason people sometimes hear you twice), that push to talk works,
+                             and that your ElevenLabs key loads your voices. Anything wrong gets a
+                             button that takes you to the fix. Also on Home's quick toggles.
     Volume ................. How loud the new voice is there (100% = as it comes, up to 200%).
                              Your passed-through mic isn't affected.
   Hear it yourself too ..... Also plays it on your headphones so you can hear what others hear.
@@ -648,6 +670,14 @@ It turns amber when less than a tenth is left and red when it's used up. Hover f
 
 PROBLEMS
 --------
+
+Start with Check my setup (My voice > Where it goes): it finds the usual problems and shows
+how to fix them. When something goes wrong, the message on Home, in My voice's "Last line" and
+in the mini window has a button that takes you to the setting that fixes it.
+
+When a hotkey (or the SteamVR menu) changes something, a short note shows at the bottom of the
+window for a moment, even over a game in the caption window: "Talking to: A girl", "Stopped
+speaking", and so on.
 
 If a headset or mic is unplugged, CIMA Box opens it again by itself when it's plugged back in
 (within a few seconds).

@@ -73,6 +73,15 @@ struct VrOverlay::Impl {
     std::thread thread;
     std::atomic<bool> running{false};
 
+    // Push to talk with a controller button
+    std::string manifest;                 // set before start
+    std::atomic<bool> pttDown{false}, buzzWanted{false}, bindingsWanted{false};
+    bool inputReady = false;              // thread-only from here
+    vr::VRActionSetHandle_t actionSet = vr::k_ulInvalidActionSetHandle;
+    vr::VRActionHandle_t pttAction = vr::k_ulInvalidActionHandle, hapticAction = vr::k_ulInvalidActionHandle;
+    vr::VRInputValueHandle_t lastHand = vr::k_ulInvalidInputValueHandle;
+    Clock::time_point nextBindCheck = Clock::now();
+
     // thread-only
     bool inited = false, waitForExit = false;
     vr::VROverlayHandle_t handle = vr::k_ulOverlayHandleInvalid;
@@ -98,6 +107,8 @@ struct VrOverlay::Impl {
     }
 
     void shutdownVr() {
+        inputReady = false;
+        pttDown = false;
         if (inited) {
             if (handle != vr::k_ulOverlayHandleInvalid) vr::VROverlay()->DestroyOverlay(handle);
             destroyDashboard();
@@ -252,6 +263,61 @@ struct VrOverlay::Impl {
         placedReady = true;
     }
 
+    // SteamVR Input: CIMA Box's "Push to talk" action, bound to whatever button you pick in SteamVR's
+    // controller bindings. Read every pass through the loop (100 times a second while it's used).
+    void serviceInput(const VrSettings& c) {
+        if (!c.pttButton || manifest.empty()) {
+            pttDown = false;
+            std::lock_guard<std::mutex> lk(mtx);
+            st.button.clear();
+            st.buttonBound = st.buttonDown = false;
+            return;
+        }
+        vr::IVRInput* in = vr::VRInput();
+        if (!in) return;
+        if (!inputReady) {
+            const vr::EVRInputError e = in->SetActionManifestPath(manifest.c_str());
+            if (e != vr::VRInputError_None) {
+                std::lock_guard<std::mutex> lk(mtx);
+                st.button = "SteamVR couldn't load CIMA Box's controls";
+                return;
+            }
+            in->GetActionSetHandle("/actions/cimabox", &actionSet);
+            in->GetActionHandle("/actions/cimabox/in/push_to_talk", &pttAction);
+            in->GetActionHandle("/actions/cimabox/out/buzz", &hapticAction);
+            inputReady = true;
+            nextBindCheck = Clock::now();
+        }
+        vr::VRActiveActionSet_t active = {};
+        active.ulActionSet = actionSet;
+        in->UpdateActionState(&active, sizeof(active), 1);
+        vr::InputDigitalActionData_t d = {};
+        const bool ok = in->GetDigitalActionData(pttAction, &d, sizeof(d), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None;
+        const bool down = ok && d.bActive && d.bState;
+        if (down && d.activeOrigin != vr::k_ulInvalidInputValueHandle) {
+            vr::InputOriginInfo_t info = {};
+            if (in->GetOriginTrackedDeviceInfo(d.activeOrigin, &info, sizeof(info)) == vr::VRInputError_None) lastHand = info.devicePath;
+        }
+        pttDown = down;
+        if (buzzWanted.exchange(false) && c.buzz && hapticAction != vr::k_ulInvalidActionHandle)
+            in->TriggerHapticVibrationAction(hapticAction, 0.f, 0.045f, 170.f, 0.55f, lastHand);
+        if (bindingsWanted.exchange(false)) in->OpenBindingUI(nullptr, actionSet, vr::k_ulInvalidInputValueHandle, true);
+        // Is a button bound to it? Checked now and then (the answer changes when you pick one).
+        const auto now = Clock::now();
+        if (now >= nextBindCheck) {
+            nextBindCheck = now + std::chrono::seconds(2);
+            vr::VRInputValueHandle_t origins[vr::k_unMaxActionOriginCount] = {};
+            bool bound = false;
+            if (in->GetActionOrigins(actionSet, pttAction, origins, vr::k_unMaxActionOriginCount) == vr::VRInputError_None)
+                for (vr::VRInputValueHandle_t o : origins) bound = bound || o != vr::k_ulInvalidInputValueHandle;
+            std::lock_guard<std::mutex> lk(mtx);
+            st.buttonBound = bound;
+        }
+        std::lock_guard<std::mutex> lk(mtx);
+        st.buttonDown = down;
+        st.button = down ? "Button pressed" : st.buttonBound ? "Button ready" : "No button picked yet";
+    }
+
     static bool sameLook(const VrSettings& a, const VrSettings& b) {
         const PanelStyle &x = a.style, &y = b.style;
         return x.width == y.width && x.textPx == y.textPx && x.maxLines == y.maxLines && x.textColor == y.textColor &&
@@ -278,9 +344,10 @@ struct VrOverlay::Impl {
                 if (ver != shownVersion) ls = lines;
             }
             const auto now = Clock::now();
-            if (!c.on) {
+            if (!c.on && !c.pttButton) {
                 if (inited) shutdownVr();
                 setStatus("Off", false);
+                serviceInput(c);
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 continue;
             }
@@ -306,6 +373,19 @@ struct VrOverlay::Impl {
                 }
             }
             if (!inited) continue;
+            serviceInput(c);
+            if (!c.on) {  // only the push-to-talk button: no panel, no menu tab
+                if (overlayShown) { vr::VROverlay()->HideOverlay(handle); overlayShown = false; }
+                fade = 0.f;
+                destroyDashboard();
+                {
+                    std::lock_guard<std::mutex> lk(mtx);
+                    st.visible = false;
+                    st.status = "Connected to SteamVR";
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
 
             if (wantPlace) {
                 placeInFront(c);
@@ -358,7 +438,7 @@ struct VrOverlay::Impl {
                             : overlayShown        ? "Showing in SteamVR"
                                                   : "Connected to SteamVR, waiting for something to show";
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(animating ? 25 : 50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(c.pttButton ? 10 : animating ? 25 : 50));
         }
         shutdownVr();
     }
@@ -397,6 +477,10 @@ void VrOverlay::configure(const VrSettings& s) {
     p_->cfg = s;
     if (placedNew) std::memcpy(p_->cfg.fixedPose, keep, sizeof(keep));  // a fresh placement wins until it is saved
 }
+void VrOverlay::setActionManifest(const std::string& path) { p_->manifest = path; }
+bool VrOverlay::buttonDown() const { return p_->pttDown; }
+void VrOverlay::buzz() { p_->buzzWanted = true; }
+void VrOverlay::openBindings() { p_->bindingsWanted = true; }
 void VrOverlay::setLines(const std::vector<PanelLine>& lines, uint64_t version) {
     std::lock_guard<std::mutex> lk(p_->mtx);
     if (version == p_->version) return;
@@ -441,6 +525,10 @@ bool VrOverlay::takePlacedPose(float*) { return false; }
 void VrOverlay::setTalking(const VrTalking&) {}
 bool VrOverlay::takeTalkingTo(int&) { return false; }
 void VrOverlay::setThumbnail(const uint8_t*, int) {}
+void VrOverlay::setActionManifest(const std::string&) {}
+bool VrOverlay::buttonDown() const { return false; }
+void VrOverlay::buzz() {}
+void VrOverlay::openBindings() {}
 #endif
 
 VrState VrOverlay::state() const {

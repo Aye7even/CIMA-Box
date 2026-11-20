@@ -96,6 +96,7 @@ struct Settings {
     bool enabled = true;
     int activation = kVoiceActivity;
     bool pttRealVoice = false;         // push to talk: while the key is up, your own mic goes out (off = silence)
+    bool pttTap = false;               // push to talk: tap to start, tap again to stop (instead of holding)
     float thresholdDb = -40.f;
     int holdMs = 350;
     int sentenceWaitMs = 900;          // a pause mid-sentence: wait this long for the rest (0 = off)
@@ -168,7 +169,27 @@ struct UsageItem {
 enum SetupUse { kUseVoice = 1, kUseText = 2, kUseRead = 4 };
 enum SetupRoute { kRouteNone = -1, kRouteMe = 0, kRouteApps = 1, kRouteOwn = 2 };
 
+// One line of "Check my setup". Texts are English (translated when shown), with up to two
+// values put in for %s (device names, sample rates).
+enum CheckState { kCheckWaiting = 0, kCheckNow = 1, kCheckOk = 2, kCheckProblem = 3, kCheckNote = 4 };
+struct CheckItem {
+    std::string title, detail, arg1, arg2;
+    int state = kCheckWaiting;
+    std::string fix, fixJump;   // a button: the setting to go to ("sound" = Windows Sound settings)
+};
+
 struct UiModel {
+    // A short notice when a hotkey (or the SteamVR menu) changed something, shown for a moment at
+    // the bottom of whichever window is up: "Talking to: A girl", "Stopped speaking".
+    std::string notice, noticeArg;     // English text (with %s for the argument), argument translated too
+    int noticeSerial = 0;              // goes up with every new notice
+    // Voice preview: the voice's free sample, in your headphones
+    std::string previewWanted;         // set by the UI (a voice id), taken by the app
+    std::string previewing;            // the voice playing (or loading) right now
+    // Check my setup
+    bool checkOpen = false, checkRunning = false;
+    std::string checkPrompt;           // what to do right now ("Say something"), English
+    std::vector<CheckItem> check;
     Settings cfg;  // edited in place by the interface
 
     // filled in by main.cpp every frame
@@ -275,6 +296,8 @@ struct UiActions {
     bool loadCatalog = false, reopenInput = false, reopenOutput = false, reopenMonitor = false;
     bool rescanDevices = false, stopSpeaking = false, save = false;
     bool resetBaseline = false, resetMatch = false, placeVrHere = false;
+    bool openVrBindings = false;       // SteamVR's screen for picking the push-to-talk button
+    bool startCheck = false, stopCheck = false, openSoundPanel = false;
     bool refreshApps = false, clearCaptions = false;
     int setCaptionsOnly = -1;  // 0 / 1 when the user switches the compact view
     int setMini = -1;          // 0 / 1 when the user switches the mini window
