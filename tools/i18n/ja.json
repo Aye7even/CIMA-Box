@@ -932,5 +932,6 @@
  "Heard (live)": "聞き取り（ライブ）",
  "Heard": "聞き取り",
  "Translated": "翻訳",
- "Voice started": "音声開始"
+ "Voice started": "音声開始",
+ "Translated by %s": "%s で翻訳"
 }

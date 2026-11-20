@@ -932,5 +932,6 @@
  "Heard (live)": "识别（实时）",
  "Heard": "识别",
  "Translated": "翻译",
- "Voice started": "声音开始"
+ "Voice started": "声音开始",
+ "Translated by %s": "由 %s 翻译"
 }

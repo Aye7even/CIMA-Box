@@ -932,5 +932,6 @@
  "Heard (live)": "Распознано (на лету)",
  "Heard": "Распознано",
  "Translated": "Переведено",
- "Voice started": "Голос начал"
+ "Voice started": "Голос начал",
+ "Translated by %s": "Перевод: %s"
 }

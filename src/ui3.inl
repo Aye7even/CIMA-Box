@@ -913,6 +913,8 @@ void homePage(UiModel& m, UiActions& act) {
                 }
                 ImGui::Dummy(ImVec2(speedW, bh + em() * 0.3f));
                 const char* names[3] = {m.sttLive ? "Heard (live)" : "Heard", "Translated", "Voice started"};
+                char by[96];  // which service translated it
+                if (!m.translateVia.empty()) std::snprintf(by, sizeof(by), TF("Translated by %s"), m.translateVia.c_str());
                 ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.88f);
                 for (int i = 0; i < 3; ++i) {
                     if (ms[i] <= 0) continue;
@@ -924,7 +926,7 @@ void homePage(UiModel& m, UiActions& act) {
                     const float vw = ImGui::CalcTextSize(v).x;
                     ldl->AddRectFilled(ImVec2(q.x, q.y + em() * 0.3f), ImVec2(q.x + em() * 0.6f, q.y + em() * 0.9f), col(parts[i]), em() * 0.15f);
                     ldl->PushClipRect(q, ImVec2(q.x + speedW - vw - em() * 0.4f, q.y + rowH), true);
-                    ldl->AddText(ImVec2(q.x + em() * 1.0f, q.y), col(kMuted), T(names[i]));
+                    ldl->AddText(ImVec2(q.x + em() * 1.0f, q.y), col(kMuted), i == 1 && !m.translateVia.empty() ? by : T(names[i]));
                     ldl->PopClipRect();
                     ldl->AddText(ImVec2(q.x + speedW - vw, q.y), col(kText), v);
                     ImGui::Dummy(ImVec2(speedW, rowH));

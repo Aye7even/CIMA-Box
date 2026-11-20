@@ -6,6 +6,9 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 3.0.1
+- Home shows which service translated each line again ("Translated by Claude", or Gemini, OpenAI or DeepL), next to how long it took. 3.0.0 only said "Translated".
+
 ## 3.0.0
 - A new look. The whole window is redesigned to be easier to find your way around, without taking anything away.
   - The pages are now down the left side, and each one says under its name what's on it ("Voice, language, dialect", "Captions of others"...). A dot next to a page means that part is on.

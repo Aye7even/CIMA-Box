@@ -932,5 +932,6 @@
  "Heard (live)": "인식 (실시간)",
  "Heard": "인식",
  "Translated": "번역",
- "Voice started": "음성 시작"
+ "Voice started": "음성 시작",
+ "Translated by %s": "%s 번역"
 }
