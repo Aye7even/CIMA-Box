@@ -48,7 +48,7 @@ def balanced(text, start):
             if depth==0: return text[start+1:i]
         i+=1
     return ''
-calls = ['featureCard','para','bullet','pendingBar','chip','keyBox','guideLink','buttonPair','setupTitle','setupStepLine','setupCard','setupPageRow','T','TF','fieldLabel','note','heading','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
+calls = ['featureCard','para','bullet','pendingBar','chip','keyBox','guideLink','buttonPair','setupTitle','setupStepLine','setupCard','setupPageRow','T','TF','fieldLabel','note','heading','cardTitle','subheading','button','toggleRow','sliderF','sliderI','beginPanel','colorRow','statusLine','apiKeyField','setStatus','fail']
 found=[]
 def scan_file(name, which):
     text=open(src+name).read()
@@ -106,8 +106,23 @@ def keep(s):
     if s in ('%s','%.2f','%.0f','%d','%.0f dB','%d ms','%.1fx','%.2f s','%s%s %.2f s',', ','.'): return False
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
-drop={'Google Gemini','mic','out','check','share','stop','sound','CABLE Input (VB-Audio ...)','CABLE Output (VB-Audio ...)','chatbox','emotion','listen','vr','#','Ctrl F','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','deeplwords','lookpreset','SteamVR: ','Waiting for ',' to start.',
+drop={'Google Gemini','meaning','mic','out','check','share','stop','sound','CABLE Input (VB-Audio ...)','CABLE Output (VB-Audio ...)','chatbox','emotion','listen','vr','#','Ctrl F','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','deeplwords','lookpreset','SteamVR: ','Waiting for ',' to start.',
       'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
+# the translation service dropdown: what each service is (the names are brands, apart from these)
+_i=_ui.index('static const Choice kChoices[] = {'); _blk=_ui[_i:_ui.index('};', _i)]
+for _row in re.findall(r'\{k\w+, "[^"]*", "[^"]*"\}', _blk): found.append(literals(_row)[1])
+found += ['Free','Local','Gemini','Good fit','Tight','Slow here','Not for this PC']
+# models on this PC: the catalog's words and LocalAi's messages (shown through T())
+_lc=open(src+'localai.cpp').read()
+_i=_lc.index('static const std::vector<LocalModel> k = {'); _cat=_lc[_i:_lc.index('};', _i)]
+for _row in re.findall(r'\{"[^}]*\}', _cat, re.S):
+    _l=literals(_row)
+    if len(_l)>=6: found += [_l[2], _l[-1]]
+found += ["Not enough free space on the disk.","Couldn't download it. Check your connection and try again.",
+          "Couldn't find this model's file to download.","The download was damaged on the way. Try again.","Couldn't save the model.",
+          "Couldn't find the engine to download. Check your connection and try again.","The engine didn't download correctly. Try again.",
+          "Couldn't unpack the engine.","The engine download didn't have what was expected in it.","The engine couldn't be started.",
+          "The model couldn't be loaded.","Running on the processor (the graphics card couldn't load it), so it's slower."]
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
           'Working','Some problems','Outage','Maintenance',"Couldn't check",'All Systems Operational','Problems reported',
           "Couldn't check right now","That picture couldn't be read. Pick a JPEG or PNG file.","Couldn't copy that picture into CIMA Box's settings folder.",'Answering normally (checked from this PC)',"This key isn't allowed to read usage (it needs User: Read access).",

@@ -14,11 +14,12 @@ struct HttpRequest {
     std::vector<std::string> headers;
     const std::vector<HttpPart>* parts = nullptr;  // multipart POST
     const std::string* body = nullptr;             // POST with this body
-    const ByteSink* sink = nullptr;                // receives a 200 response as it streams in
+    const ByteSink* sink = nullptr;                // receives a 200 (or 206, part of a file) response as it streams in
     bool headOnly = false;
     long timeoutSec = 120;
     long timeoutMs = 0;  // when set, used instead of timeoutSec (whole request, in milliseconds)
     bool followRedirects = false;  // e.g. GitHub release downloads, which redirect to a file server
+    long stallSec = 0;  // when set: give up if (almost) nothing arrives for this long (big downloads)
 };
 
 // Not thread-safe: use one Http per thread.

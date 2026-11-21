@@ -6,9 +6,11 @@
 
 #include "http.h"
 
-enum TranslateService { kMyMemory = 0, kDeepL = 1, kClaude = 2, kGemini = 3, kOpenAI = 4 };
+enum TranslateService { kMyMemory = 0, kDeepL = 1, kClaude = 2, kGemini = 3, kOpenAI = 4, kLocal = 5, kMicrosoft = 6 };
+// kLocal: a model on this PC (localai.h). kMicrosoft: Microsoft Translator (Azure), with your own key.
 // Claude, Gemini or OpenAI: the services that word things like a person (styles, dialects, slang).
-inline bool isAiService(int s) { return s == kClaude || s == kGemini || s == kOpenAI; }
+inline bool isAiService(int s) { return s == kClaude || s == kGemini || s == kOpenAI || s == kLocal; }
+inline bool isOnlineAi(int s) { return s == kClaude || s == kGemini || s == kOpenAI; }  // can also read pictures
 // How the AI services word things on My voice. (Listen always translates faithfully.)
 // kLevelCustom: the person describes it in their own words (TranslateSetup::customStyle).
 enum SpeechLevel { kLevelPolite = 0, kLevelCasual = 1, kLevelVeryCasual = 2, kLevelCustom = 3 };
@@ -36,7 +38,13 @@ struct TranslateSetup {
     int service = kMyMemory;
     std::string deeplKey, claudeKey, geminiKey, openaiKey;
     std::string msKey, msRegion;  // Microsoft Translator (optional backup); region only for regional resources
+    // A model on this PC (kLocal): where it answers and the key it wants, while it's loaded
+    // (empty otherwise; then localNote says why: "Loading the model", "Download a model first"...).
+    std::string localUrl, localKey, localModel, localNote;
     bool aiBackup = true;         // another AI with a key steps in on lines this one misses
+    // A line the online AI declines goes to the model on this PC first (when one is loaded), before
+    // DeepL, Microsoft or Free: it still words it like a person would.
+    bool localOnDecline = false;
     std::string claudeModel = "claude-haiku-5-5";
     std::string geminiModel = "gemini-3.5-flash-lite";
     std::string openaiModel = "gpt-6-luna";
@@ -59,6 +67,9 @@ struct TranslateSetup {
     bool readGender = false;    // Listen: ask whether the words show the speaker's gender (-> Translator::wordsGender)
     int speaker = kGenderUnknown;     // My voice: you. Listen: the guess from the speaker's voice.
     int listener = kListenerUnknown;  // Addressee. My voice: who you are talking to
+    int multiLines = 0;         // translateLines: the text is this many numbered lines, answered one tag each
+    std::string backupOnly;     // translateLines: the AI already ran out of time on these lines (this says
+                                // so): straight to DeepL / Microsoft / Free, not the AI again
 };
 
 struct Language {
@@ -103,6 +114,22 @@ public:
     bool translate(const TranslateSetup& setup, const std::string& text, const Language* from, const Language& to,
                    std::string& out, std::string& err);
 
+    // Several lines at once (one caption, maybe several people): with an AI service, one request for
+    // all of them (the instructions and context are sent once, and it sees the whole exchange); if
+    // that fails, each line on its own, with the usual backups. `froms`: each line's language (or
+    // null); `speakers`: each line's Gender guess from the voice. `outs[i]` stays empty for a line
+    // that couldn't be translated (`err` says why); `genders[i]`: what the words showed (see
+    // wordsGender). False only when cancelled.
+    bool translateLines(const TranslateSetup& setup, const std::vector<std::string>& texts,
+                        const std::vector<const Language*>& froms, const std::vector<int>& speakers, const Language& to,
+                        std::vector<std::string>& outs, std::vector<int>& genders, std::string& err);
+
+    // "Which means": a translated line put back into the speaker's language, by a translator that
+    // takes words literally (Free, then Microsoft, then DeepL), never an AI: it shows what the words
+    // really say, so a wrong or refused line is caught. No AI tokens.
+    bool checkBack(const TranslateSetup& setup, const std::string& text, const Language& from, const Language& to,
+                   std::string& out, std::string& err);
+
     // Learning mode: how to read `text` (in `language`, e.g. "Japanese") in Latin letters: romaji,
     // pinyin with tone marks, Revised Romanization... Needs an AI service.
     bool romanize(const TranslateSetup& setup, const std::string& text, const std::string& language, std::string& out,
@@ -122,6 +149,7 @@ private:
     Http wordsHttp_;   // DeepL (or Free) for listed and swear words, alongside the AI
     Http backupHttp_;  // DeepL (or Free) backup, ready in case the AI runs out of time
     Http otherHttp_;   // a second AI (when there's a key for one), for lines the chosen AI fails on
+    Http localHttp_;   // the model on this PC, for lines the online AI declines (localOnDecline)
     std::string typicalKey_;  // the service and model typicalMs_ is for
     int typicalMs_ = 0;       // how long that AI usually takes to answer a line (0 = not known yet)
     // Extra time a language needs on top of the time limit, per AI model and language (and dialect).

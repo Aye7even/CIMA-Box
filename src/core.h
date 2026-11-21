@@ -144,6 +144,7 @@ public:
 
     void reset() { open_ = false; cur_.clear(); pre_.clear(); curFull_.clear(); preFull_.clear(); }
     bool open() const { return open_; }
+    int quietMs() const { return open_ ? silentBlocks_ * 10 : 0; }  // how long the open phrase has been quiet
     float levelDb() const { return db_; }
     const std::vector<int16_t>& current() const { return cur_; }  // the phrase so far, while open
 

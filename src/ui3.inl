@@ -776,6 +776,7 @@ const Tile kTiles[] = {
     {"ear", kIcSpeaker, "Hear them in my ear", "Others, translated, in your headphones", "Hear them in my ear"},
     {"screen", kIcScreen, "Screen translation", "Read game text in your language", "Screen translation"},
     {"overlay", kIcCaptions, "Captions over the game", "Subtitles on top of your game", "Caption window over the game"},
+    {"meaning", kIcCheck, "What my line means", "Checks your line. Uses extra characters", "Show what my translated line means"},
     {"answer", kIcSwap, "Answer in their language", "Follows who you talk to", "Answer in their language"},
     {"cancel", kIcCancel, "Cancel before it's spoken", "A moment to stop a misheard line", "Cancel before it's spoken"},
     {"swear", kIcBeep, "Clean up my swearing", "Soften or beep your swear words", "Clean up my swearing"},
@@ -789,7 +790,7 @@ const Tile kTiles[] = {
     {"words", kIcWords, "My word list", "Names written your way, never translated", "My word list"},
     {"share", kIcChat, "Share a setup", "Copy your setup for a friend, without your keys", "Profiles"},
 };
-const char* const kDefaultTiles[] = {"live", "emotion", "chatbox", "listen", "ear", "screen", "overlay", "answer"};
+const char* const kDefaultTiles[] = {"live", "emotion", "chatbox", "listen", "ear", "screen", "overlay", "answer", "meaning"};
 
 // -1 = not an on/off feature (it opens something), else 0 / 1.
 int tileOn(const UiModel& m, const std::string& id) {
@@ -800,6 +801,7 @@ int tileOn(const UiModel& m, const std::string& id) {
     if (id == "listen") return c.listen.on;
     if (id == "ear") return c.fx.hearThem;
     if (id == "screen") return c.screen.on;
+    if (id == "meaning") return c.showMeaning;
     if (id == "answer") return c.fx.answerTheirs;
     if (id == "cancel") return c.fx.previewMs > 0;
     if (id == "swear") return c.fx.voiceSwear != kSwearKeep;
@@ -827,6 +829,7 @@ void tileClick(UiModel& m, UiActions& act, const Tile& t) {
         if (!c.screen.agreed || c.screen.on) { if (c.screen.on) c.screen.on = false; else findJumpTo(m, t.settingsLabel); }
         else c.screen.on = true;
     }
+    else if (id == "meaning") c.showMeaning = !c.showMeaning;
     else if (id == "answer") c.fx.answerTheirs = !c.fx.answerTheirs;
     else if (id == "cancel") c.fx.previewMs = c.fx.previewMs > 0 ? 0 : 1200;
     else if (id == "swear") c.fx.voiceSwear = c.fx.voiceSwear == kSwearKeep ? kSwearSoften : kSwearKeep;
@@ -896,7 +899,7 @@ void tileGrid(UiModel& m, UiActions& act) {
             ImGui::PushFont(gSemibold, base);
             const float nw = ImGui::CalcTextSize(T(t.name)).x;
             ImGui::PopFont();
-            ImGui::PushFont(gSemibold, nw > room ? base * std::max(0.8f, room / nw) : base);
+            ImGui::PushFont(gSemibold, nw > room ? base * std::max(0.72f, room / nw) : base);
             dl->AddText(ImVec2(a.x + pad, ia.y + isz + em() * 0.35f), col(kText), T(t.name));
             ImGui::PopFont();
         }
@@ -1129,6 +1132,8 @@ void homePage(UiModel& m, UiActions& act) {
         } else if (!m.heardText.empty()) {
             statusLine("You said", m.heardText, kText);
             if (c.engine != kVoiceChanger && !m.sentText.empty()) statusLine("They heard", m.sentText, kSignal);
+            if (c.engine != kVoiceChanger && !m.sentText.empty() && !m.meaningText.empty())
+                statusLine("Which means", m.meaningText, kMuted);
         } else {
             ImGui::TextColored(kMuted, "%s", T(c.engine == kVoiceChanger ? "Changer mode sends your voice straight through, without text."
                                                                          : "What you say will show up here."));
@@ -1204,7 +1209,7 @@ void homePage(UiModel& m, UiActions& act) {
     {
         const bool glow = jumpAnchor("Quick toggles");
         const float rowY = ImGui::GetCursorPosY();
-        heading("Quick toggles", 1.15f);
+        cardTitle("Quick toggles");
         if (glow) jumpGlow(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
         const ImGuiStyle& st = ImGui::GetStyle();
         const float b1 = ImGui::CalcTextSize(T("All features")).x + st.FramePadding.x * 2,
@@ -1244,7 +1249,7 @@ void homePage(UiModel& m, UiActions& act) {
 void sectionCard(const char* id, const char* title, void (*body)(UiModel&, UiActions&), UiModel& m, UiActions& act) {
     if (beginCard(id)) {
         const bool glow = jumpAnchor(title);
-        heading(title, 1.15f);
+        cardTitle(title);
         if (glow) jumpGlow(ImGui::GetItemRectMin(), ImVec2(ImGui::GetItemRectMin().x + ImGui::GetContentRegionAvail().x, ImGui::GetItemRectMax().y));
         gap(0.25f);
         body(m, act);
@@ -1254,7 +1259,7 @@ void sectionCard(const char* id, const char* title, void (*body)(UiModel&, UiAct
 
 // What was just said, and the buttons to stop it.
 void lastLineCard(UiModel& m, UiActions& act) {
-    heading("Last line", 1.05f);
+    cardTitle("Last line", 1.15f);
     gap(0.2f);
     ImGui::PushTextWrapPos(0.f);
     if (!m.lastError.empty()) {
@@ -1275,6 +1280,11 @@ void lastLineCard(UiModel& m, UiActions& act) {
             gap(0.2f);
             ImGui::TextColored(kMuted, "%s", T("They heard"));
             ImGui::TextColored(kSignal, "%s", m.sentText.c_str());
+            if (!m.meaningText.empty()) {
+                gap(0.2f);
+                ImGui::TextColored(kMuted, "%s", T("Which means"));
+                ImGui::TextColored(kMuted, "%s", m.meaningText.c_str());
+            }
         }
         if (m.cfg.engine != kVoiceChanger && m.cfg.emotion && !m.delivery.empty()) note(m.delivery);
     } else {
@@ -1295,7 +1305,7 @@ void lastLineCard(UiModel& m, UiActions& act) {
 
 void tryLineCard(UiModel& m, UiActions& act) {
     const Settings& c = m.cfg;
-    heading("Try a line", 1.05f);
+    cardTitle("Try a line", 1.15f);
     note("See how each style would say something, before anyone hears it.");
     gap(0.25f);
     ImGui::SetNextItemWidth(-FLT_MIN);

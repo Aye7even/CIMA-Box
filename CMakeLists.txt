@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CIMABox VERSION 3.0.4 LANGUAGES C CXX)
+project(CIMABox VERSION 3.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,6 +90,9 @@ add_executable(cimabox
   src/bidi.cpp
   src/extras.cpp
   src/livestt.cpp
+  src/localai.cpp
+  src/pcspecs.cpp
+  src/early.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${IMGUI_DRAW_RTL}
   ${imgui_SOURCE_DIR}/imgui_tables.cpp
@@ -162,7 +165,7 @@ if(UNIX AND NOT APPLE)
 endif()
 if(WIN32)
   # dark title bar, per-application audio capture, chatbox messages (UDP)
-  target_link_libraries(cimabox PRIVATE dwmapi mmdevapi ole32 ws2_32 bcrypt shell32 comdlg32 winmm)
+  target_link_libraries(cimabox PRIVATE dwmapi mmdevapi ole32 ws2_32 bcrypt shell32 comdlg32 winmm dxgi)
   # Screen translation reads text with Windows' own recognizer (C++/WinRT, part of the Windows SDK).
   # C++/WinRT wants C++20 with this compiler, so src/screen.cpp is built as its own small library.
   # Without the headers the build still works; only AI reading is offered then.

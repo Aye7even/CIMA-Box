@@ -370,14 +370,9 @@ int guessVoiceGender(const std::vector<int16_t>& pcm16k, float startS, float end
     return 0;
 }
 
-bool voicePrint(const std::vector<int16_t>& pcm16k, float startS, float endS, VoicePrint& out) {
-    const size_t n = pcm16k.size();
-    size_t a = startS > 0.1f ? size_t((startS - 0.1f) * kRate) : 0;
-    size_t b = endS > 0 ? size_t((endS + 0.1f) * kRate) : n;
-    a = std::min(a, n);
-    b = std::min(std::max(b, a), n);
-    if (b - a < size_t(kRate) / 2) return false;
-    const std::vector<int16_t> part(pcm16k.begin() + long(a), pcm16k.begin() + long(b));
+namespace {
+bool printOf(const std::vector<int16_t>& part, VoicePrint& out) {
+    if (part.size() < size_t(kRate) / 2) return false;
     const VoiceTrack t = trackVoice(part);
     std::vector<float> pitch, tilt;
     for (size_t i = 0; i < t.pitch.size(); ++i)
@@ -392,6 +387,117 @@ bool voicePrint(const std::vector<int16_t>& pcm16k, float startS, float endS, Vo
     out.voiced = float(pitch.size()) * float(kHop) / float(kRate);
     return true;
 }
+}  // namespace
+
+bool voicePrint(const std::vector<int16_t>& pcm16k, float startS, float endS, VoicePrint& out) {
+    const size_t n = pcm16k.size();
+    size_t a = startS > 0.1f ? size_t((startS - 0.1f) * kRate) : 0;
+    size_t b = endS > 0 ? size_t((endS + 0.1f) * kRate) : n;
+    a = std::min(a, n);
+    b = std::min(std::max(b, a), n);
+    if (b - a < size_t(kRate) / 2) return false;
+    return printOf(std::vector<int16_t>(pcm16k.begin() + long(a), pcm16k.begin() + long(b)), out);
+}
+
+bool voicePrintSpans(const std::vector<int16_t>& pcm16k, const std::vector<std::pair<float, float>>& spans, VoicePrint& out) {
+    std::vector<int16_t> part;
+    for (const auto& s : spans) {
+        const size_t a = std::min(pcm16k.size(), size_t(std::max(0.f, s.first) * kRate));
+        const size_t b = std::min(pcm16k.size(), size_t(std::max(0.f, s.second) * kRate));
+        if (b > a) part.insert(part.end(), pcm16k.begin() + long(a), pcm16k.begin() + long(b));
+    }
+    return printOf(part, out);
+}
+
+// ---------------------------------------------------------------- where a voice comes from
+
+bool panUseful(const std::vector<int16_t>& pan) {
+    // Some real share of the phrase clearly off to one side. Mono sound (Discord, a mono device) is
+    // all zero; a game with voices in the middle stays near it.
+    size_t off = 0;
+    for (int16_t p : pan) off += std::abs(int(p)) > 32767 / 5;
+    return pan.size() >= 20 && off * 10 >= pan.size();
+}
+
+bool panOver(const std::vector<int16_t>& pcm16k, const std::vector<int16_t>& pan, float startS, float endS, float& out) {
+    const size_t a = size_t(std::max(0.f, startS) * 100.f), b = std::min(pan.size(), size_t(std::max(0.f, endS) * 100.f) + 1);
+    double sum = 0, weight = 0;
+    for (size_t i = a; i < b; ++i) {
+        double e = 0;
+        const size_t s0 = i * size_t(kHop), s1 = std::min(pcm16k.size(), s0 + size_t(kHop));
+        for (size_t k = s0; k < s1; ++k) e += double(pcm16k[k]) * pcm16k[k];
+        if (s1 > s0) e /= double(s1 - s0);
+        if (e < 300.0 * 300.0) continue;  // near silence says nothing about where a voice is
+        sum += e * (double(pan[i]) / 32767.0);
+        weight += e;
+    }
+    if (weight <= 0) return false;
+    out = float(sum / weight);
+    return true;
+}
+
+std::vector<int> splitByPlace(const std::vector<float>& wordPan, const std::vector<float>& wordSeconds) {
+    const size_t n = wordPan.size();
+    if (n < 4 || wordSeconds.size() != n) return {};
+    // Two groups along left-right (two-means, longer words counting more).
+    float lo = *std::min_element(wordPan.begin(), wordPan.end()), hi = *std::max_element(wordPan.begin(), wordPan.end());
+    if (hi - lo < 0.35f) return {};
+    std::vector<int> side(n, 0);
+    for (int it = 0; it < 12; ++it) {
+        for (size_t i = 0; i < n; ++i) side[i] = std::fabs(wordPan[i] - hi) < std::fabs(wordPan[i] - lo) ? 1 : 0;
+        double s[2] = {0, 0}, w[2] = {0, 0};
+        for (size_t i = 0; i < n; ++i) {
+            const double wt = std::max(0.05f, wordSeconds[i]);
+            s[side[i]] += wt * wordPan[i];
+            w[side[i]] += wt;
+        }
+        if (w[0] <= 0 || w[1] <= 0) return {};
+        lo = float(s[0] / w[0]);
+        hi = float(s[1] / w[1]);
+    }
+    // Clearly two places, each tight, and each with enough said to be a person (not a stray word).
+    if (hi - lo < 0.35f) return {};
+    double spread[2] = {0, 0}, w[2] = {0, 0};
+    int count[2] = {0, 0};
+    for (size_t i = 0; i < n; ++i) {
+        const double wt = std::max(0.05f, wordSeconds[i]), c = side[i] ? hi : lo;
+        spread[side[i]] += wt * (wordPan[i] - c) * (wordPan[i] - c);
+        w[side[i]] += wt;
+        ++count[side[i]];
+    }
+    for (int k = 0; k < 2; ++k) {
+        if (count[k] < 2 || w[k] < 0.25 * (w[0] + w[1])) return {};
+        if (std::sqrt(spread[k] / w[k]) > 0.15) return {};
+    }
+    return side;
+}
+
+std::vector<std::pair<float, float>> soloSpans(const std::vector<std::pair<float, float>>& mine,
+                                               const std::vector<std::pair<float, float>>& others,
+                                               const std::vector<int16_t>& pan, float dir, bool useDir) {
+    float end = 0;
+    for (const auto& s : mine) end = std::max(end, s.second);
+    const size_t blocks = size_t(end * 100.f) + 2;
+    std::vector<char> keep(blocks, 0);
+    auto mark = [&](const std::pair<float, float>& s, char v) {
+        const size_t a = size_t(std::max(0.f, s.first) * 100.f), b = std::min(blocks, size_t(std::max(0.f, s.second) * 100.f) + 1);
+        for (size_t i = a; i < b; ++i) keep[i] = v;
+    };
+    for (const auto& s : mine) mark(s, 1);
+    for (const auto& s : others) mark(s, 0);
+    if (useDir)
+        for (size_t i = 0; i < blocks && i < pan.size(); ++i)
+            if (keep[i] && std::fabs(float(pan[i]) / 32767.f - dir) > 0.3f) keep[i] = 0;
+    std::vector<std::pair<float, float>> out;
+    for (size_t i = 0; i < blocks;) {
+        if (!keep[i]) { ++i; continue; }
+        size_t j = i;
+        while (j < blocks && keep[j]) ++j;
+        out.push_back({float(i) / 100.f, float(j) / 100.f});
+        i = j;
+    }
+    return out;
+}
 
 float voiceDistance(const VoicePrint& a, const VoicePrint& b) {
     // Pitch in semitones matters most; how much it moves and the tone colour less (they change with mood).
@@ -400,6 +506,11 @@ float voiceDistance(const VoicePrint& a, const VoicePrint& b) {
 
 int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep, std::vector<std::pair<int, int>>& renamed) {
     auto kept = [&](int id) { return std::find(keep.begin(), keep.end(), id) != keep.end(); };
+    // Two voices heard from clearly different places within the last little while are two people,
+    // however alike they sound: never folded into one.
+    auto apart = [&](const Known& a, const Known& b) {
+        return now - a.panAt < 20.0 && now - b.panAt < 20.0 && std::fabs(a.pan - b.pan) >= 0.5f;
+    };
     // Give up voices that went quiet: numbered ones after five minutes, unnumbered ones after one.
     for (size_t i = 0; i < voices_.size();) {
         const Known& v = voices_[i];
@@ -417,6 +528,15 @@ int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep
     for (size_t i = 0; i < voices_.size(); ++i) {
         float d = voiceDistance(p, voices_[i].mean);
         if (voices_[i].id == last_ && now - voices_[i].heard < 8.0) d *= 0.7f;
+        // Where they were heard from a moment ago (people move, so only for a little while): from
+        // the same place counts as nearer, from somewhere else clearly farther. Two people with
+        // similar voices standing apart are told apart this way.
+        if (p.hasPan && now - voices_[i].panAt < 20.0) {
+            const float away = std::fabs(p.pan - voices_[i].pan);
+            if (away < 0.12f) d *= 0.85f;
+            else if (away >= 0.5f) d += 2.f;  // clearly somewhere else just now: someone else
+            else d += away;
+        }
         if (d < bestD) { secondD = bestD; bestD = d; best = int(i); }
         else if (d < secondD) secondD = d;
     }
@@ -433,11 +553,15 @@ int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep
             ++v.count;
         }
         v.heard = now;
+        if (p.hasPan) {
+            v.pan = p.pan;
+            v.panAt = now;
+        }
         if (v.id >= 100 && v.count >= 3) {
             // Heard three times. If its average has settled near a voice that already has a number, it
             // was that person all along (in another mood): fold it into them.
             for (size_t i = 0; i < voices_.size(); ++i) {
-                if (int(i) == best || voices_[i].id >= 100 || voiceDistance(voices_[i].mean, v.mean) > 1.3f) continue;
+                if (int(i) == best || voices_[i].id >= 100 || voiceDistance(voices_[i].mean, v.mean) > 1.3f || apart(voices_[i], v)) continue;
                 const int into = voices_[i].id;
                 renamed.push_back({v.id, into});
                 voices_[i].heard = now;
@@ -463,7 +587,7 @@ int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep
         if (id < 100)
             for (size_t i = 0; i < voices_.size(); ++i) {
                 if (int(i) == best || voices_[i].id >= 100) continue;
-                if (voiceDistance(voices_[i].mean, voices_[size_t(best)].mean) > 0.6f) continue;
+                if (voiceDistance(voices_[i].mean, voices_[size_t(best)].mean) > 0.6f || apart(voices_[i], voices_[size_t(best)])) continue;
                 const int keepId = std::min(voices_[i].id, id), dropId = std::max(voices_[i].id, id);
                 if (kept(dropId)) continue;
                 renamed.push_back({dropId, keepId});
@@ -486,6 +610,10 @@ int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep
             v.mean = p;
             v.count = 1;
             v.heard = now;
+            if (p.hasPan) {
+                v.pan = p.pan;
+                v.panAt = now;
+            }
             v.id = nextTemp_++;
             voices_.push_back(v);
             last_ = v.id;

@@ -1,4 +1,4 @@
-CIMA Box 3.0.4
+CIMA Box 3.1.0
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -100,6 +100,24 @@ You right now
   All voice settings ....... Opens My voice, which has everything else: dialect, how you talk,
                              the translation service, the model, gender, the mic, fine-tuning...
   You said / They heard .... The last line.
+  Start translating before
+  I finish talking ......... Optional, off at first (My voice > translation service). During
+                             the pause at the end of a sentence, the words so far are
+                             translated ahead of time. They're used only if you really had
+                             finished with those same words, so the voice says exactly the
+                             same thing, sooner: it never speaks half a sentence. If you go
+                             on talking, that early request is thrown away, so it can cost
+                             up to two extra AI requests per line. Works best with Live
+                             transcription on.
+  Which means ............. Under "They heard": your translated line put back into your
+                             language by a plain translator (never the AI), so you can see
+                             it says what you meant. The voice doesn't wait for it. It
+                             uses extra translation characters, because every line is
+                             translated a second time: the free translator first (about
+                             5,000 characters a day), then your Microsoft or DeepL key. No
+                             AI tokens and no ElevenLabs credits. Off until you turn it on: the "What my line means"
+                             toggle on Home, or "Show what my translated line means" under
+                             the translation service.
   Last word to their ears .. How long it took from the end of your sentence until the voice
                              started, split into hearing it, translating it and the voice.
 
@@ -208,12 +226,42 @@ Voice and language
                              language).
                              The words come out in the dialect; the ACCENT comes from the voice,
                              so for the real thing pick a voice from that region.
-  Translation service ...... Free (MyMemory: no sign-up, about 5,000 characters a day),
+  Translation service ...... A dropdown: Free (MyMemory: no sign-up, about 5,000 characters a day),
                              DeepL (better wording, needs a DeepL API key; the free DeepL plan
-                             gives 500,000 characters a month), Claude, Gemini or OpenAI (see
-                             below). Free and DeepL sound like a textbook. The AI ones say it the
+                             gives 500,000 characters a month), Microsoft (like DeepL, 100+
+                             languages, a free Azure key gives 2 million characters a month),
+                             Claude, Gemini or OpenAI, or Local (see below). Free and DeepL sound like a textbook. The AI ones say it the
                              way a native speaker actually talks, slang and casual speech
                              included, which is what makes it believable in a conversation.
+    Local .................. An AI that runs on your own PC: free, private, no key, and it works
+                             offline once downloaded. Pick Local, then a model from the dropdown:
+                               Light (Gemma 4 E2B, 2.6 GB): most PCs, about 4 GB of free memory.
+                               Balanced (Gemma 4 E4B, 4.2 GB): a graphics card with 8 GB or more.
+                               Best (Gemma 4 12B, 6.7 GB): a graphics card with 12 GB or more.
+                             CIMA Box checks your graphics card and memory and says how each
+                             model would do on your PC: Good fit, Tight (fits, but a game wants
+                             that memory too), Slow here (processor only) or Not for this PC.
+                             Local models work, but they run on your PC's own power next to
+                             your game: for the best translations and speed with almost no
+                             load on your PC, an API key (Gemini, Claude or OpenAI) is better.
+                             The first download also gets the engine that runs them (llama.cpp).
+                             With an online AI as your service, "Send lines this AI declines
+                             or is too slow for to my local model" lets a downloaded model
+                             try those lines first (it stays loaded while you play, so it's
+                             off by default). Local models are best at widely spoken
+                             languages; the app says so when yours isn't one of them.
+                             Downloads can be stopped and continued, and are checked when done.
+                             Picking a downloaded model uses it; Delete removes it, and deleting
+                             them all removes the engine too, so nothing is left behind. It
+                             works with NVIDIA, AMD and Intel graphics cards and shows which
+                             card it's on. The model is
+                             loaded only while Local is the chosen service, and it shares the
+                             graphics card with your game ("Use the graphics card" off runs it on
+                             the processor instead: slower, but the game keeps its memory). It
+                             only listens on this PC. It's weaker with slang than the online AIs,
+                             and it can't read pictures (Screen translation's AI reading needs
+                             Claude, Gemini or OpenAI). While it loads, and for lines it can't
+                             do, your backup translates (DeepL, Microsoft or Free).
     Claude / Gemini / OpenAI key  Your key from console.anthropic.com (Claude),
                              aistudio.google.com (Gemini) or platform.openai.com (OpenAI). Costs
                              a tiny fraction of a cent per phrase.
@@ -383,7 +431,10 @@ Translation
   Translation service ...... Same as on My voice. Use DeepL here: the free service runs out
                              after a few minutes of steady captions.
   Tell speakers apart ...... Splits a caption into "Voice 1", "Voice 2" lines when several people
-                             talk. The numbers only apply inside that one caption.
+                             talk. The numbers only apply inside that one caption. In VRChat
+                             (and other games that place voices around you), two people talking
+                             over each other from different sides become two lines, even when
+                             the speech service heard them as one.
   Show the original words .. Shows what was said under the translation.
   Skip speech in my language  Hides people who already speak your language.
   Translation service ...... Same choices as on My voice. Claude, Gemini or OpenAI understand
@@ -516,8 +567,12 @@ Hearing and reading
                              it has been heard a few times, there are at most six, and a line
                              it can't place (very short, or between two similar voices) gets
                              a plain grey bar instead of a guess. A voice is named once and
-                             then only when the speaker changes. Similar voices can still be
-                             mixed up. Right-click a line to mute that voice.
+                             then only when the speaker changes. In VRChat it also uses where a
+                             voice comes from (left or right of you), so two people who sound
+                             alike but stand apart get their own numbers, and a voice is learned
+                             only from moments when that person talks alone. Similar voices in
+                             the same spot (or a mono game like Discord) can still be mixed up.
+                             Right-click a line to mute that voice.
   Caption window over the game
                              A small see-through window of captions on top of your game. Games
                              must run in borderless windowed mode, not fullscreen. "Clicks go

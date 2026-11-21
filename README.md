@@ -88,6 +88,8 @@ and Hebrew are shown right to left with joined letters, in the app and in VR.
 - Optional, for natural translation: a [Claude](https://console.anthropic.com),
   [Gemini](https://aistudio.google.com) or [OpenAI](https://platform.openai.com) API key (a
   fraction of a cent per sentence), or [DeepL](https://www.deepl.com/pro-api).
+  Or no key at all: **Local** runs a translation model on your own PC (free, private, works offline;
+  2.6 to 6.7 GB to download, best with a graphics card).
 - For VR captions: SteamVR.
 
 ## Getting started

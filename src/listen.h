@@ -96,6 +96,9 @@ public:
     // A line read from the screen joins the feed, so it shows wherever captions do.
     void addScreenCaption(const std::string& text, const std::string& original);
     ListenState state() const;
+    // Something you just said (in your own words): the next captions are translated knowing what
+    // they are answering.
+    void noteMine(const std::string& text);
 
     // Audio entry for sources that deliver their own format (application capture, tests).
     // One thread at a time.

@@ -6,7 +6,37 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 3.1.0
+- New: local models. "Local" is a new translation service that runs an AI on your own PC: free, private, no key, and it works offline once downloaded.
+  - Three models to choose from by quality and hardware, each showing its download size and the memory it needs: Light (Gemma 4 E2B, 2.6 GB), Balanced (Gemma 4 E4B, 4.2 GB) and Best (Gemma 4 12B, 6.7 GB).
+  - Pick one from the Model dropdown, then download, stop, continue or delete it right there (My voice or Listen > Translation service > Local). A downloaded model is used as soon as you pick it. Downloads are checked when they finish. Deleting every model also removes the engine, so nothing is left on the disk.
+  - It works with everything the online AIs do: My voice, Listen (a whole caption in one go), Text, dialects, how you talk, the reading helper, the backups, the time limit. Only Screen translation's AI reading still needs Claude, Gemini or OpenAI, because that reads pictures.
+  - Works with NVIDIA, AMD and Intel graphics cards, and shows which card it's running on. "Use the graphics card" on is much faster; off keeps the card for your game. If the card can't load a model, it runs on the processor by itself and says so.
+  - The engine (llama.cpp's server) is downloaded from its official GitHub releases the first time, runs hidden, only listens on this PC behind a key made fresh each time, and stops when CIMA Box closes or when Local isn't the chosen service.
+  - A PC check: CIMA Box reads your graphics card and memory and rates every model against them ("Good fit", "Tight", "Slow here", "Not for this PC"), so nobody downloads one their PC can't run well. It starts on the biggest model that's a good fit.
+  - Said plainly wherever local models appear: they work, but they run on your PC's own power next to your game, and an API key gives better translations and speed with almost no load.
+  - The setup page has a fourth choice, "On this PC, no key", with the same PC check and download right there.
+  - A stricter prompt just for local models: the speech level (polite or informal) and the dialect are repeated at the end as short rules, with the exact forms for your language. The online AIs' prompt is unchanged.
+  - With an online AI as the service and a model downloaded: "Send lines this AI declines or is too slow for to my local model". The local model tries those lines first; if it says no or is too slow as well, DeepL, Microsoft or Free translate them as before. Off by default, because the model stays loaded while you play.
+  - A note when the language you picked is one small models aren't good at.
+- New: "Which means" under "They heard". Your translated line is put back into your language by a plain translator (Free, then Microsoft or DeepL, never the AI), so you can see it says what you meant. It uses extra translation characters (every line is translated a second time: the free translator's daily allowance first, then your Microsoft or DeepL key), but no AI tokens and no ElevenLabs credits, and the voice doesn't wait for it. Off by default: turn it on with the "What my line means" toggle on Home, or under the translation service. Turning it on also checks the line that's already showing.
+- New (optional, off by default): "Start translating before I finish talking". During the pause that ends a sentence, the words so far are translated ahead of time, and used only if you really had finished with those same words, so the voice says exactly what it would have said, sooner. It never speaks half a sentence. If you go on talking, the early request is thrown away (up to two extra AI requests per line). Works best with Live transcription on. The log says how often it was used.
+- Better: captions and your own words are written down by Scribe v3, ElevenLabs' newer speech-to-text model (fewer wrong words, better at telling speakers apart). If your account doesn't have it, CIMA Box notices once and uses Scribe v2 as before.
+- Better: captions are translated knowing what you just said, so replies like "me too" or "which one?" come out right.
+- Faster and cheaper with Claude: the fixed part of the instructions is cached at Anthropic, so answers start sooner and that part costs a tenth. The spending estimate counts it at the real price.
+- Faster first line with Microsoft Translator: its connection is opened while you're still talking, like the other services.
+- Look: card titles are larger with an accent bar, and sections inside a card are set apart by a line.
+- New: Microsoft Translator can be the translation service itself, not only a backup. Accurate wording in 100+ languages, with a free Azure key (2 million characters a month). A language it doesn't have goes to DeepL or Free.
+- The translation service is now a dropdown, with one line on what each service is and what it needs, instead of a row of buttons.
+
 ## 3.0.4
+- Fixed: when the AI wouldn't translate a line, its refusal ("I won't help say that...") could be spoken in your voice or shown as a caption, as if it were the translation. It happened when the AI wrote the refusal in the language you translate into. Now the AI is given a plain way to say no, and anything that is far longer than what was said is never used as a translation. A line it says no to isn't asked a second time.
+- Listen is much better with several people talking at once (VRChat lobbies):
+  - It hears where each voice comes from. In VRChat, someone on your left is louder in your left ear: two people talking over each other from different sides become two lines, even when the speech service put them in one.
+  - Two people who sound alike but stand apart get their own "Voice" numbers, and aren't merged into one later.
+  - A voice is learned only from moments when that person talks alone, so talking over each other no longer muddles who's who afterwards. A line with too little of one person stays grey instead of getting a wrong number.
+  - With Claude, Gemini or OpenAI, a whole caption is translated in one request instead of one per line: fewer tokens, faster captions, and better translations, since the AI sees the whole exchange (and each line's language). If that request only runs late, its lines go to DeepL, Microsoft or Free, not the AI again.
+  - Mono sound (Discord, a mono device) works as before.
 - Captions look cleaner when several people talk: every line starts at the same place (lines it can't put a voice to used to sit further left), one person's lines share one unbroken bar, and the label says every language heard ("English, French").
 - Fixed: Listen didn't translate someone speaking another language when two people talked at once (an English line next to a French one: the French stayed in French). The speech service names one language for the whole caption, so every line was treated as that one. Now, when a caption has several lines, a line whose own words clearly show another language is translated from that language, and a line already in your language is left as is (and hidden with "Only other languages" on, without hiding the others).
 

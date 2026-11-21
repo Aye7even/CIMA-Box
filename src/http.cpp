@@ -24,7 +24,7 @@ size_t onWrite(char* p, size_t sz, size_t n, void* ud) {
     auto* t = static_cast<Transfer*>(ud);
     long code = 0;
     curl_easy_getinfo(t->h, CURLINFO_RESPONSE_CODE, &code);
-    if (t->sink && code == 200) (*t->sink)(p, sz * n);
+    if (t->sink && (code == 200 || code == 206)) (*t->sink)(p, sz * n);
     else if (t->body.size() < (8u << 20)) t->body.append(p, sz * n);
     return sz * n;
 }
@@ -116,6 +116,8 @@ bool Http::perform(const HttpRequest& r, long& status, std::string& body, std::s
     curl_easy_setopt(h, CURLOPT_TCP_KEEPALIVE, 1L);
     curl_easy_setopt(h, CURLOPT_USERAGENT, "CIMABox");  // GitHub's API refuses requests without one
     curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, r.followRedirects ? 1L : 0L);
+    curl_easy_setopt(h, CURLOPT_LOW_SPEED_LIMIT, r.stallSec > 0 ? 1024L : 0L);
+    curl_easy_setopt(h, CURLOPT_LOW_SPEED_TIME, r.stallSec > 0 ? r.stallSec : 0L);
     curl_easy_setopt(h, CURLOPT_MAXREDIRS, 5L);
 
     // Run the request ourselves, checking every 10 ms whether it was stopped or cancelled. (Inside

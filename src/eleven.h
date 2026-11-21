@@ -23,10 +23,15 @@ struct VoiceSettings {
 struct Voice { std::string id, name, category, previewUrl; };  // previewUrl: ElevenLabs' free sample (MP3)
 struct Model { std::string id, name; bool voiceConversion = false, textToSpeech = false; };
 
+struct TurnWord {
+    std::string text;            // the word and the space after it, as written
+    float start = -1, end = -1;  // seconds into the audio; -1 = unknown
+};
 struct SpeakerTurn {
     int speaker = 0;
     std::string text;
     float start = -1, end = -1;  // seconds into the audio; -1 = unknown (the whole phrase)
+    std::vector<TurnWord> words;  // with speakers told apart: each word and when it was said
 };
 struct Transcript {
     std::string text;      // everything that was said

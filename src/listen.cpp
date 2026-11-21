@@ -32,8 +32,36 @@ constexpr int kChatboxGapMs = 1600;  // VRChat mutes the chatbox when it is writ
 struct Job {
     uint64_t id = 0;
     std::vector<int16_t> pcm;
+    std::vector<int16_t> pan;  // per 10 ms: where the sound came from, -32767 left .. 32767 right
     Clock::time_point heard;
 };
+
+// The ring holds pairs: the sound (left and right together) and half their difference. Kept in one
+// ring so the two can never drift apart. Returns how many frames fitted.
+size_t pushPairs(SpscRing<float>& ring, const float* frames, size_t count, int channels) {
+    static thread_local std::vector<float> pairs;
+    pairs.resize(count * 2);
+    for (size_t i = 0; i < count; ++i) {
+        const float l = frames[i * size_t(channels)], r = channels > 1 ? frames[i * size_t(channels) + 1] : l;
+        pairs[i * 2] = 0.5f * (l + r);
+        pairs[i * 2 + 1] = 0.5f * (l - r);
+    }
+    const size_t room = ring.space() / 2;
+    const size_t n = std::min(count, room);
+    ring.push(pairs.data(), n * 2);
+    return n;
+}
+
+// Where 10 ms of sound came from: -1 all left, +1 all right, 0 the middle (or mono).
+float panOf(const float* mid, const float* side, size_t n) {
+    double el = 0, er = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const double l = double(mid[i]) + side[i], r = double(mid[i]) - side[i];
+        el += l * l;
+        er += r * r;
+    }
+    return el + er < 1e-9 ? 0.f : float((er - el) / (er + el));
+}
 
 struct Pace { int holdMs, maxSeconds; };
 Pace paceOf(int pace) {
@@ -73,6 +101,9 @@ struct Listener::Impl {
     std::deque<Job> jobs;
     std::deque<Caption> feed;
     uint64_t nextId = 1;
+    // What the listener said lately: the text, the caption it came before, and when.
+    struct Mine { std::string text; uint64_t beforeId; Clock::time_point when; };
+    std::deque<Mine> mine;
     int warm = 0;  // workers that should open their connections now
     std::string status, error, chatText;
     std::condition_variable cv;
@@ -89,7 +120,7 @@ struct Listener::Impl {
     std::atomic<int> busy{0}, lastMs{0};
     std::atomic<float> levelDb{-100.f};
 
-    SpscRing<float> ring{16000 * 10};
+    SpscRing<float> ring{16000 * 10 * 2};  // pairs: see pushPairs
     std::thread capThread;
     std::vector<std::thread> workers;
 
@@ -114,7 +145,7 @@ struct Listener::Impl {
     // ---------------------------------------------------------------- sources
 
     static void onDeviceAudio(ma_device* d, void*, const void* in, ma_uint32 frames) {
-        if (in) static_cast<Impl*>(d->pUserData)->ring.push(static_cast<const float*>(in), frames);
+        if (in) pushPairs(static_cast<Impl*>(d->pUserData)->ring, static_cast<const float*>(in), frames, 2);
     }
 
     bool openDevice(bool loopback, const std::string& name, std::string& err) {
@@ -140,7 +171,7 @@ struct Listener::Impl {
         ma_device_config c = ma_device_config_init(loopback ? ma_device_type_loopback : ma_device_type_capture);
         c.capture.pDeviceID = find.found ? &find.id : nullptr;  // not found (unplugged): system default
         c.capture.format = ma_format_f32;
-        c.capture.channels = 1;
+        c.capture.channels = 2;  // stereo: where a voice comes from helps tell people apart (a mono device is copied to both)
         c.sampleRate = Segmenter::kRate;  // miniaudio converts from the device's own format
         c.dataCallback = onDeviceAudio;
         c.pUserData = this;
@@ -168,18 +199,18 @@ struct Listener::Impl {
         if (channels <= 0 || rate <= 0) return;
         if (!convOn || channels != convChannels || rate != convRate) {
             if (convOn) ma_data_converter_uninit(&conv, nullptr);
-            ma_data_converter_config c = ma_data_converter_config_init(ma_format_s16, ma_format_f32, ma_uint32(channels), 1,
+            ma_data_converter_config c = ma_data_converter_config_init(ma_format_s16, ma_format_f32, ma_uint32(channels), 2,
                                                                        ma_uint32(rate), Segmenter::kRate);
             convOn = ma_data_converter_init(&c, nullptr, &conv) == MA_SUCCESS;
             convChannels = channels;
             convRate = rate;
             if (!convOn) return;
         }
-        convOut.resize(4096);
+        convOut.resize(4096 * 2);
         while (frames > 0) {
-            ma_uint64 nIn = frames, nOut = convOut.size();
+            ma_uint64 nIn = frames, nOut = convOut.size() / 2;
             if (ma_data_converter_process_pcm_frames(&conv, in, &nIn, convOut.data(), &nOut) != MA_SUCCESS) return;
-            ring.push(convOut.data(), size_t(nOut));
+            pushPairs(ring, convOut.data(), size_t(nOut), 2);
             in += nIn * size_t(channels);
             frames -= size_t(nIn);
             if (nIn == 0 && nOut == 0) return;
@@ -200,7 +231,7 @@ struct Listener::Impl {
             if (feed[i].id == id) { feed.erase(feed.begin() + long(i)); ++version; return; }
     }
 
-    void enqueue(std::vector<int16_t>&& pcm) {
+    void enqueue(std::vector<int16_t>&& pcm, std::vector<int16_t>&& pan) {
         std::lock_guard<std::mutex> lk(mtx);
         while (jobs.size() >= kMaxWaiting) {  // stay live rather than fall further behind
             eraseCaption(jobs.front().id);
@@ -208,6 +239,7 @@ struct Listener::Impl {
         }
         Job j;
         j.pcm = std::move(pcm);
+        j.pan = std::move(pan);
         j.heard = Clock::now();
         if (liveId != 0) {  // the words shown while they talked become this caption
             j.id = liveId;
@@ -231,7 +263,7 @@ struct Listener::Impl {
     void captureLoop() {
         Segmenter seg;
         OscOut osc;
-        float block[Segmenter::kBlock];
+        float block[Segmenter::kBlock], side[Segmenter::kBlock], pairs[Segmenter::kBlock * 2];
         const float silence[Segmenter::kBlock] = {};
         int kind = -1;             // what is open right now (-1 = nothing)
         std::string name;
@@ -331,8 +363,14 @@ struct Listener::Impl {
             // ---- next 10 ms of audio. A silent program or playback device delivers nothing at all,
             // so after a short wait the gap is filled with silence to let an open phrase finish.
             const float* in = nullptr;
-            if (ring.size() >= size_t(Segmenter::kBlock)) {
-                ring.pop(block, Segmenter::kBlock);
+            int16_t pan = 0;
+            if (ring.size() >= size_t(Segmenter::kBlock) * 2) {
+                ring.pop(pairs, Segmenter::kBlock * 2);
+                for (int i = 0; i < Segmenter::kBlock; ++i) {
+                    block[i] = pairs[i * 2];
+                    side[i] = pairs[i * 2 + 1];
+                }
+                pan = int16_t(std::lrint(panOf(block, side, Segmenter::kBlock) * 32767.f));
                 in = block;
                 lastAudio = lastSilence = Clock::now();
             } else if (msSince(lastAudio) > 150 && msSince(lastSilence) >= 10) {
@@ -349,14 +387,14 @@ struct Listener::Impl {
             g.thresholdDb = s.thresholdDb;
             g.holdMs = pace.holdMs;
             g.maxSeconds = pace.maxSeconds;
-            std::vector<int16_t> phrase;
-            const bool done = seg.feed(in, g, phrase);
+            std::vector<int16_t> phrase, phrasePan;
+            const bool done = seg.feed(in, g, phrase, &pan, 1, &phrasePan);
             levelDb = seg.levelDb();
             const bool open = seg.open();
             hearing = open;
             if (open && !done) showLiveWords(seg.current());
             if (done) {
-                enqueue(std::move(phrase));
+                enqueue(std::move(phrase), std::move(phrasePan));
             } else if (open && !wasOpen) {
                 std::lock_guard<std::mutex> lk(mtx);
                 warm = kWorkers;  // someone started talking: connect while they are still speaking
@@ -454,6 +492,47 @@ struct Listener::Impl {
             from = c.around.size() == 1 ? findLanguage(c.around[0]) : nullptr;
             sure = c.around.size() == 1;
         }
+        // Where each voice comes from (VRChat and other games that place voices around you). The speech
+        // service sometimes puts two people talking over each other into one line: when that line's
+        // words clearly come from two places, it becomes two lines, one per person.
+        const bool stereo = panUseful(job.pan);
+        if (stereo) {
+            int nextSpeaker = 0;
+            for (const SpeakerTurn& tr : t.turns) nextSpeaker = std::max(nextSpeaker, tr.speaker + 1);
+            for (size_t i = 0; i < t.turns.size(); ++i) {
+                const SpeakerTurn& tr = t.turns[i];
+                std::vector<float> wpan, wlen;
+                bool timed = tr.words.size() >= 4;
+                for (const TurnWord& w : tr.words) {
+                    float p = 0;
+                    if (w.start < 0 || w.end < w.start || !panOver(job.pcm, job.pan, w.start, w.end, p)) { timed = false; break; }
+                    wpan.push_back(p);
+                    wlen.push_back(w.end - w.start);
+                }
+                if (!timed) continue;
+                const std::vector<int> side = splitByPlace(wpan, wlen);
+                if (side.empty()) continue;
+                SpeakerTurn part[2];
+                part[0].speaker = tr.speaker;
+                part[1].speaker = nextSpeaker++;
+                for (size_t k = 0; k < tr.words.size(); ++k) {
+                    SpeakerTurn& to2 = part[side[k]];
+                    const TurnWord& w = tr.words[k];
+                    to2.words.push_back(w);
+                    to2.text += w.text;
+                    if (to2.start < 0 || w.start < to2.start) to2.start = w.start;
+                    to2.end = std::max(to2.end, w.end);
+                }
+                for (SpeakerTurn& pt : part) {
+                    size_t a = pt.text.find_first_not_of(" \t"), b = pt.text.find_last_not_of(" \t");
+                    pt.text = a == std::string::npos ? std::string() : pt.text.substr(a, b - a + 1);
+                }
+                const bool firstIs0 = part[0].start <= part[1].start;
+                t.turns[i] = part[firstIs0 ? 0 : 1];
+                t.turns.insert(t.turns.begin() + long(i) + 1, part[firstIs0 ? 1 : 0]);
+                ++i;  // past the second half
+            }
+        }
         // The speech service gives one language for the whole caption, but two people can talk at
         // once in different languages (English and French): a line whose own words clearly show
         // another language goes by that one, so it still gets translated (and a line already in the
@@ -502,13 +581,36 @@ struct Listener::Impl {
         setup.wordNote = wordListNote(c.words);
         {   // the last few things people said, so slang and references are understood in context
             std::lock_guard<std::mutex> lk(mtx);
+            // Newest first, with the listener's own lines where they were said: "which one?" or
+            // "me too" only makes sense next to what it answers.
             std::vector<std::string> recent;
-            for (auto it = feed.rbegin(); it != feed.rend() && recent.size() < 4; ++it) {
-                if (it->pending || it->id == job.id) continue;
-                for (const CaptionLine& l : it->lines) recent.push_back("Them: " + (l.original.empty() ? l.text : l.original));
+            auto own = mine.rbegin();
+            auto addOwn = [&](uint64_t afterId) {  // their lines said after caption `afterId`
+                for (; own != mine.rend() && own->beforeId > afterId && recent.size() < 6; ++own)
+                    if (own->beforeId <= job.id && Clock::now() - own->when < std::chrono::seconds(90))
+                        recent.push_back("Listener: " + own->text);
+            };
+            size_t theirs = 0;
+            for (auto it = feed.rbegin(); it != feed.rend() && theirs < 4 && recent.size() < 6; ++it) {
+                if (it->pending || it->id == job.id || it->id > job.id) continue;
+                addOwn(it->id);
+                for (const CaptionLine& l : it->lines) {
+                    recent.push_back("Them: " + (l.original.empty() ? l.text : l.original));
+                    ++theirs;
+                }
             }
+            addOwn(0);
             for (auto it = recent.rbegin(); it != recent.rend(); ++it) setup.context += *it + "\n";
         }
+        // When each person spoke (word by word), so a voice print can leave out everyone else.
+        auto spansOf = [](const SpeakerTurn& tr) {
+            std::vector<std::pair<float, float>> v;
+            for (const TurnWord& w : tr.words)
+                if (w.start >= 0 && w.end >= w.start) v.push_back({std::max(0.f, w.start - 0.05f), w.end + 0.05f});
+            if (v.empty() && tr.start >= 0 && tr.end > tr.start) v.push_back({tr.start, tr.end});
+            return v;
+        };
+        std::vector<size_t> turnOf;  // which turn each line came from
         for (size_t ti = 0; ti < t.turns.size(); ++ti) {
             const SpeakerTurn& turn = t.turns[ti];
             if (c.s.onlyOtherLanguages && lineSame(ti)) continue;  // only the other languages are wanted
@@ -519,36 +621,83 @@ struct Listener::Impl {
             line.voice = guessVoiceGender(job.pcm, several ? turn.start : -1.f, several ? turn.end : -1.f);
             if (c.voiceIds) {
                 VoicePrint vp;
-                if (voicePrint(job.pcm, several ? turn.start : -1.f, several ? turn.end : -1.f, vp)) {
+                bool printed = false;
+                const std::vector<std::pair<float, float>> mine = spansOf(turn);
+                if (several && !mine.empty()) {
+                    // Only this person's own moments: not while anyone else talked, and (with stereo)
+                    // not when the sound came from somewhere else. Too little left: unnamed, not a guess.
+                    std::vector<std::pair<float, float>> others;
+                    for (size_t k = 0; k < t.turns.size(); ++k)
+                        if (k != ti && t.turns[k].speaker != turn.speaker)
+                            for (const auto& sp : spansOf(t.turns[k])) others.push_back(sp);
+                    float dir = 0;
+                    const bool hasDir = stereo && panOver(job.pcm, job.pan, turn.start, turn.end, dir);
+                    printed = voicePrintSpans(job.pcm, soloSpans(mine, others, job.pan, dir, hasDir), vp);
+                    vp.pan = dir;
+                    vp.hasPan = hasDir;
+                } else {
+                    printed = voicePrint(job.pcm, several ? turn.start : -1.f, several ? turn.end : -1.f, vp);
+                    float dir = 0;
+                    if (printed && stereo && panOver(job.pcm, job.pan, several ? turn.start : 0.f,
+                                                     several ? turn.end : float(job.pcm.size()) / 16000.f, dir)) {
+                        vp.pan = dir;
+                        vp.hasPan = true;
+                    }
+                }
+                if (printed) {
                     std::lock_guard<std::mutex> lk(mtx);
                     line.voiceId = voiceIdOf(vp);
                 }
             }
-            setup.speaker = line.voice;  // gendered target languages: "I'm tired" -> cansado / cansada
-            if (!lineSame(ti) && to && problem.empty()) {
-                std::string translated;
-                if (translator.translate(setup, line.text, lineFrom[ti], *to, translated, err)) {
-                    if (translator.wordsGender) line.voice = translator.wordsGender;  // their words beat a guess from the voice
-                    static std::string lastVia;  // say when another service had to step in, and when that ends
-                    if (translator.via != lastVia && (translator.via.find('(') != std::string::npos || lastVia.find('(') != std::string::npos))
-                        logLine("Listen translated with " + translator.via);
-                    lastVia = translator.via;
-                    line.original = line.text;
-                    line.text = translated;
-                } else if (err == "cancelled") {
-                    fail(job.id, err);
+            lines.push_back(std::move(line));
+            turnOf.push_back(ti);
+        }
+
+        // Translate the lines that need it, all of a caption in one request where possible.
+        if (to) {
+            std::vector<size_t> todo;
+            std::vector<std::string> texts;
+            std::vector<const Language*> froms;
+            std::vector<int> voices;
+            for (size_t li = 0; li < lines.size(); ++li) {
+                if (lineSame(turnOf[li])) continue;
+                todo.push_back(li);
+                texts.push_back(lines[li].text);
+                froms.push_back(lineFrom[turnOf[li]]);
+                voices.push_back(lines[li].voice);  // gendered target languages: "I'm tired" -> cansado / cansada
+            }
+            if (!todo.empty()) {
+                std::vector<std::string> outs;
+                std::vector<int> genders;
+                std::string why;
+                if (!translator.translateLines(setup, texts, froms, voices, *to, outs, genders, why)) {
+                    fail(job.id, why);  // cancelled
                     return;
-                } else {
-                    problem = err;  // keep the caption, untranslated
+                }
+                static std::string lastVia;  // say when another service had to step in, and when that ends
+                if (translator.via != lastVia && (translator.via.find('(') != std::string::npos || lastVia.find('(') != std::string::npos))
+                    logLine("Listen translated with " + translator.via);
+                lastVia = translator.via;
+                for (size_t k = 0; k < todo.size(); ++k) {
+                    CaptionLine& line = lines[todo[k]];
+                    if (outs[k].empty()) {
+                        if (problem.empty()) problem = why;  // keep the line, untranslated
+                        continue;
+                    }
+                    if (genders[k]) line.voice = genders[k];  // their words beat a guess from the voice
+                    line.original = line.text;
+                    line.text = outs[k];
                 }
             }
+        }
+
+        for (CaptionLine& line : lines) {
             if (c.maskSwears) {
                 line.text = maskSwears(line.text);
                 line.original = maskSwears(line.original);
             }
             if (!chat.empty()) chat += "\n";
             chat += line.text;
-            lines.push_back(std::move(line));
         }
 
         std::lock_guard<std::mutex> lk(mtx);
@@ -647,11 +796,19 @@ void Listener::clear() {
     std::lock_guard<std::mutex> lk(p_->mtx);
     p_->jobs.clear();
     p_->feed.clear();
+    p_->mine.clear();
     p_->chatText.clear();
     ++p_->version;
 }
 
 uint64_t Listener::version() const { return p_->version; }
+
+void Listener::noteMine(const std::string& text) {
+    if (text.find_first_not_of(" \t\r\n") == std::string::npos) return;
+    std::lock_guard<std::mutex> lk(p_->mtx);
+    p_->mine.push_back({text.substr(0, 300), p_->nextId, Clock::now()});
+    while (p_->mine.size() > 4) p_->mine.pop_front();
+}
 
 void Listener::addScreenCaption(const std::string& text, const std::string& original) {
     std::lock_guard<std::mutex> lk(p_->mtx);

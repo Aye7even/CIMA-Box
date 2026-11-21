@@ -13,6 +13,8 @@
 #include "voiceout.h"
 #include "vroverlay.h"
 #include "translate.h"
+#include "localai.h"
+#include "pcspecs.h"
 #include "updater.h"
 
 enum Engine { kVoiceChanger = 0, kRespeak = 1, kTranslate = 2 };
@@ -93,6 +95,11 @@ struct Settings {
     std::string uiLanguage = "en";     // the app's own language
     bool checkUpdates = true;          // look for a new version when the app starts
     std::string lastSeenVersion;       // "What's new" shows what changed since this one
+    std::string localModel;            // translation service Local: the model to use (LocalModel::id)
+    bool localOnDecline = false;       // a line the online AI declines or is too slow for goes to the local model first (keeps it loaded)
+    bool earlyTranslate = false;       // translate during the pause that ends a phrase; used only if it really was the end
+    bool showMeaning = false;          // under "They heard": what the translated line says, back in your language
+    bool localGpu = true;              // ...on the graphics card (off: the processor only)
     std::string skipUpdate;            // went back from this version: don't offer it again (a newer one, yes)
     int usageNotice = 0;               // which "your keys, your costs" notice was read (kUsageNotice = the current one)
     std::string inDevice, outDevice, monDevice;  // empty = system default
@@ -150,6 +157,7 @@ struct ScreenShot {
 
 // The "how do I get this key?" guides, and their pictures (in this order in guide_data.h).
 enum KeyGuide { kGuideEleven = 0, kGuideDeepL, kGuideGemini, kGuideClaude, kGuideOpenAI, kGuideCount };
+constexpr int kSetupLocal = 100;  // setupAi: no key, a model on this PC instead
 enum GuidePicture {
     kPicEleven1 = 0, kPicEleven2, kPicEleven3, kPicDeepL, kPicGemini, kPicClaude,
     kPicOpenAI1, kPicOpenAI2, kPicOpenAI3, kPicOpenAI4, kPicOpenAI5, kPicCount
@@ -201,6 +209,7 @@ struct UiModel {
     std::vector<Model> models;
     std::vector<std::string> inputDevices, outputDevices;
     std::string catalogMsg, lastError, heardText, sentText;
+    std::string meaningText;  // what sentText says, back in your language (empty until the check answers)
     std::string delivery;              // how the last phrase sounded, when emotion is on
     std::string qualityNote;
     std::string translateVia;          // which service translated the last phrase           // set when the plan refused a quality and a lower one is used
@@ -234,6 +243,10 @@ struct UiModel {
     UpdateState update;                      // GitHub updates
     bool updatesConfigured = false;          // this build knows where updates come from
     bool olderOpen = false;                  // Settings: the list of earlier versions is showing
+    PcSpecs pc;                              // this PC's graphics card and memory, to rate the local models
+    LocalState local;                        // models on this PC: what's downloaded, downloading, loaded
+    std::string localDeletePick;             // the model picked to delete, waiting for the second press
+    std::string localView;                   // the local model showing in the Model dropdown
     std::string olderPick;                   // the earlier version picked, waiting for "Go back"
     std::string settingsPath;                // where cimabox.json is saved
     int settingsPlace = kPlaceSettingsFolder;  // SettingsPlace
@@ -310,6 +323,7 @@ struct UiActions {
     int setMini = -1;          // 0 / 1 when the user switches the mini window
     bool checkUpdates = false, installUpdate = false, openSettingsFolder = false;
     bool listOlder = false;                  // look up the earlier versions
+    std::string localDownload, localCancel, localRemove;  // a local model to download, stop downloading, delete
     std::string installOlder;                // go back to this version and restart
     bool pickPicture = false, clearPicture = false;  // Settings > Look
     int setSettingsPlace = -1;  // SettingsPlace picked in Settings > About

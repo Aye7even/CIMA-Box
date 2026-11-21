@@ -36,8 +36,32 @@ int guessVoiceGender(const std::vector<int16_t>& pcm16k, float startS, float end
 
 // A rough fingerprint of a voice, to tell the same person apart across captions: typical pitch,
 // how much the pitch moves, and how bright the voice sounds. False when there's too little voice.
-struct VoicePrint { float pitch = 0, spread = 0, bright = 0, voiced = 0; };  // voiced: seconds of clear voice it came from
+struct VoicePrint {
+    float pitch = 0, spread = 0, bright = 0, voiced = 0;  // voiced: seconds of clear voice it came from
+    float pan = 0;        // where it came from (stereo games): -1 left .. +1 right
+    bool hasPan = false;  // only with stereo sound that really moves between left and right
+};
 bool voicePrint(const std::vector<int16_t>& pcm16k, float startS, float endS, VoicePrint& out);
+// The same from only some stretches of the audio (seconds), joined: one person's own moments.
+bool voicePrintSpans(const std::vector<int16_t>& pcm16k, const std::vector<std::pair<float, float>>& spans, VoicePrint& out);
+
+// ---- Where a voice comes from. In VRChat (and other games with voices placed around you) someone
+// on your left is louder in your left ear, so two people talking at once can be told apart even when
+// their voices sound alike. `pan`: one value per 10 ms of the phrase, -32767 left .. 32767 right.
+// True when the sound really moves between left and right (not mono, not everything in the middle).
+bool panUseful(const std::vector<int16_t>& pan);
+// Where the sound between two times came from, the louder moments counting most. False when it was
+// (nearly) silent then.
+bool panOver(const std::vector<int16_t>& pcm16k, const std::vector<int16_t>& pan, float startS, float endS, float& out);
+// One speaker's words that clearly come from two different places (two people talking over each
+// other, put together by the speech service): which of the two each word belongs to, 0 or 1.
+// Empty when it shouldn't be split (one place, or too few words on one side to be sure).
+std::vector<int> splitByPlace(const std::vector<float>& wordPan, const std::vector<float>& wordSeconds);
+// The stretches that are only this person's: their words' times, minus the times anyone else was
+// talking and, with `useDir`, minus the moments the sound came from somewhere else than `dir`.
+std::vector<std::pair<float, float>> soloSpans(const std::vector<std::pair<float, float>>& mine,
+                                               const std::vector<std::pair<float, float>>& others,
+                                               const std::vector<int16_t>& pan, float dir, bool useDir);
 float voiceDistance(const VoicePrint& a, const VoicePrint& b);  // about 1 = probably not the same person
 
 // Keeps track of who is who among the voices heard (Listen's "Same voice, same color"). A voice
@@ -58,7 +82,14 @@ public:
     void clear() { voices_.clear(); nextTemp_ = 100; last_ = -1; }
 
 private:
-    struct Known { VoicePrint mean; int count = 0; double heard = 0; int id = -1; };  // id >= 100: no number yet
+    struct Known {
+        VoicePrint mean;
+        int count = 0;
+        double heard = 0;
+        int id = -1;          // >= 100: no number yet
+        float pan = 0;        // where they were last heard from, and when (people move, so only briefly useful)
+        double panAt = -1e9;
+    };
     std::vector<Known> voices_;
     int nextTemp_ = 100, last_ = -1;
 };

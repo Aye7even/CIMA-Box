@@ -53,6 +53,7 @@
 #include "osc.h"
 #include "vroverlay.h"
 #include "translate.h"
+#include "early.h"
 #include "ui.h"
 
 #ifndef CIMA_VERSION
@@ -191,6 +192,11 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.msKey = j.value("microsoft_key", s.msKey);
         s.msRegion = j.value("microsoft_region", s.msRegion);
         s.aiBackup = j.value("ai_backup", s.aiBackup);
+        s.localModel = j.value("local_model", s.localModel);
+        s.localGpu = j.value("local_gpu", s.localGpu);
+        s.localOnDecline = j.value("local_on_decline", s.localOnDecline);
+        s.showMeaning = j.value("show_meaning", s.showMeaning);
+        s.earlyTranslate = j.value("early_translate", s.earlyTranslate);
         s.openaiModel = j.value("openai_model", s.openaiModel);
         s.customStyle = j.value("custom_style", s.customStyle);
         s.speechLevel = j.value("speech_level", s.speechLevel);
@@ -361,7 +367,7 @@ static void tidySettings(Settings& s) {
         r.style.maxLines = std::max(1, std::min(8, r.style.maxLines));
         r.style.panelOpacity = std::max(0.f, std::min(1.f, r.style.panelOpacity));
     }
-    if (s.translateService < kMyMemory || s.translateService > kOpenAI) s.translateService = kMyMemory;
+    if (s.translateService < kMyMemory || s.translateService > kMicrosoft) s.translateService = kMyMemory;
     if (s.speechLevel < kLevelPolite || s.speechLevel > kLevelCustom) s.speechLevel = kLevelCasual;
     s.aiTimeoutMs = std::max(800, std::min(6000, s.aiTimeoutMs));
     if (s.myGender < kGenderUnknown || s.myGender > kGenderNonbinary) s.myGender = kGenderUnknown;
@@ -557,6 +563,7 @@ static std::string settingsJson(const Settings& s) {
         {"claude_key", s.claudeKey}, {"gemini_key", s.geminiKey}, {"claude_model", s.claudeModel},
         {"gemini_model", s.geminiModel}, {"openai_key", s.openaiKey}, {"openai_model", s.openaiModel},
         {"microsoft_key", s.msKey}, {"microsoft_region", s.msRegion}, {"ai_backup", s.aiBackup},
+        {"local_model", s.localModel}, {"local_gpu", s.localGpu}, {"local_on_decline", s.localOnDecline}, {"show_meaning", s.showMeaning}, {"early_translate", s.earlyTranslate},
         {"speech_level", s.speechLevel}, {"custom_style", s.customStyle}, {"persona", s.persona},
         {"ai_timeout_ms", s.aiTimeoutMs}, {"mirror", s.mirror}, {"input_device", s.inDevice},
         {"output_device", s.outDevice}, {"monitor_device", s.monDevice}, {"monitor", s.monitor},
@@ -737,10 +744,17 @@ struct App {
     std::vector<Voice> voices;
     std::vector<Model> models;
     std::string catalogMsg, lastError, heardText, sentText, delivery;
+    std::string meaningText, meaningFor;  // the check of a spoken line, and the line it belongs to
+    std::string sentTo, sentMine;         // the languages of sentText (empty when it wasn't translated)
     VoiceBaseline baseline;  // learned in the worker; copied into the settings for saving
     int catalogVersion = 0;
     std::deque<Phrase> jobs;
     bool warmWanted = false;
+    // Early translation: the words heard so far in the phrase being spoken, when it began, the
+    // language last spoken, and a nudge for the worker when a pause may be its end. (mtx)
+    std::string livePartial, lastSpokenCode;
+    Clock::time_point phraseOpened{};
+    bool earlyWanted = false, earlyQuiet = false;
     std::condition_variable jobCv;
 
     std::atomic<bool> running{true}, loading{false}, busy{false}, cancel{false};
@@ -918,6 +932,12 @@ void applyVariety(const Settings& s, const std::string& langCode, TranslateSetup
 }
 
 // `speaking`: My voice (your dialect, gender, who you talk to). Listen sets its own per line.
+// The local model as it is right now, for every thread that translates (the main loop keeps it
+// up to date from LocalAi).
+struct LocalNow { std::string url, key, model, note; };
+static std::mutex gLocalMx;
+static LocalNow gLocalNow;
+
 static TranslateSetup translateSetup(const Settings& s, bool speaking = true) {
     TranslateSetup t;
     if (speaking) {
@@ -935,6 +955,14 @@ static TranslateSetup translateSetup(const Settings& s, bool speaking = true) {
     t.msKey = s.msKey;
     t.msRegion = s.msRegion;
     t.aiBackup = s.aiBackup;
+    t.localOnDecline = s.localOnDecline;
+    {   // a model on this PC, when one is loaded (as the service, or as another AI's backup)
+        std::lock_guard<std::mutex> lk(gLocalMx);
+        t.localUrl = gLocalNow.url;
+        t.localKey = gLocalNow.key;
+        t.localModel = gLocalNow.model;
+        t.localNote = gLocalNow.note;
+    }
     t.openaiModel = s.openaiModel;
     t.level = s.speechLevel;
     t.customStyle = s.customStyle;
@@ -1410,6 +1438,11 @@ static LiveStt& liveStt() {
             if (words.empty() || !g.recording) return;
             std::lock_guard<std::mutex> lk(g.mtx);
             g.heardText = words + "\xE2\x80\xA6";  // "…": still listening
+            g.livePartial = words;
+            if (g.earlyQuiet) {  // the last word arrived during the pause: the early translation wants it
+                g.earlyWanted = true;
+                g.jobCv.notify_one();
+            }
         };
         return true;
     }();
@@ -1447,6 +1480,7 @@ static void captureLoop() {
     bool voiceTurn = false;  // push to talk with your real voice between presses: the new voice's turn
     bool liveThis = false;   // this phrase is going to live transcription
     size_t liveSent = 0;     // how much of it has gone
+    bool wasQuiet = false;   // early translation: in a pause that may end the phrase
     while (g.running) {
         if (!convOk || g.capRing.size() < size_t(kIn)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -1455,7 +1489,7 @@ static void captureLoop() {
         g.capRing.pop(in, kIn);
 
         GateParams p;
-        bool enabled, passthrough, matchMic, realBetween, jobsWaiting, liveWanted;
+        bool enabled, passthrough, matchMic, realBetween, jobsWaiting, liveWanted, earlyOn;
         LiveStt::Options liveOptions;
         {
             std::lock_guard<std::mutex> lk(g.mtx);
@@ -1471,6 +1505,7 @@ static void captureLoop() {
             // Live transcription: for the modes that write down what you say.
             liveWanted = g.cfg.liveStt && !g.cfg.apiKey.empty() &&
                          (g.cfg.engine == kTranslate || g.cfg.engine == kRespeak);
+            earlyOn = liveWanted && g.cfg.earlyTranslate && g.cfg.engine == kTranslate && isAiService(g.cfg.translateService);
             if (liveWanted && !wasOpen) {  // what a phrase starting now goes with
                 liveOptions.apiKey = g.cfg.apiKey;
                 liveOptions.language = g.cfg.spokenLang;
@@ -1565,8 +1600,26 @@ static void captureLoop() {
                 liveStt().discard();  // too short to be a phrase (a click, a cough)
                 liveThis = false;
             }
+            // Early translation: a pause long enough that it may be the end of the phrase (half the
+            // pause that ends one). The worker translates the words so far now; they're used only if
+            // the phrase really ends here with those words.
+            const bool quietNow = earlyOn && liveThis && open && !p.pushToTalk && p.holdMs >= 250 &&
+                                  seg.quietMs() >= std::max(150, p.holdMs / 2);
+            if (quietNow != wasQuiet) {
+                std::lock_guard<std::mutex> lk(g.mtx);
+                g.earlyQuiet = quietNow;
+                if (quietNow) {
+                    g.earlyWanted = true;
+                    g.jobCv.notify_one();
+                }
+                wasQuiet = quietNow;
+            }
             if (done || (open && !wasOpen)) {
                 std::lock_guard<std::mutex> lk(g.mtx);
+                if (open && !wasOpen) {
+                    g.phraseOpened = Clock::now();
+                    g.livePartial.clear();
+                }
                 if (done) {
                     phrase.ended = Clock::now();
                     g.jobs.push_back(std::move(phrase));
@@ -1601,8 +1654,45 @@ static std::string withoutTags(const std::string& s) {
     return out;
 }
 
+// The language a phrase is taken to be in: the one picked, else the one heard. With "Languages I
+// speak", anything else is a misheard short phrase: with one language on the list it's that one;
+// otherwise the translator works it out (null).
+static const Language* spokenLanguage(const Settings& s, const std::string& detected) {
+    const Language* from = findLanguage(s.spokenLang.empty() ? detected : s.spokenLang);
+    if (s.spokenLang.empty() && !s.fx.myLanguages.empty() && from &&
+        std::find(s.fx.myLanguages.begin(), s.fx.myLanguages.end(), std::string(from->code)) == s.fx.myLanguages.end())
+        from = s.fx.myLanguages.size() == 1 ? findLanguage(s.fx.myLanguages[0]) : nullptr;
+    return from;
+}
+
+// "Which means": `line` (in `target`) put back into the speaker's own language by a plain translator,
+// never an AI, and shown under "They heard" when it arrives. Nothing waits for it. Called by the
+// voice worker for each new line, and by the window when the switch is turned on, for the line
+// already showing.
+static void checkMeaning(const Settings& s, const std::string& line, const Language& target, const Language& mine) {
+    static std::mutex mx;
+    static Translator checker;
+    static std::atomic<bool> stop{false};
+    static std::future<void> job;
+    if (line.empty()) return;
+    std::lock_guard<std::mutex> lk(mx);
+    stop = true;  // the one for the line before, if it's still going
+    if (job.valid()) job.wait();
+    stop = false;
+    checker.http.cancel = &stop;
+    const TranslateSetup cs = translateSetup(s, false);
+    job = std::async(std::launch::async, [cs, line, target, mine] {
+        std::string meaning, e;
+        if (!checker.checkBack(cs, line, target, mine, meaning, e)) return;
+        std::lock_guard<std::mutex> lk2(g.mtx);
+        g.meaningText = meaning;
+        g.meaningFor = line;
+    });
+}
+
 // Phrases -> ElevenLabs -> playback rings. One at a time so the audio stays in order.
 static void workerLoop() {
+    EarlyTranslation gEarly;  // translations started during a pause (an option); stopped when this thread ends
     VoiceOut voiceOut(kDeviceRate);  // ElevenLabs audio (PCM or MP3, any rate) -> playback rate
     Eleven api;             // both keep their connection open between phrases
     Translator translator;
@@ -1626,6 +1716,21 @@ static void workerLoop() {
     // so a story told over several sentences reads as one (who "he" is, the same word for the same thing).
     struct SaidLine { std::string heard, said; Clock::time_point ended; };
     std::deque<SaidLine> stretch;
+    // What a line is translated with: the settings, the recent conversation, and the line or two said
+    // just before in this stretch (context only, so the sentences fit together).
+    auto lineSetup = [&](const Settings& s, Clock::time_point lineStarted, bool typed) {
+        TranslateSetup setup = translateSetup(s);
+        if (s.mirror) {
+            std::lock_guard<std::mutex> lk(g.mtx);
+            setup.context = recentConversation(6);
+        }
+        if (!typed)
+            for (const SaidLine& l : stretch)
+                if (lineStarted - l.ended <= std::chrono::seconds(4)) setup.before.push_back({l.heard, l.said});
+        return setup;
+    };
+    Clock::time_point earlyPhrase{};  // early translation: the phrase the count below is for
+    int earlyThisPhrase = 0;          // at most two per phrase, so a line with pauses can't run up a bill
 
     while (g.running) {
         std::vector<int16_t> pcm, full;
@@ -1636,10 +1741,13 @@ static void workerLoop() {
         Clock::time_point ended = Clock::now();
         std::shared_future<LiveText> liveResult;  // the phrase's words from live transcription, if it was on
         bool heardLive = false;
+        bool earlyNow = false;  // a pause that may end the phrase being spoken: translate its words so far
+        std::string partial, lastCode;
+        Clock::time_point opened{};
         {
             std::unique_lock<std::mutex> lk(g.mtx);
             for (;;) {
-                if (!g.running || !g.jobs.empty() || g.warmWanted) break;
+                if (!g.running || !g.jobs.empty() || g.warmWanted || g.earlyWanted) break;
                 // A cut-off sentence: once its wait is over and you're not talking, it's said as it is.
                 if (held.on && !g.recording && Clock::now() >= held.due) {
                     flushHeld = true;
@@ -1650,6 +1758,11 @@ static void workerLoop() {
             }
             if (!g.running) break;
             s = g.cfg;
+            earlyNow = g.earlyWanted && g.jobs.empty();
+            partial = g.livePartial;
+            lastCode = g.lastSpokenCode;
+            opened = g.phraseOpened;
+            g.earlyWanted = false;
             g.warmWanted = false;
             if (!flushHeld && !g.jobs.empty()) {
                 // With a sentence waiting, only your next phrase from the mic continues it. Typed text
@@ -1684,6 +1797,30 @@ static void workerLoop() {
         g.cancel = false;
         if (!g.running) break;  // quitting: don't start anything that shutdown could no longer cancel
         api.apiKey = captionApi.apiKey = s.apiKey;
+        if (!haveJob && !flushHeld && earlyNow) {
+            // Early translation, during the pause: the words so far (after a sentence that was waiting
+            // for its rest, the whole sentence), unless they sound unfinished, in which case more is
+            // coming and a request now would only be thrown away.
+            if (opened != earlyPhrase) {
+                earlyPhrase = opened;
+                earlyThisPhrase = 0;
+            }
+            const bool mine = s.earlyTranslate && s.engine == kTranslate && isAiService(s.translateService) &&
+                              (!held.on || held.engine == kTranslate);
+            if (mine && !partial.empty() && earlyThisPhrase < 2) {
+                const std::string lang = !s.spokenLang.empty() ? s.spokenLang : held.on ? held.lang : lastCode;
+                std::string text = applyWordFixes(partial, s.fx.words);
+                if (held.on) text = joinHeard(held.text, text, lang);
+                const Language* to = findLanguage(s.targetLang);
+                const Language* from = spokenLanguage(s, lang);
+                if (to && from && from != to && !sentenceUnfinished(text, lang) &&
+                    !gEarly.has(text)) {
+                    gEarly.start(lineSetup(s, held.on ? held.since : opened, false), text, from, *to);
+                    ++earlyThisPhrase;
+                }
+            }
+            continue;
+        }
         if (!haveJob && !flushHeld) {
             // All connections at once (each waits 3 s at most), so a phrase that ends soon after
             // isn't kept waiting behind them.
@@ -1757,6 +1894,7 @@ static void workerLoop() {
         };
 
         std::string err, heard, spoken, delivery;
+        std::string lineTo, lineMine;  // a translated line's two languages, for "Which means"
         bool ok = true;
         if (s.voiceId.empty() && (typedText.empty() || s.textSpeak)) {
             ok = false;
@@ -1848,6 +1986,10 @@ static void workerLoop() {
                 if (detected.empty()) detected = was.lang;
                 const Language* spokenAs = findLanguage(s.spokenLang.empty() ? detected : s.spokenLang);
                 langCode = spokenAs ? spokenAs->code : detected;
+                if (!langCode.empty()) {
+                    std::lock_guard<std::mutex> lk(g.mtx);
+                    g.lastSpokenCode = langCode;
+                }
                 heard = joining ? joinHeard(was.text, piece, langCode) : piece;
                 tokens = std::move(was.tokens);
                 tokens.insert(tokens.end(), pieceTokens.begin(), pieceTokens.end());
@@ -1888,6 +2030,13 @@ static void workerLoop() {
                         {
                             std::lock_guard<std::mutex> lk(g.mtx);
                             g.heardText = heard;  // what it heard so far
+                        }
+                        // Early translation: while it waits for the rest, the sentence as it stands is
+                        // translated. If no more comes, it's ready the moment the wait is over.
+                        if (s.earlyTranslate && !talking && s.engine == kTranslate && isAiService(s.translateService)) {
+                            const Language* to = findLanguage(s.targetLang);
+                            const Language* from = spokenLanguage(s, held.lang);
+                            if (to && from != to) gEarly.start(lineSetup(s, held.since, false), held.text, from, *to);
                         }
                         g.busy = false;
                         continue;
@@ -1944,28 +2093,17 @@ static void workerLoop() {
 
             say = heard;
             const Language* to = findLanguage(s.targetLang);
-            const Language* from = findLanguage(s.spokenLang.empty() ? detected : s.spokenLang);
-            // "Languages I speak": anything else is a misheard short phrase. With one language on the
-            // list it's that one; otherwise the translator works it out.
-            if (s.spokenLang.empty() && !s.fx.myLanguages.empty() && from &&
-                std::find(s.fx.myLanguages.begin(), s.fx.myLanguages.end(), std::string(from->code)) == s.fx.myLanguages.end())
-                from = s.fx.myLanguages.size() == 1 ? findLanguage(s.fx.myLanguages[0]) : nullptr;
+            const Language* from = spokenLanguage(s, detected);
             const bool translating = s.engine == kTranslate && to && from != to;
             if (ok && !blank && s.engine == kTranslate && !to) {
                 ok = false;
                 err = "Pick a language to translate to";
             } else if (ok && !blank && translating) {
                 const auto tTr = Clock::now();
-                TranslateSetup setup = translateSetup(s);
-                if (s.mirror) {
-                    std::lock_guard<std::mutex> lk(g.mtx);
-                    setup.context = recentConversation(6);
-                }
                 // The line or two you said just before, if this goes on from them (a story, a long
                 // explanation): context only, so the sentences fit together.
                 while (!stretch.empty() && lineStarted - stretch.front().ended > std::chrono::seconds(4)) stretch.pop_front();
-                if (!typed)
-                    for (const SaidLine& l : stretch) setup.before.push_back({l.heard, l.said});
+                TranslateSetup setup = lineSetup(s, lineStarted, typed);
                 const bool ai = isAiService(s.translateService);
                 // Parts that sound different are translated separately (at the same time), each keeping
                 // its own delivery. Not with the AI services: they word a whole sentence more naturally,
@@ -1992,7 +2130,18 @@ static void workerLoop() {
                         say += renderTranslatedPart(dir.parts[i], r.second, tags, say.empty());
                     }
                 } else {
-                    ok = translator.translate(setup, heard, from, *to, say, err);
+                    // Translated ahead of time, during the pause? Then it's here already (or nearly).
+                    EarlyTranslation::Result early;
+                    if (ai && !typed && gEarly.take(setup, heard, from, *to, early)) {
+                        ok = true;
+                        say = early.out;
+                        translator.via = early.via;
+                        if (gEarly.used() % 20 == 1)
+                            logLine("Early translation: used for " + std::to_string(gEarly.used()) + " of " +
+                                    std::to_string(gEarly.started()) + " tries so far.");
+                    } else {
+                        ok = translator.translate(setup, heard, from, *to, say, err);
+                    }
                     if (ok) {
                         static std::string lastVia;  // say when another service had to step in, and when that ends
                         if (translator.via != lastVia &&
@@ -2051,6 +2200,15 @@ static void workerLoop() {
                     logLine("A phrase was cancelled before it was spoken.");
                 }
             }
+            // "Which means": the translated line put back into your language by a plain translator,
+            // alongside the voice (which doesn't wait for it), so a wrong or refused line shows. The
+            // languages are kept with the line, so the switch can also be turned on afterwards.
+            if (ok && !blank && !testJob && translating && !spoken.empty()) {
+                const Language* back = from ? from : findLanguage(guessLanguage(heard));
+                lineTo = to->code;
+                lineMine = back ? back->code : "";
+                if (s.showMeaning && back && back != to) checkMeaning(s, withoutTags(spoken), *to, *back);
+            }
             if (ok && !blank && (!typed || s.textSpeak)) {
                 tVoice = Clock::now();
                 ok = speak([&](const std::string& format, std::string& e) {
@@ -2083,12 +2241,15 @@ static void workerLoop() {
             std::lock_guard<std::mutex> lk(g.mtx);
             if (!heard.empty()) g.heardText = heard;
             g.sentText = spoken;
+            g.sentTo = lineTo;
+            g.sentMine = lineMine;
             if (ok && !heard.empty()) {
                 ConvoLine me;
                 me.me = true;
                 me.typed = !typedText.empty();
                 me.original = heard;
                 me.shown = withoutTags(spoken.empty() ? heard : spoken);
+                gListen.noteMine(withoutTags(heard));  // captions of the replies know what was asked
                 addConvo(std::move(me));
             }
             if (!delivery.empty()) g.delivery = delivery;
@@ -2626,12 +2787,13 @@ static UsageItem quotaItem(const char* name, const Quota& q, const char* unitsLe
 
 static std::string usingLine(const Settings& c) {
     const char* engines[] = {"Changer", "Re-speak", "Translate"};
-    const char* services[] = {"Free", "DeepL", "Claude", "Gemini", "OpenAI"};
+    const char* services[] = {"Free", "DeepL", "Claude", "Gemini", "OpenAI", "Local", "Microsoft"};
     const char* sources[] = {"one program", "speakers", "an input"};
     std::string line = std::string("Using: My voice ") + (c.enabled ? "on" : "off") + ", " +
                        engines[std::max(0, std::min(2, c.engine))] + " (" + (c.engine == kVoiceChanger ? c.stsModel : c.ttsModel) + ")";
     if (c.engine == kTranslate) line += ", " + (c.spokenLang.empty() ? std::string("auto") : c.spokenLang) + " to " + c.targetLang;
-    line += std::string(", translation ") + services[std::max(0, std::min(4, c.translateService))];
+    line += std::string(", translation ") + services[std::max(0, std::min(6, c.translateService))];
+    if (c.translateService == kLocal) line += " (" + (c.localModel.empty() ? std::string("no model") : c.localModel) + (c.localGpu ? ")" : ", processor only)");
     line += ", quality " + std::to_string(c.quality) + (c.matchMic ? ", match my mic" : "") + (c.passthrough ? ", passthrough" : "") +
             (c.activation == kPushToTalk && c.pttRealVoice ? ", real voice between presses" : "");
     line += std::string(". Listen ") + (c.listen.on ? "on" : "off") + " (" + sources[std::max(0, std::min(2, c.listen.source))] +
@@ -2714,10 +2876,16 @@ int main() {
         ui.setupStep = std::max(0, ui.cfg.setupAt);
         ui.setupUse = ui.cfg.setupUse;
         ui.setupRoute = ui.cfg.setupRoute;
-        ui.setupAi = ui.cfg.setupAi == kGuideClaude || ui.cfg.setupAi == kGuideOpenAI ? ui.cfg.setupAi : kGuideGemini;
+        ui.setupAi = ui.cfg.setupAi == kGuideClaude || ui.cfg.setupAi == kGuideOpenAI || ui.cfg.setupAi == kSetupLocal ? ui.cfg.setupAi : kGuideGemini;
     }
     double lastAutosave = 0;
     Updater updater(CIMA_FULL_VERSION);
+    // Models on this PC live next to the other app data (never in the settings folder: they're big).
+    LocalAi localAi(appDataDir() / "local-models", [](const std::string& line) { logLine(line); });
+    ui.pc = readPcSpecs();
+    if (ui.pc.known)
+        logLine("This PC: " + (ui.pc.gpu.empty() ? std::string("no separate graphics card") : ui.pc.gpu + " (" + std::to_string(ui.pc.gpuBytes >> 20) + " MB)") +
+                ", " + std::to_string(ui.pc.ramBytes >> 20) + " MB of memory, " + std::to_string(ui.pc.threads) + " threads.");
     Updater::removeOldVersion();  // what the last update replaced
     ui.updatesConfigured = Updater::configured();
     bool updateChecked = false;
@@ -2896,6 +3064,7 @@ int main() {
             ui.lastError = g.lastError;
             ui.heardText = g.heardText;
             ui.sentText = g.sentText;
+            ui.meaningText = !g.sentText.empty() && g.meaningFor == withoutTags(g.sentText) ? g.meaningText : std::string();
             ui.delivery = g.delivery;
             ui.qualityNote = g.qualityNote;
             ui.translateVia = g.translateVia;
@@ -3396,6 +3565,61 @@ int main() {
             }
             ui.update = updater.state();
             if (updater.restartWanted()) glfwSetWindowShouldClose(win, GLFW_TRUE);  // relaunched after cleanup
+        }
+        {   // Models on this PC: downloads and deletes asked for in the app, and which one should be loaded.
+            if (!act.localDownload.empty()) localAi.download(act.localDownload);
+            if (!act.localCancel.empty()) localAi.cancel(act.localCancel);
+            if (!act.localRemove.empty()) {
+                localAi.remove(act.localRemove);
+                if (ui.cfg.localModel == act.localRemove) ui.cfg.localModel.clear();
+            }
+            ui.local = localAi.state();
+            // Nothing chosen (or the chosen one was deleted): the first one that's downloaded.
+            auto has = [&](const std::string& id) {
+                for (const LocalModelState& ms : ui.local.models)
+                    if (ms.id == id) return ms.stage == kModelInstalled;
+                return false;
+            };
+            if (!has(ui.cfg.localModel))
+                for (const LocalModelState& ms : ui.local.models)
+                    if (ms.stage == kModelInstalled) { ui.cfg.localModel = ms.id; break; }
+            // Loaded only while Local is the translation service: otherwise its memory is the game's.
+            // ...or while it stands by for lines an online AI declines (the person's choice).
+            const bool standBy = ui.cfg.localOnDecline && isOnlineAi(ui.cfg.translateService);
+            const bool wanted = (ui.cfg.translateService == kLocal || standBy) && has(ui.cfg.localModel);
+            localAi.want(wanted ? ui.cfg.localModel : std::string(), ui.cfg.localGpu);
+            LocalNow now;
+            if (ui.local.engine == kEngineReady) {
+                now.url = ui.local.url;
+                now.key = ui.local.key;
+                now.model = ui.local.running;
+            } else {
+                now.model = ui.cfg.localModel;
+                now.note = !wanted                               ? "No local model is downloaded"
+                           : ui.local.engine == kEngineFailed    ? ui.local.engineMessage
+                           : ui.local.engine == kEngineGetting   ? "The local engine is still downloading"
+                                                                 : "The local model is still loading";
+            }
+            std::lock_guard<std::mutex> lk(gLocalMx);
+            gLocalNow = now;
+        }
+        {   // "Which means" just switched on: the line already showing gets its meaning too, not only the next ones.
+            static bool hadMeaning = ui.cfg.showMeaning;
+            if (ui.cfg.showMeaning && !hadMeaning) {
+                std::string line, toCode, mineCode;
+                bool have = false;
+                {
+                    std::lock_guard<std::mutex> lk(g.mtx);
+                    line = withoutTags(g.sentText);
+                    toCode = g.sentTo;
+                    mineCode = g.sentMine;
+                    have = g.meaningFor == line;
+                }
+                const Language* to = findLanguage(toCode);
+                const Language* mine = findLanguage(mineCode);
+                if (!have && !line.empty() && to && mine && to != mine) checkMeaning(ui.cfg, line, *to, *mine);
+            }
+            hadMeaning = ui.cfg.showMeaning;
         }
         // Settings save themselves a moment after any change (only when something actually changed).
         if (nowSeconds() - lastAutosave > 2.0) {

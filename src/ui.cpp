@@ -243,6 +243,18 @@ void heading(const char* text, float scale) {
     ImGui::PopFont();
 }
 
+// The title of a card or page section: larger than the text around it, with a short bar in the
+// accent colour before it, so the eye finds where each part starts.
+void cardTitle(const char* text, float scale = 1.3f) {
+    const float size = ImGui::GetStyle().FontSizeBase * scale;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float barW = std::max(3.f, em() * 0.22f), barGap = em() * 0.5f;
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(p.x, p.y + size * 0.16f), ImVec2(p.x + barW, p.y + size * 1.02f),
+                                              col(kSignal), barW * 0.5f);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + barW + barGap);
+    heading(text, scale);
+}
+
 bool button(const char* label, bool primary = false, float width = -FLT_MIN) {
     if (primary) {
         ImGui::PushStyleColor(ImGuiCol_Button, kSignal);
@@ -542,14 +554,47 @@ void meter(float levelDb, float& shownDb, float thresholdDb, bool open, bool sho
     }
 }
 
+// The model manager for the translation service "Local" (defined further down, where the model
+// and the actions are known).
+void localModels(Settings& c);
+
 // Shared by both pages: which service turns text into the other language.
+extern UiModel* gUi;  // the frame's model (set in uiDraw)
 void translationService(Settings& c, bool forCaptions) {
     fieldLabel("Translation service");
-    static const char* const kServices[] = {"Free", "DeepL", "Claude", "Gemini", "OpenAI"};
-    segmented("##service", kServices, 5, &c.translateService);
+    {   // A dropdown: each service with one line on what it is and what it needs.
+        struct Choice { int service; const char* name; const char* what; };
+        static const Choice kChoices[] = {
+            {kMyMemory, "Free", "No sign-up. Rough wording, small daily limit."},
+            {kDeepL, "DeepL", "Accurate, textbook wording. Free key."},
+            {kMicrosoft, "Microsoft", "Accurate, 100+ languages. Free Azure key."},
+            {kClaude, "Claude", "AI: natural wording and slang. Paid key."},
+            {kGemini, "Gemini", "AI: natural wording and slang. Has a free plan."},
+            {kOpenAI, "OpenAI", "AI: natural wording and slang. Paid key."},
+            {kLocal, "Local", "AI on this PC: free, private, no key."},
+        };
+        const Choice* cur = &kChoices[0];
+        for (const Choice& ch : kChoices)
+            if (ch.service == c.translateService) cur = &ch;
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##service", T(cur->name), ImGuiComboFlags_HeightLarge)) {
+            const float rowH = ImGui::GetTextLineHeight() * 2.f + em() * 0.45f;
+            for (const Choice& ch : kChoices) {
+                ImGui::PushID(ch.service);
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                if (ImGui::Selectable("##pick", ch.service == c.translateService, 0, ImVec2(0, rowH))) c.translateService = ch.service;
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddText(ImVec2(at.x + em() * 0.3f, at.y + em() * 0.1f), col(ch.service == c.translateService ? kSignal : kText), T(ch.name));
+                dl->AddText(ImVec2(at.x + em() * 0.3f, at.y + em() * 0.15f + ImGui::GetTextLineHeight()), col(kMuted), T(ch.what));
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+    }
     const bool ai = isAiService(c.translateService);
     // The key can be pasted right here the first time; after that it lives in Settings.
     std::string* key = c.translateService == kDeepL    ? &c.deeplKey
+                     : c.translateService == kMicrosoft ? &c.msKey
                      : c.translateService == kClaude ? &c.claudeKey
                      : c.translateService == kGemini ? &c.geminiKey
                      : c.translateService == kOpenAI ? &c.openaiKey
@@ -560,6 +605,7 @@ void translationService(Settings& c, bool forCaptions) {
         ImGui::PushID(c.translateService);
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##servicekey", c.translateService == kDeepL    ? T("Paste your DeepL API key")
+                                                 : c.translateService == kMicrosoft ? T("Paste your Microsoft Translator key (Azure)")
                                                  : c.translateService == kClaude ? T("Paste your Claude API key (console.anthropic.com)")
                                                  : c.translateService == kOpenAI ? T("Paste your OpenAI API key (platform.openai.com)")
                                                                                  : T("Paste your Gemini API key (aistudio.google.com)"),
@@ -571,24 +617,73 @@ void translationService(Settings& c, bool forCaptions) {
                          : "MyMemory, no sign-up. About 5,000 characters a day, and rougher wording.");
     else if (c.translateService == kDeepL)
         note("Accurate, textbook wording. A free DeepL API key covers 500,000 characters a month.");
-    else
+    else if (c.translateService == kMicrosoft) {
+        note("Accurate, textbook wording in 100+ languages. A free Azure key covers 2 million characters a month.");
+        if (!c.msKey.empty()) {
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputTextWithHint("##msregion2", T("Region, only if Azure shows one (like westus)"), &c.msRegion);
+        }
+    } else if (c.translateService == kLocal) {
+        note("An AI that runs on this PC: free, private, no key, and it works offline once downloaded.");
+        localModels(c);
+        // Small models are at their best in the big languages. For the others, said up front.
+        if (!forCaptions) {
+            static const std::string kWellKnown = " en es pt fr de it nl ru uk pl cs sv da no fi el tr ar he fa hi bn ur ta te mr id ms vi th fil ja ko zh yue ro hu bg hr sr sk ca ";
+            const Language* to = findLanguage(c.targetLang);
+            const bool known = !to || kWellKnown.find(" " + std::string(to->code) + " ") != std::string::npos;
+            if (!known) {
+                char b[300];
+                std::snprintf(b, sizeof(b), TF("Local models are best at widely spoken languages. %s may come out rough or wrong here; an API key does it much better."), T(to->name));
+                note(b, kBusy);
+            }
+        }
+    } else
         note(forCaptions ? "An AI that understands slang, so captions read the way people meant them."
                          : "An AI that says it the way a native speaker would, slang included. If it takes longer than the "
                            "time limit, that phrase uses DeepL (or Free) instead.");
+    if (!forCaptions) {
+        toggleRow("Show what my translated line means", &c.showMeaning);
+        note("Under \"They heard\", the line is put back into your language by a plain translator, so you can see "
+             "it says what you meant. The voice doesn't wait for it.");
+        note("Uses extra translation characters: every line is translated a second time. The free translator goes first "
+             "(about 5,000 characters a day), then your Microsoft or DeepL key. No AI tokens and no ElevenLabs credits.",
+             c.showMeaning ? kBusy : kMuted);
+    }
     if (!ai) return;
 
-    if (ai && c.deeplKey.empty())
+    if (ai && c.deeplKey.empty() && c.translateService != kLocal)
         note("Tip: add a DeepL key in Settings too. It steps in when the AI is slow.");
     // A key for a second AI: it can cover the lines this one says no to or fails on.
     int otherAis = 0;
     for (int svc : {kClaude, kGemini, kOpenAI})
         if (svc != c.translateService && !(svc == kClaude ? c.claudeKey : svc == kGemini ? c.geminiKey : c.openaiKey).empty())
             ++otherAis;
-    if (otherAis > 0) {
+    if (otherAis > 0 && c.translateService == kLocal) {
+        toggleRow("Use my AI key as a backup", &c.aiBackup);
+        note("Only for lines the local model says no to or fails on, so the key is hardly used.");
+    } else if (otherAis > 0) {
         toggleRow("Use my other AI key as a backup", &c.aiBackup);
         note("Only for lines this AI says no to or fails on, never just slow ones, so no line is paid for twice.");
     }
+    // A model on this PC that's downloaded can take the lines an online AI says no to.
+    if (c.translateService != kLocal && gUi) {
+        bool have = false;
+        for (const LocalModelState& ms : gUi->local.models) have = have || ms.stage == kModelInstalled;
+        if (have) {
+            toggleRow("Send lines this AI declines or is too slow for to my local model", &c.localOnDecline);
+            note(c.localOnDecline ? "The local model stays loaded for this, so it uses your graphics card's memory while you play. "
+                                    "If it says no or is too slow as well, DeepL, Microsoft or Free translate the line as before."
+                                  : "Off: those lines go to DeepL, Microsoft or Free.");
+        }
+    }
     if (!forCaptions) {
+        toggleRow("Start translating before I finish talking", &c.earlyTranslate);
+        note(!c.earlyTranslate ? "Off: a line is translated once you've finished it."
+             : c.liveStt       ? "During the pause at the end of a sentence, the words so far are translated ahead of time. They're "
+                                 "used only if you really had finished, so the voice says the same thing, sooner. If you go on "
+                                 "talking, that request is thrown away: it can cost up to two extra AI requests per line."
+                               : "Only helps sentences that wait for their rest right now. Turn on Live transcription (Microphone) "
+                                 "for the full effect. If you go on talking, the early request is thrown away and still costs tokens.");
         fieldLabel("How you talk");
         static const char* const kLevels[] = {"Polite", "Casual", "Very casual", "My own"};
         segmented("##level", kLevels, 4, &c.speechLevel);
@@ -613,6 +708,10 @@ void translationService(Settings& c, bool forCaptions) {
     }
     float seconds = c.aiTimeoutMs / 1000.f;
     if (sliderF("Time limit", &seconds, 0.8f, 4.f, "%.1f s")) c.aiTimeoutMs = int(seconds * 1000.f + 0.5f);
+    if (c.translateService == kLocal) {  // its model is picked above, by name
+        note("A local model gets at least 5 seconds: its first lines are slow, then it speeds up.");
+        return;
+    }
     ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
     const bool open = ImGui::TreeNodeEx(T(forCaptions ? "AI model##listenmodel" : "AI model##voicemodel"),
@@ -725,16 +824,21 @@ void beginPanel(const char* id, ImVec2 size, const char* title) {
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     const bool glow = jumpAnchor(title);
-    heading(title, 1.15f);
+    cardTitle(title);
     if (glow) jumpGlow(ImGui::GetItemRectMin(), ImVec2(ImGui::GetItemRectMin().x + ImGui::GetContentRegionAvail().x, ImGui::GetItemRectMax().y));
-    gap(0.25f);
+    gap(0.4f);
 }
 
 // A smaller heading inside a panel, with a little room above it.
 void subheading(const char* text) {
-    gap(0.8f);
+    gap(0.75f);
+    {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddLine(p, ImVec2(p.x + ImGui::GetContentRegionAvail().x, p.y), col(kLine));
+    }
+    gap(0.65f);
     const bool glow = jumpAnchor(text);
-    heading(text, 1.0f);
+    heading(text, 1.12f);
     if (glow) jumpGlow(ImGui::GetItemRectMin(), ImVec2(ImGui::GetItemRectMin().x + ImGui::GetContentRegionAvail().x, ImGui::GetItemRectMax().y));
     gap(0.1f);
 }
@@ -1148,6 +1252,7 @@ const Findable kFindables[] = {
     {"Quick toggles", kPageHome, "Home", "shortcuts tiles quick home toggles edit", nullptr},
     // My voice
     {"Microphone", kPageVoice, "Microphone", "mic input device", nullptr},
+    {"Local models", kPageVoice, "Voice and language", "local offline on this pc private free no key download model gemma llama graphics card", nullptr},
     {"Start talking by", kPageVoice, "Microphone", "push to talk voice activation ptt", nullptr},
     {"Hold or tap", kPageVoice, "Microphone", "push to talk tap toggle hold press once start stop", nullptr},
     {"While not holding the key", kPageVoice, "Microphone", "push to talk real voice between presses passthrough", nullptr},
@@ -1164,6 +1269,7 @@ const Findable kFindables[] = {
     {"Translation service", kPageVoice, "Voice and language", "claude gemini openai deepl free ai", nullptr},
     {"How you talk", kPageVoice, "Voice and language", "style polite casual very casual formal slang my own", nullptr},
     {"Match how they talk to me", kPageVoice, "Voice and language", "mirror match style", TOGGLE(mirror)},
+    {"Start translating before I finish talking", kPageVoice, "Voice and language", "early faster speed latency delay ahead head start pause", TOGGLE(earlyTranslate)},
     {"Dialect", kPageVoice, "Voice and language", "accent region variety kansai gulf egyptian mexican", nullptr},
     {"I am", kPageVoice, "Voice and language", "gender man woman me", nullptr},
     {"Talking to", kPageVoice, "Voice and language", "gender listener who", nullptr},
@@ -1377,6 +1483,192 @@ void chevron(ImDrawList* dl, ImVec2 c, float s, ImU32 color) {
 
 std::string dots() { return std::string(size_t(ImGui::GetTime() * 3.0) % 4, '.'); }
 
+// ---- Models on this PC (translation service "Local")
+// Set at the start of every frame, for panels that are only handed the settings.
+UiModel* gUi = nullptr;
+static UiActions* gAct = nullptr;
+
+static std::string gigabytes(uint64_t bytes) {
+    char b[32];
+    std::snprintf(b, sizeof(b), "%.1f GB", double(bytes) / 1e9);
+    return b;
+}
+
+void localModels(Settings& c) {
+    if (!gUi || !gAct) return;
+    UiModel& m = *gUi;
+    UiActions& act = *gAct;
+    const LocalState& ls = m.local;
+    ImGui::PushID("localmodels");
+    // Said plainly, before anything is downloaded.
+    note("Good to know: local models work, but they run on your PC's own power, next to your game. For the best "
+         "translations and speed with almost no load on your PC, an API key (Gemini, Claude or OpenAI) is the better choice.", kBusy);
+    const std::vector<LocalModel>& all = localCatalog();
+    // This PC, and how each model would do on it.
+    const PcSpecs& pc = m.pc;
+    auto fitOf = [&](const LocalModel& lm) { return rateLocalFit(pc, lm.memoryGb); };
+    auto fitColor = [](int fit) { return fit == kFitGood ? kSignal : fit == kFitTight ? kBusy : kDanger; };
+    auto fitWord = [](int fit) -> const char* {
+        return fit == kFitGood ? "Good fit" : fit == kFitTight ? "Tight" : fit == kFitSlow ? "Slow here" : fit == kFitNo ? "Not for this PC" : "";
+    };
+    if (pc.known) {
+        char line[300];
+        if (!pc.gpu.empty())
+            std::snprintf(line, sizeof(line), TF("This PC: %s with %.0f GB, and %.0f GB of memory."), pc.gpu.c_str(),
+                          double(pc.gpuBytes) / 1073741824.0, double(pc.ramBytes) / 1073741824.0);
+        else
+            std::snprintf(line, sizeof(line), TF("This PC: no separate graphics card found, and %.0f GB of memory."),
+                          double(pc.ramBytes) / 1073741824.0);
+        note(line);
+    }
+    fieldLabel("Model");
+    auto stateOf = [&](const std::string& id) -> const LocalModelState* {
+        for (const LocalModelState& s : ls.models)
+            if (s.id == id) return &s;
+        return nullptr;
+    };
+    // The one showing: the one in use, or the first on the list until something is picked.
+    // Until something is picked: the one in use, else the biggest one that's a good fit for this PC
+    // (the lightest when none is).
+    if (!findLocalModel(m.localView)) {
+        m.localView = all[0].id;
+        for (const LocalModel& lm : all)
+            if (fitOf(lm) == kFitGood) m.localView = lm.id;
+        if (findLocalModel(c.localModel)) m.localView = c.localModel;
+    }
+    auto statusOf = [&](const LocalModel& lm) -> std::string {
+        const LocalModelState* s = stateOf(lm.id);
+        if (!s) return {};
+        if (s->stage == kModelInstalled) return T(c.localModel == lm.id ? "In use" : "Downloaded");
+        if (s->stage == kModelDownloading && s->total > 0) return std::to_string(int(100.0 * double(s->done) / double(s->total))) + "%";
+        if (s->stage == kModelQueued || s->stage == kModelChecking || s->stage == kModelDownloading) return "...";
+        return {};
+    };
+    auto sizeLine = [&](const LocalModel& lm) {
+        const LocalModelState* s = stateOf(lm.id);
+        char line[160];
+        std::snprintf(line, sizeof(line), TF("%.1f GB download, needs about %d GB of memory"),
+                      s && s->total > 0 ? double(s->total) / 1e9 : lm.sizeGb, lm.memoryGb);
+        return std::string(line);
+    };
+    const LocalModel& view = *findLocalModel(m.localView);
+    const std::string preview = std::string(T(view.level)) + " \xC2\xB7 " + view.name;
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##localmodel", preview.c_str(), ImGuiComboFlags_HeightLarge)) {
+        const float rowH = ImGui::GetTextLineHeight() * 2.f + em() * 0.45f;
+        for (const LocalModel& lm : all) {
+            ImGui::PushID(lm.id);
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float rowW = ImGui::GetContentRegionAvail().x;
+            if (ImGui::Selectable("##pick", m.localView == lm.id, 0, ImVec2(0, rowH))) {
+                m.localView = lm.id;
+                m.localDeletePick.clear();
+                const LocalModelState* s = stateOf(lm.id);
+                if (s && s->stage == kModelInstalled) c.localModel = lm.id;  // a downloaded one: picking it uses it
+            }
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const bool inUse = c.localModel == lm.id && stateOf(lm.id) && stateOf(lm.id)->stage == kModelInstalled;
+            dl->AddText(ImVec2(at.x + em() * 0.3f, at.y + em() * 0.1f), col(inUse ? kSignal : kText),
+                        (std::string(T(lm.level)) + " \xC2\xB7 " + lm.name).c_str());
+            const std::string st = statusOf(lm);
+            if (!st.empty())
+                dl->AddText(ImVec2(at.x + rowW - ImGui::CalcTextSize(st.c_str()).x - em() * 0.3f, at.y + em() * 0.1f),
+                            col(inUse ? kSignal : kMuted), st.c_str());
+            const float y2 = at.y + em() * 0.15f + ImGui::GetTextLineHeight();
+            dl->AddText(ImVec2(at.x + em() * 0.3f, y2), col(kMuted), sizeLine(lm).c_str());
+            const int fit = fitOf(lm);
+            if (fit != kFitUnknown) {  // how it would do on this PC
+                const char* word = T(fitWord(fit));
+                dl->AddText(ImVec2(at.x + rowW - ImGui::CalcTextSize(word).x - em() * 0.3f, y2), col(fitColor(fit)), word);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    {   // The one showing: what it's for, and its one button.
+        const LocalModel& lm = view;
+        static const LocalModelState none;
+        const LocalModelState& s = stateOf(lm.id) ? *stateOf(lm.id) : none;
+        ImGui::PushID(lm.id);
+        const bool installed = s.stage == kModelInstalled;
+        const bool busy = s.stage == kModelQueued || s.stage == kModelDownloading || s.stage == kModelChecking;
+        const float full = ImGui::GetContentRegionAvail().x, gapX = ImGui::GetStyle().ItemSpacing.x;
+        note(sizeLine(lm) + ".");
+        note(lm.blurb);
+        const int fit = fitOf(lm);
+        if (fit != kFitUnknown)
+            note(fit == kFitGood    ? "On this PC: a good fit."
+                 : fit == kFitTight ? "On this PC: it fits your graphics card, but it's tight while a game is running. Expect some stutter."
+                 : fit == kFitSlow  ? "On this PC: too big for your graphics card. It would run on the processor: slow, and the lines come late."
+                                    : "On this PC: not recommended. There isn't enough memory for it.",
+                 fitColor(fit));
+        if (busy) {
+            const float frac = s.total > 0 ? float(double(s.done) / double(s.total)) : 0.f;
+            const std::string label = s.stage == kModelChecking ? std::string(T("Checking the download")) + dots()
+                                    : s.stage == kModelQueued   ? std::string(T("Waiting for the other download"))
+                                                                : gigabytes(s.done) + " / " + gigabytes(s.total);
+            const float bw = ImGui::CalcTextSize(T("Stop")).x + ImGui::GetStyle().FramePadding.x * 2.f + em();
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.55f));
+            ImGui::ProgressBar(s.stage == kModelChecking ? 1.f : frac, ImVec2(full - bw - gapX, 0), label.c_str());
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            if (button("Stop", false, bw)) act.localCancel = lm.id;
+        } else if (!installed) {
+            if (s.stage == kModelFailed) note(T(s.message), kDanger);
+            char dl[120];
+            if (s.done > 0) std::snprintf(dl, sizeof(dl), TF("Continue the download (%s left)"), gigabytes(s.total > s.done ? s.total - s.done : 0).c_str());
+            else std::snprintf(dl, sizeof(dl), TF("Download (%s)"), gigabytes(s.total > 0 ? s.total : uint64_t(lm.sizeGb * 1e9)).c_str());
+            const bool partial = s.done > 0;
+            const float half = (full - gapX) * 0.5f;
+            if (button(dl, true, partial ? half : full)) act.localDownload = lm.id;
+            if (partial) {
+                ImGui::SameLine();
+                if (button("Delete", false, half)) act.localRemove = lm.id;
+            }
+        } else if (m.localDeletePick == lm.id) {
+            char q[160];
+            std::snprintf(q, sizeof(q), TF("Delete %s? It frees %s."), lm.name, gigabytes(s.bytes).c_str());
+            note(q, kSignal);
+            const float half = (full - gapX) * 0.5f;
+            if (button("Delete", true, half)) {
+                act.localRemove = lm.id;
+                m.localDeletePick.clear();
+            }
+            ImGui::SameLine();
+            if (button("Cancel", false, half)) m.localDeletePick.clear();
+        } else {
+            if (button("Delete", false, full)) m.localDeletePick = lm.id;
+        }
+        gap(0.25f);
+        ImGui::PopID();
+    }
+    // A download that just finished and nothing in use yet: it's used (the main loop picks it).
+    // What the chosen one is doing right now.
+    if (ls.engine == kEngineGetting) {
+        const std::string got = ls.engineTotal > 0 ? " (" + std::to_string(int(100.0 * double(ls.engineDone) / double(ls.engineTotal))) + "%)" : std::string();
+        note(std::string(T("Getting the engine that runs the models")) + got + dots(), kBusy);
+    } else if (ls.engine == kEngineStarting) {
+        note(std::string(T("Loading the model")) + dots(), kBusy);
+    } else if (ls.engine == kEngineReady) {
+        // Which graphics card it's on (any make: NVIDIA, AMD, Intel), so it's plain that it's being used.
+        char on[200];
+        if (!ls.engineMessage.empty()) note(T(ls.engineMessage), kBusy);
+        else if (!ls.device.empty()) { std::snprintf(on, sizeof(on), TF("Ready, on %s."), ls.device.c_str()); note(on, kSignal); }
+        else note(T(c.localGpu ? "Ready, on the graphics card." : "Ready, on the processor."), kSignal);
+    } else if (ls.engine == kEngineFailed) {
+        note(T(ls.engineMessage), kDanger);
+    }
+    toggleRow("Use the graphics card", &c.localGpu);
+    note("Works with NVIDIA, AMD and Intel cards, and is much faster. Turn it off if your game stutters: the model then runs on the processor, slowly.");
+    if (ls.diskBytes > 0) {
+        char d[120];
+        std::snprintf(d, sizeof(d), TF("Local models use %s on this PC. Deleting them all frees everything."), gigabytes(ls.diskBytes).c_str());
+        note(d);
+    }
+    note("Until a model is loaded, and for lines it can't do, your backup translates (DeepL, Microsoft or Free).");
+    ImGui::PopID();
+}
+
 // Listen's status names a program or device; the sentence around it is translated.
 // (T("the default speakers"), T("the default input"): names Listen puts into its status.)
 std::string listenStatusText(const std::string& s) {
@@ -1454,7 +1746,7 @@ void listenSourcePanel(UiModel& m, UiActions& act) {
                                : "Splits at natural pauses.");
 
     gap(0.9f);
-    heading("Translation", 1.15f);
+    cardTitle("Translation");
     fieldLabel("They speak");
     languageCombo("##listenfrom", l.fromLang, true);
     fieldLabel("Translate into");
@@ -1605,7 +1897,7 @@ void captionsPanel(UiModel& m, UiActions& act, ImVec2 size) {
     ImGui::PopStyleVar();
 
     const float onlyW = em() * 8.4f, clearW = em() * 4.4f, spacing = ImGui::GetStyle().ItemSpacing.x;
-    heading("Captions", 1.15f);
+    cardTitle("Captions");
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, ImGui::GetContentRegionAvail().x - onlyW - clearW - spacing));
     if (button("Captions only", false, onlyW)) act.setCaptionsOnly = 1;
@@ -1719,7 +2011,7 @@ void vrPlacementPanel(UiModel& m, UiActions& act) {
     }
 
     gap(0.6f);
-    heading("Show", 1.15f);
+    cardTitle("Show");
     toggleRow("What I say", &v.showMe);
     toggleRow("Original words under translations", &v.showOriginal);
     sliderF("Hide after", &v.fadeSeconds, 0.f, 30.f, v.fadeSeconds <= 0.f ? "never" : "%.0f s quiet");
@@ -2275,7 +2567,7 @@ void conversationPanel(UiModel& m, UiActions& act, ImVec2 size) {
     ListenSettings& l = m.cfg.listen;
 
     const float listenW = em() * 9.f;
-    heading("Conversation", 1.15f);
+    cardTitle("Conversation");
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, ImGui::GetContentRegionAvail().x - listenW));
     if (button(l.on ? "Stop listening" : "Start listening", !l.on, listenW)) l.on = !l.on;
@@ -2866,7 +3158,8 @@ void setupDeepL(UiModel& m, UiActions& act) {
 
 void setupAi(UiModel& m, UiActions& act) {
     chip("Highly recommended", kBusy);
-    setupTitle("Make translations sound real", "Gemini, Claude or OpenAI translate the way people actually talk. You only need one.");
+    setupTitle("Make translations sound real", "Gemini, Claude or OpenAI translate the way people actually talk. You only need one. "
+                                                "No key? A model on this PC works too, with limits.");
     ImGui::TextColored(kText, "%s", T("Without one, you'd miss:"));
     for (const char* miss : {"Dialects, like Mexican Spanish, Kansai Japanese or Kuwaiti Arabic",
                              "Slang and casual speech, instead of textbook wording",
@@ -2888,7 +3181,14 @@ void setupAi(UiModel& m, UiActions& act) {
     if (setupCard("##openai", kIconBolt, "OpenAI", "Cheap and quick. Try it free; $5 of credit lifts the limits.",
                   m.setupAi == kGuideOpenAI, false))
         m.setupAi = kGuideOpenAI;
+    if (setupCard("##local", kIconSliders, "On this PC, no key", "Free and private, but it uses your PC's own power and isn't as good as the three above.",
+                  m.setupAi == kSetupLocal, false))
+        m.setupAi = kSetupLocal;
     gap(0.3f);
+    if (m.setupAi == kSetupLocal) {  // pick and download a model right here, with this PC rated against each
+        localModels(m.cfg);
+        return;
+    }
     keyGuide(m, act, m.setupAi, true);
     if (m.setupAi == kGuideClaude) keyBox(m, act, kGuideClaude, m.cfg.claudeKey, "##setupclaude");
     else if (m.setupAi == kGuideOpenAI) keyBox(m, act, kGuideOpenAI, m.cfg.openaiKey, "##setupopenai");
@@ -3045,7 +3345,10 @@ void finishSetup(UiModel& m) {
     m.setupStep = -1;
     // Translate with the best service that has a key.
     auto has = [](const std::string& k) { return k.find_first_not_of(" \t\r\n") != std::string::npos; };
-    if (m.setupAi == kGuideClaude && has(m.cfg.claudeKey)) m.cfg.translateService = kClaude;
+    bool localStarted = false;  // a model on this PC, downloaded or on its way
+    for (const LocalModelState& ls : m.local.models) localStarted = localStarted || ls.stage != kModelNone;
+    if (m.setupAi == kSetupLocal && localStarted) m.cfg.translateService = kLocal;
+    else if (m.setupAi == kGuideClaude && has(m.cfg.claudeKey)) m.cfg.translateService = kClaude;
     else if (m.setupAi == kGuideGemini && has(m.cfg.geminiKey)) m.cfg.translateService = kGemini;
     else if (m.setupAi == kGuideOpenAI && has(m.cfg.openaiKey)) m.cfg.translateService = kOpenAI;
     else if (has(m.cfg.claudeKey)) m.cfg.translateService = kClaude;
@@ -3128,7 +3431,10 @@ void setupView(UiModel& m, UiActions& act) {
     bool canGo = true;
     if (step == kStepKey && m.cfg.apiKey.empty()) next = "Skip for now";
     if (step == kStepDeepL && m.cfg.deeplKey.empty()) next = "Skip for now";
-    if (step == kStepAi && (m.setupAi == kGuideClaude   ? m.cfg.claudeKey
+    bool localStarted = false;
+    for (const LocalModelState& ls : m.local.models) localStarted = localStarted || ls.stage != kModelNone;
+    if (step == kStepAi && m.setupAi == kSetupLocal) { if (!localStarted) next = "Skip for now"; }
+    else if (step == kStepAi && (m.setupAi == kGuideClaude   ? m.cfg.claudeKey
                             : m.setupAi == kGuideOpenAI ? m.cfg.openaiKey
                                                         : m.cfg.geminiKey).empty())
         next = "Skip for now";
@@ -3378,7 +3684,7 @@ void featuresHearing(UiModel& m, UiActions& act) {
             segmented("##reader", kReaders, 2, &sc.reader);
             note(sc.reader == kReadWindows ? "Reads on your PC, free. Knows fewer languages (see the notice)."
                                            : "Reads any language and translates in one step, but pictures use many more tokens.");
-            if (sc.reader == kReadAi && !isAiService(c.translateService))
+            if (sc.reader == kReadAi && !isOnlineAi(c.translateService))
                 note("AI reading needs Claude, Gemini or OpenAI as the translation service.", kDanger);
             if (sc.reader == kReadWindows) {
                 fieldLabel("Text in the picture");
@@ -3960,7 +4266,10 @@ void lookPreset(LookSettings& l, int preset) {
 #include "ui3.inl"
 
 UiActions uiDraw(UiModel& m) {
+
     UiActions act;
+    gUi = &m;
+    gAct = &act;
     const bool picture = m.pictureTexture != 0 && m.pictureW > 0 && m.pictureH > 0;
     applyLook(m.cfg.look, picture);
     const ImGuiViewport* vp = ImGui::GetMainViewport();

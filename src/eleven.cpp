@@ -3,7 +3,10 @@
 #include <future>
 #include "core.h"
 
+#include "applog.h"
 #include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <cmath>
 #include <nlohmann/json.hpp>
 
@@ -42,6 +45,26 @@ bool call(Eleven& api, HttpRequest& r, std::string& body, std::string& err, long
     if (statusOut) *statusOut = status;
     if (status != 200) { err = apiError(status, body); return false; }
     return true;
+}
+
+// Speech to text: Scribe v3 (fewer wrong words and better at telling speakers apart than v2, same
+// request). An account or plan that doesn't have it yet is noticed once, and v2 is used from then on.
+std::atomic<bool> gScribe3{true};
+// After a refused request: changes what the service objected to and says whether to try again.
+bool sttStepDown(long status, const std::string& body, bool usedV3, bool& rawPcm) {
+    if (status != 400 && status != 404 && status != 422) return false;
+    std::string low;
+    for (char c : body) low += char(std::tolower((unsigned char)c));
+    const bool aboutModel = low.find("model") != std::string::npos;
+    if (usedV3 && (aboutModel || !rawPcm)) {
+        if (gScribe3.exchange(false)) logLine("Speech to text: Scribe v3 was refused for this account, using Scribe v2.");
+        return true;
+    }
+    if (rawPcm) {
+        rawPcm = false;  // not accepted for this account or model: a WAV file from now on
+        return true;
+    }
+    return false;
 }
 
 std::string str(const json& j, const char* key) {
@@ -162,7 +185,8 @@ bool Eleven::transcribe(const std::vector<int16_t>& pcm, const std::string& lang
         } else {
             parts.push_back({"file", makeWav(padded, 16000), "audio.wav", "audio/wav"});
         }
-        parts.push_back({"model_id", "scribe_v2", "", ""});
+        const bool usedV3 = gScribe3;
+        parts.push_back({"model_id", usedV3 ? "scribe_v3" : "scribe_v2", "", ""});
         parts.push_back({"tag_audio_events", tokens ? "true" : "false", "", ""});
         if (!languageCode.empty()) parts.push_back({"language_code", languageCode, "", ""});
         HttpRequest r;
@@ -196,10 +220,7 @@ bool Eleven::transcribe(const std::vector<int16_t>& pcm, const std::string& lang
             }
             break;
         }
-        if (attempt == 0 && rawPcmUpload_ && (statuses[0] == 400 || statuses[0] == 422)) {
-            rawPcmUpload_ = false;  // not accepted for this account or model: use a WAV file from now on
-            continue;
-        }
+        if (attempt < 3 && sttStepDown(statuses[0], bodies[0], usedV3, rawPcmUpload_)) continue;
         err = statuses[0] != 0 && statuses[0] != 200 ? apiError(statuses[0], bodies[0]) : errs[0];
         return false;
     }
@@ -250,7 +271,8 @@ bool Eleven::transcribeTurns(const std::vector<int16_t>& pcm, const std::string&
         } else {
             parts.push_back({"file", makeWav(padded, 16000), "audio.wav", "audio/wav"});
         }
-        parts.push_back({"model_id", "scribe_v2", "", ""});
+        const bool usedV3 = gScribe3;
+        parts.push_back({"model_id", usedV3 ? "scribe_v3" : "scribe_v2", "", ""});
         parts.push_back({"tag_audio_events", events ? "true" : "false", "", ""});
         parts.push_back({"diarize", tellSpeakersApart ? "true" : "false", "", ""});
         if (!languageCode.empty()) parts.push_back({"language_code", languageCode, "", ""});
@@ -260,10 +282,7 @@ bool Eleven::transcribeTurns(const std::vector<int16_t>& pcm, const std::string&
         r.timeoutSec = 30;
         long status = 0;
         if (call(*this, r, body, err, &status)) break;
-        if (attempt == 0 && rawPcmUpload_ && (status == 400 || status == 422)) {
-            rawPcmUpload_ = false;  // not accepted for this account or model: use a WAV file from now on
-            continue;
-        }
+        if (attempt < 3 && sttStepDown(status, body, usedV3, rawPcmUpload_)) continue;
         return false;
     }
 
@@ -306,7 +325,10 @@ bool Eleven::transcribeTurns(const std::vector<int16_t>& pcm, const std::string&
             }
             if (text.empty()) continue;
             if (type == "spacing") {
-                if (!out.turns.empty()) out.turns.back().text += text;
+                if (!out.turns.empty()) {
+                    out.turns.back().text += text;
+                    if (!out.turns.back().words.empty()) out.turns.back().words.back().text += text;
+                }
                 continue;
             }
             const std::string id = str(w, "speaker_id");
@@ -320,6 +342,7 @@ bool Eleven::transcribeTurns(const std::vector<int16_t>& pcm, const std::string&
             const float we = w.contains("end") && w["end"].is_number() ? w["end"].get<float>() : -1.f;
             if (ws >= 0 && (turn.start < 0 || ws < turn.start)) turn.start = ws;
             if (we > turn.end) turn.end = we;
+            turn.words.push_back({text, ws, we});
         }
         for (SpeakerTurn& t : out.turns) t.text = trimmed(t.text);
         for (size_t i = out.turns.size(); i-- > 0;)
