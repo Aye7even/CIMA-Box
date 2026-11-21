@@ -1127,9 +1127,11 @@
  "What my line means": "내 문장의 뜻",
  "Start translating before I finish talking": "말을 끝내기 전에 번역 시작하기",
  "Off: a line is translated once you've finished it.": "꺼짐: 문장을 다 말한 뒤에 번역해요.",
- "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line.": "문장 끝의 잠깐 멈춘 사이에, 그때까지 한 말을 미리 번역해 둬요. 정말로 말을 끝냈을 때만 쓰기 때문에, 음성은 같은 내용을 더 빨리 말해요. 계속 말하면 그 요청은 버려져요. 한 문장에 AI 요청이 최대 두 번 더 들 수 있어요.",
  "Only helps sentences that wait for their rest right now. Turn on Live transcription (Microphone) for the full effect. If you go on talking, the early request is thrown away and still costs tokens.": "지금은 뒷부분을 기다리는 문장에만 도움이 돼요. 효과를 다 보려면 실시간 받아쓰기(마이크)를 켜세요. 계속 말하면 미리 보낸 요청은 버려지지만 토큰은 그대로 써요.",
  "Under \"They heard\", the line is put back into your language by a plain translator, so you can see it says what you meant. The voice doesn't wait for it.": "\"상대가 들은 말\" 아래에, 일반 번역기가 그 문장을 내 언어로 되돌려 보여줘요. 내가 하려던 말이 맞는지 확인할 수 있어요. 음성은 이걸 기다리지 않아요.",
  "Uses extra translation characters: every line is translated a second time. The free translator goes first (about 5,000 characters a day), then your Microsoft or DeepL key. No AI tokens and no ElevenLabs credits.": "번역 글자 수를 추가로 써요. 모든 문장을 한 번 더 번역하기 때문이에요. 먼저 무료 번역기(하루 약 5,000자)를 쓰고, 그다음 Microsoft나 DeepL 키를 써요. AI 토큰과 ElevenLabs 크레딧은 쓰지 않아요.",
- "Checks your line. Uses extra characters": "문장 확인. 글자 수를 더 써요"
+ "Checks your line. Uses extra characters": "문장 확인. 글자 수를 더 써요",
+ "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say \"Translated (early)\".": "문장 끝의 잠깐 멈춘 사이에, 그때까지 한 말을 미리 번역해 둬요. 정말로 말을 끝냈을 때만 쓰기 때문에, 음성은 같은 내용을 더 빨리 말해요. 계속 말하면 그 요청은 버려져요. 한 문장에 AI 요청이 최대 두 번 더 들 수 있어요. 이 기능이 쓰인 문장에는 \"번역됨(미리)\"이라고 표시돼요.",
+ "Translated (early)": "번역됨(미리)",
+ "translate (early)": "번역(미리)"
 }

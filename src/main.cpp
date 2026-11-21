@@ -769,6 +769,7 @@ struct App {
     std::atomic<float> levelDb{-100.f};
     std::atomic<int> sttMs{0}, translateMs{0}, voiceMs{0}, totalMs{0};
     std::atomic<bool> sttLive{false};
+    std::atomic<bool> earlyUsed{false};  // the last line was translated during the pause, ahead of time
 
     ma_context ctx;
     std::vector<ma_device_info> capInfos, playInfos;
@@ -1729,8 +1730,9 @@ static void workerLoop() {
                 if (lineStarted - l.ended <= std::chrono::seconds(4)) setup.before.push_back({l.heard, l.said});
         return setup;
     };
-    Clock::time_point earlyPhrase{};  // early translation: the phrase the count below is for
-    int earlyThisPhrase = 0;          // at most two per phrase, so a line with pauses can't run up a bill
+    // Early translation: requests sent for the line being said (all its pieces). At most three, so at
+    // most two are thrown away, however many pauses a long line has.
+    int earlyThisLine = 0;
 
     while (g.running) {
         std::vector<int16_t> pcm, full;
@@ -1801,13 +1803,9 @@ static void workerLoop() {
             // Early translation, during the pause: the words so far (after a sentence that was waiting
             // for its rest, the whole sentence), unless they sound unfinished, in which case more is
             // coming and a request now would only be thrown away.
-            if (opened != earlyPhrase) {
-                earlyPhrase = opened;
-                earlyThisPhrase = 0;
-            }
             const bool mine = s.earlyTranslate && s.engine == kTranslate && isAiService(s.translateService) &&
                               (!held.on || held.engine == kTranslate);
-            if (mine && !partial.empty() && earlyThisPhrase < 2) {
+            if (mine && !partial.empty() && earlyThisLine < 3) {
                 const std::string lang = !s.spokenLang.empty() ? s.spokenLang : held.on ? held.lang : lastCode;
                 std::string text = applyWordFixes(partial, s.fx.words);
                 if (held.on) text = joinHeard(held.text, text, lang);
@@ -1816,7 +1814,7 @@ static void workerLoop() {
                 if (to && from && from != to && !sentenceUnfinished(text, lang) &&
                     !gEarly.has(text)) {
                     gEarly.start(lineSetup(s, held.on ? held.since : opened, false), text, from, *to);
-                    ++earlyThisPhrase;
+                    ++earlyThisLine;
                 }
             }
             continue;
@@ -2033,10 +2031,14 @@ static void workerLoop() {
                         }
                         // Early translation: while it waits for the rest, the sentence as it stands is
                         // translated. If no more comes, it's ready the moment the wait is over.
-                        if (s.earlyTranslate && !talking && s.engine == kTranslate && isAiService(s.translateService)) {
+                        if (s.earlyTranslate && !talking && s.engine == kTranslate && isAiService(s.translateService) &&
+                            earlyThisLine < 3 && !gEarly.has(held.text)) {
                             const Language* to = findLanguage(s.targetLang);
                             const Language* from = spokenLanguage(s, held.lang);
-                            if (to && from != to) gEarly.start(lineSetup(s, held.since, false), held.text, from, *to);
+                            if (to && from != to) {
+                                gEarly.start(lineSetup(s, held.since, false), held.text, from, *to);
+                                ++earlyThisLine;
+                            }
                         }
                         g.busy = false;
                         continue;
@@ -2132,13 +2134,18 @@ static void workerLoop() {
                 } else {
                     // Translated ahead of time, during the pause? Then it's here already (or nearly).
                     EarlyTranslation::Result early;
-                    if (ai && !typed && gEarly.take(setup, heard, from, *to, early)) {
+                    const bool tookEarly = ai && !typed && gEarly.take(setup, heard, from, *to, early);
+                    if (s.earlyTranslate && ai && !typed) {  // every line says how it went, for the log
+                        logLine(tookEarly ? "Early translation: used (" + std::to_string(gEarly.used()) + " of " +
+                                                std::to_string(gEarly.started()) + " early requests so far)."
+                                          : "Early translation: not used, " + gEarly.whyNot() + ".");
+                        g.earlyUsed = tookEarly;
+                    }
+                    earlyThisLine = 0;  // the next line starts its own count
+                    if (tookEarly) {
                         ok = true;
                         say = early.out;
                         translator.via = early.via;
-                        if (gEarly.used() % 20 == 1)
-                            logLine("Early translation: used for " + std::to_string(gEarly.used()) + " of " +
-                                    std::to_string(gEarly.started()) + " tries so far.");
                     } else {
                         ok = translator.translate(setup, heard, from, *to, say, err);
                     }
@@ -2259,6 +2266,7 @@ static void workerLoop() {
         if (totalMs > 0) {
             g.sttMs = sttMs;
             g.sttLive = heardLive;
+            if (!s.earlyTranslate) g.earlyUsed = false;
             g.translateMs = translateMs;
             g.voiceMs = voiceMs;
             g.totalMs = totalMs;
@@ -3084,6 +3092,7 @@ int main() {
         ui.levelDb = g.levelDb;
         ui.sttMs = g.sttMs;
         ui.sttLive = g.sttLive;
+        ui.earlyUsed = g.earlyUsed;
         ui.translateMs = g.translateMs;
         ui.voiceMs = g.voiceMs;
         ui.totalMs = g.totalMs;

@@ -867,7 +867,7 @@ std::string casualHint(const std::string& code) {
         {"ar", "the spoken dialect's everyday words and grammar instead of fusha (unless Modern Standard was chosen)"},
         {"id", "aku/kamu or gue/lo, nggak, udah, banget, and particles like sih, dong, kok"},
         {"ms", "aku/kau, tak, dah, and particles like lah, kot"},
-        {"fil", "everyday Tagalog with particles like naman, kasi, eh, and only the few English words Filipinos use without thinking (okay, sorry, game); everything else in Tagalog, never the speaker's own English phrases"},
+        {"fil", "no po, ho or opo; spoken Manila Tagalog, not the deep bookish kind (pero, kasi, pwede, tsaka, 'yung, 'di: never ngunit, subalit, sapagkat, maaari, at saka), with particles like naman, eh, nga, and only the few English words Filipinos use without thinking (okay, sorry, game); everything else in Tagalog, never the speaker's own English phrases"},
         {"hi", "tu or tum (never aap), words like yaar, and only the few English words people use without thinking (okay, sorry, phone); everything else in Hindi, never the speaker's own English phrases"},
         {"vi", "pronouns friends use (tao/mày between close friends, mình/bạn otherwise) and particles like nhé, nha, á"},
         {"th", "pronouns friends use (เรา, แก, มึง/กู only for very close friends) and particles like อะ, ว่ะ, นะ"},
@@ -1019,15 +1019,18 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                 "native would say it to " + (veryCasual ? "their best friend" : "a friend") + ". A tidy, complete or polite "
                 "original does NOT make the result tidy or polite: the style setting decides, not the original's wording.\n"
                 "  - Use the informal speech level and informal \"you\" (Korean 반말, Japanese タメ口, tu/tú/du/ты and so on). "
-                "Polite and formal forms are forbidden: no 요/습니다 endings, no です/ます, no usted/vous/Sie/вы/您/aap/Anda, "
+                "Polite and formal forms are forbidden: no 요/습니다 endings, no です/ます, no usted/vous/Sie/вы/您/aap/Anda, no po/opo, no ครับ/ค่ะ, "
                 "no polite request formulas (the equivalents of \"could you please\", \"would you mind\", \"I would like "
                 "to\", \"excuse me\", \"thank you very much\"), and no full textbook sentences where people would say half of it.\n"
                 "  - Shorten it the way speech is shortened: drop subjects, particles and words natives drop, and use the "
-                "contracted and slurred forms. A small filler word (like \"yeah\", \"like\", \"uh\") is fine where a "
-                "native would put one, at most one per line.\n"
+                "contracted and slurred forms. Casual comes from HOW the words are said (the forms, the slang, the "
+                "shortening), never from extra words put in front or at the end.\n"
                 "  - Say ONLY what they said. Loosen the wording, never the content: no added sentences, questions, "
                 "greetings, reactions, names, nicknames (\"bro\", \"dude\", \"girl\"), jokes or details, and nothing taken from "
-                "the recent conversation. If they said one short thing, you say one short thing.\n" +
+                "the recent conversation. No added openers or filler words either (the equivalents of \"wait\", \"ugh\", "
+                "\"hey\", \"man\", \"like\", \"you know\", \"honestly\"): if they didn't say it, you don't. What they "
+                "said themselves is theirs: an \"um\" or \"ugh\" they really said may stay. If they said one short thing, "
+                "you say one short thing.\n" +
                 (veryCasual
                      ? "  - Slang is expected, not optional: wherever an everyday slang word exists for what they mean, use it "
                        "instead of the dictionary word. " +
@@ -1042,15 +1045,33 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                                         : ", but always with " + st.varietyName + "'s own words and endings wherever they differ "
                                           "from the standard language.\n")) +
                 "  - How far to go (shown in English, do the same in " + spoken + "): \"Could you tell me where the mirror "
-                "is?\" becomes " + (veryCasual ? "\"wait, where's the mirror at\"" : "\"where's the mirror?\"") +
-                "; \"I am very tired today\" becomes " + (veryCasual ? "\"ugh I'm so dead today\"" : "\"ugh I'm so tired today\"") +
-                "; \"Thank you very much, that was fun\" becomes " + (veryCasual ? "\"ayy thanks, that was sick\"" : "\"thanks, that was fun!\"") +
-                "; \"I do not understand\" becomes " + (veryCasual ? "\"wait what, I don't get it\"" : "\"huh? I don't get it\"") + ".";
+                "is?\" becomes " + (veryCasual ? "\"where's the mirror at\"" : "\"where's the mirror?\"") +
+                "; \"I am very tired today\" becomes " + (veryCasual ? "\"I'm so dead today\"" : "\"I'm so tired today\"") +
+                "; \"Thank you very much, that was fun\" becomes " + (veryCasual ? "\"thanks, that was sick\"" : "\"thanks, that was fun\"") +
+                "; \"I do not understand\" becomes " + (veryCasual ? "\"don't get it\"" : "\"I don't get it\"") +
+                ". Notice what did not happen: no word was added. Same content, looser form.";
         check = std::string("Before you answer, read your line again. Would a native really say this out loud to ") +
                 (veryCasual ? "their best friend" : "a friend") + "? If it could be a line from a textbook, a subtitle, "
                 "a customer service chat or a polite stranger, it is wrong: rewrite it shorter, looser and more " +
-                (veryCasual ? "slangy" : "relaxed") + " in the informal speech level. Then check you added nothing they "
-                "didn't say. Then answer.";
+                (veryCasual ? "slangy" : "relaxed") + " in the informal speech level. Then go through your line word by "
+                "word against what they said: an opener, a reaction, a filler or a detail they didn't say gets deleted." +
+                (st.variety.empty() || mixed
+                     ? std::string()
+                     : " Then check the dialect: is this really " + (st.varietyName.empty() ? spoken : st.varietyName) +
+                           ", the way people from there talk? Wherever it has its own word, ending or spelling, the "
+                           "standard " + target + " one is wrong.") +
+                " Then answer.";
+    }
+    // Polite and "My own" get the same two last looks: nothing added, and the dialect really used.
+    if (polite || custom) {
+        if (polite)
+            check = "Before you answer, go through your line word by word against what they said: anything they "
+                    "didn't say gets deleted.";
+        if (!st.variety.empty() && !mixed)
+            check += " Then check the dialect: is this really " + (st.varietyName.empty() ? spoken : st.varietyName) +
+                     ", the way people from there talk? Wherever it has its own word, ending or spelling, the standard " +
+                     target + " one is wrong.";
+        check += " Then answer.";
     }
     const std::string keep =
         st.swear == 1 ? "- Keep the meaning and the attitude (jokes, sarcasm, excitement), but say any swear word or insult "

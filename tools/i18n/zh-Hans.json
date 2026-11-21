@@ -1127,9 +1127,11 @@
  "What my line means": "我这句话的意思",
  "Start translating before I finish talking": "在我说完之前就开始翻译",
  "Off: a line is translated once you've finished it.": "关闭：一句话说完后才翻译。",
- "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line.": "在句子结尾的停顿里，会提前翻译到目前为止说的话。只有你确实说完了才会使用，所以语音说的内容不变，只是更早。如果你继续说，这次请求会被丢弃：每句话最多可能多花两次 AI 请求。",
  "Only helps sentences that wait for their rest right now. Turn on Live transcription (Microphone) for the full effect. If you go on talking, the early request is thrown away and still costs tokens.": "目前只对等待后半句的句子有帮助。打开实时转写（麦克风）可获得完整效果。如果你继续说，提前发出的请求会被丢弃，但仍会消耗 token。",
  "Under \"They heard\", the line is put back into your language by a plain translator, so you can see it says what you meant. The voice doesn't wait for it.": "在“他们听到的”下面，一个普通翻译器会把这句话翻回你的语言，让你看到它是否是你想说的意思。语音不会等它。",
  "Uses extra translation characters: every line is translated a second time. The free translator goes first (about 5,000 characters a day), then your Microsoft or DeepL key. No AI tokens and no ElevenLabs credits.": "会额外消耗翻译字符：每句话都要再翻译一次。先用免费翻译（每天约 5,000 个字符），然后用你的 Microsoft 或 DeepL 密钥。不消耗 AI token，也不消耗 ElevenLabs 额度。",
- "Checks your line. Uses extra characters": "检查你的句子。额外消耗字符"
+ "Checks your line. Uses extra characters": "检查你的句子。额外消耗字符",
+ "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say \"Translated (early)\".": "在句子结尾的停顿里，会提前翻译到目前为止说的话。只有你确实说完了才会使用，所以语音说的内容不变，只是更早。如果你继续说，这次请求会被丢弃：每句话最多可能多花两次 AI 请求。用上了的句子会显示“已翻译（提前）”。",
+ "Translated (early)": "已翻译（提前）",
+ "translate (early)": "翻译（提前）"
 }

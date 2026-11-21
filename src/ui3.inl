@@ -1169,7 +1169,7 @@ void homePage(UiModel& m, UiActions& act) {
                     x += segW + 2.f;
                 }
                 ImGui::Dummy(ImVec2(speedW, bh + em() * 0.3f));
-                const char* names[3] = {m.sttLive ? "Heard (live)" : "Heard", "Translated", "Voice started"};
+                const char* names[3] = {m.sttLive ? "Heard (live)" : "Heard", m.earlyUsed ? "Translated (early)" : "Translated", "Voice started"};
                 char by[96];  // which service translated it
                 if (!m.translateVia.empty()) std::snprintf(by, sizeof(by), TF("Translated by %s"), m.translateVia.c_str());
                 ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.88f);

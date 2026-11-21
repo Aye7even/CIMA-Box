@@ -84,9 +84,18 @@ void EarlyTranslation::start(const TranslateSetup& setup, const std::string& tex
 
 bool EarlyTranslation::take(const TranslateSetup& setup, const std::string& heard, const Language* from, const Language& to,
                             Result& r) {
-    if (!job_.valid()) return false;
-    if (key_ != keyOf(setup, from, to) || !sameWords(text_, heard) ||
-        std::chrono::steady_clock::now() - at_ > std::chrono::seconds(8)) {
+    why_.clear();
+    if (!job_.valid()) {
+        why_ = "nothing was sent early (no pause that sounded like the end)";
+        return false;
+    }
+    const std::string sent = wordsOnly(text_), done = wordsOnly(heard);
+    if (key_ != keyOf(setup, from, to)) why_ = "a setting changed";
+    else if (std::chrono::steady_clock::now() - at_ > std::chrono::seconds(8)) why_ = "it was too old";
+    else if (!sameWords(text_, heard))
+        why_ = done.size() > sent.size() && done.compare(0, sent.size(), sent) == 0 ? "you kept talking after the pause"
+                                                                                  : "the finished words came out differently";
+    if (!why_.empty()) {
         stop();
         return false;
     }
@@ -95,7 +104,10 @@ bool EarlyTranslation::take(const TranslateSetup& setup, const std::string& hear
     text_.clear();
     // Whatever it came to (the AI's line, or a backup's when the AI was slow or said no: asking again
     // now would only end the same way, later). A failure is done again the regular way.
-    if (!r.ok) return false;
+    if (!r.ok) {
+        why_ = "the early request failed";
+        return false;
+    }
     ++used_;
     return true;
 }

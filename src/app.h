@@ -220,6 +220,7 @@ struct UiModel {
     int queued = 0;
     float levelDb = -100.f;
     int sttMs = 0, translateMs = 0, voiceMs = 0, totalMs = 0;  // last phrase; 0 = stage not used
+    bool earlyUsed = false;            // ...and it was translated ahead of time (early translation)
     bool sttLive = false;              // the last phrase's words came from live transcription
 
     std::vector<AppInfo> apps;        // programs with a window, for the Listen source picker

@@ -42,11 +42,14 @@ public:
     bool take(const TranslateSetup& setup, const std::string& heard, const Language* from, const Language& to, Result& r);
     void stop();
 
+    // Why the last take() didn't use it (empty when it did), in words for the log.
+    const std::string& whyNot() const { return why_; }
     int started() const { return started_; }
     int used() const { return used_; }
 
 private:
     std::string text_, key_;  // what was sent, and the settings it was sent with
+    std::string why_;
     std::shared_future<Result> job_;
     std::shared_ptr<std::atomic<bool>> stop_;
     std::shared_ptr<Translator> translator_;  // its own connections, kept open between lines

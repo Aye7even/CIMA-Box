@@ -681,7 +681,8 @@ void translationService(Settings& c, bool forCaptions) {
         note(!c.earlyTranslate ? "Off: a line is translated once you've finished it."
              : c.liveStt       ? "During the pause at the end of a sentence, the words so far are translated ahead of time. They're "
                                  "used only if you really had finished, so the voice says the same thing, sooner. If you go on "
-                                 "talking, that request is thrown away: it can cost up to two extra AI requests per line."
+                                 "talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say "
+                                 "\"Translated (early)\"."
                                : "Only helps sentences that wait for their rest right now. Turn on Live transcription (Microphone) "
                                  "for the full effect. If you go on talking, the early request is thrown away and still costs tokens.");
         fieldLabel("How you talk");
@@ -1455,7 +1456,10 @@ std::string timingLine(const UiModel& m) {
         parts += b;
     };
     add(m.sttLive ? T("transcribe (live)") : T("transcribe"), m.sttMs);
-    add(m.translateVia.empty() ? T("translate") : (std::string(T("translate")) + " (" + m.translateVia + ")").c_str(), m.translateMs);
+    {
+        const std::string tr = m.earlyUsed ? T("translate (early)") : T("translate");
+        add(m.translateVia.empty() ? tr.c_str() : (tr + " (" + m.translateVia + ")").c_str(), m.translateMs);
+    }
     add(T("voice"), m.voiceMs);
     if (!parts.empty() && (m.sttMs > 0 || m.translateMs > 0)) s += " (" + parts + ")";
     return s + ".";
