@@ -454,7 +454,23 @@ struct Listener::Impl {
             from = c.around.size() == 1 ? findLanguage(c.around[0]) : nullptr;
             sure = c.around.size() == 1;
         }
-        const bool same = to != nullptr && from == to;  // already in the reader's language
+        // The speech service gives one language for the whole caption, but two people can talk at
+        // once in different languages (English and French): a line whose own words clearly show
+        // another language goes by that one, so it still gets translated (and a line already in the
+        // reader's language isn't). Only with more than one line, and only with the spoken language
+        // on automatic: a single line keeps the service's answer, which heard the whole thing.
+        std::vector<const Language*> lineFrom(t.turns.size(), from);
+        if (c.s.fromLang.empty() && t.turns.size() > 1)
+            for (size_t i = 0; i < t.turns.size(); ++i) {
+                bool clear = false;
+                const Language* l = findLanguage(guessLanguage(t.turns[i].text, &clear));
+                if (!clear || !l || l == from) continue;
+                if (!c.around.empty() && std::find(c.around.begin(), c.around.end(), std::string(l->code)) == c.around.end()) continue;
+                lineFrom[i] = l;
+            }
+        auto lineSame = [&](size_t i) { return to != nullptr && lineFrom[i] == to; };  // already in the reader's language
+        bool same = true;  // every line is
+        for (size_t i = 0; i < t.turns.size(); ++i) same = same && lineSame(i);
         // Only music or noise: nothing anyone said.
         bool noise = false;
         if (c.ignoreNoise) {
@@ -475,6 +491,12 @@ struct Listener::Impl {
         for (const SpeakerTurn& turn : t.turns) several = several || turn.speaker != t.turns[0].speaker;
         std::vector<CaptionLine> lines;
         std::string problem, chat;
+        // The languages heard, for the caption's label: "English", or "English, French" when two
+        // people spoke different ones.
+        std::vector<const Language*> heard;
+        auto noteHeard = [&](const Language* l) {
+            if (l && std::find(heard.begin(), heard.end(), l) == heard.end()) heard.push_back(l);
+        };
         TranslateSetup setup = c.translate;
         setup.faithful = true;
         setup.wordNote = wordListNote(c.words);
@@ -487,7 +509,10 @@ struct Listener::Impl {
             }
             for (auto it = recent.rbegin(); it != recent.rend(); ++it) setup.context += *it + "\n";
         }
-        for (const SpeakerTurn& turn : t.turns) {
+        for (size_t ti = 0; ti < t.turns.size(); ++ti) {
+            const SpeakerTurn& turn = t.turns[ti];
+            if (c.s.onlyOtherLanguages && lineSame(ti)) continue;  // only the other languages are wanted
+            noteHeard(lineFrom[ti]);
             CaptionLine line;
             line.speaker = several ? turn.speaker : -1;
             line.text = applyWordFixes(turn.text, c.words);
@@ -500,9 +525,9 @@ struct Listener::Impl {
                 }
             }
             setup.speaker = line.voice;  // gendered target languages: "I'm tired" -> cansado / cansada
-            if (!same && to && problem.empty()) {
+            if (!lineSame(ti) && to && problem.empty()) {
                 std::string translated;
-                if (translator.translate(setup, line.text, from, *to, translated, err)) {
+                if (translator.translate(setup, line.text, lineFrom[ti], *to, translated, err)) {
                     if (translator.wordsGender) line.voice = translator.wordsGender;  // their words beat a guess from the voice
                     static std::string lastVia;  // say when another service had to step in, and when that ends
                     if (translator.via != lastVia && (translator.via.find('(') != std::string::npos || lastVia.find('(') != std::string::npos))
@@ -532,6 +557,10 @@ struct Listener::Impl {
             cap.pending = false;
             cap.live = false;
             cap.language = from ? from->name : t.language;
+            if (heard.size() > 1) {
+                cap.language.clear();
+                for (const Language* l : heard) cap.language += (cap.language.empty() ? "" : ", ") + std::string(l->name);
+            }
             cap.code = from ? from->code : std::string();
             cap.sure = sure && from;
             cap.lines = std::move(lines);

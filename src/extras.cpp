@@ -417,7 +417,8 @@ const std::vector<std::string>& openEnders(const std::string& lang) {
 
 }  // namespace
 
-std::string guessLanguage(const std::string& text) {
+std::string guessLanguage(const std::string& text, bool* sure) {
+    if (sure) *sure = false;
     // Count letters by script.
     int latin = 0, cyr = 0, ukr = 0, hangul = 0, kana = 0, han = 0, arabic = 0, persian = 0, hebrew = 0, thai = 0,
         deva = 0, greek = 0, bengali = 0;
@@ -444,21 +445,28 @@ std::string guessLanguage(const std::string& text) {
         else if (cp >= 0x370 && cp <= 0x3FF) ++greek;
         else if (cp >= 0x980 && cp <= 0x9FF) ++bengali;
     }
-    if (kana) return "ja";  // Japanese mixes kanji in; any kana means Japanese
+    if (kana) {  // Japanese mixes kanji in; any kana means Japanese
+        if (sure) *sure = true;
+        return "ja";
+    }
     const std::pair<int, const char*> scripts[] = {{hangul, "ko"}, {han, "zh"}, {cyr, ukr ? "uk" : "ru"},
                                                    {arabic, persian ? "fa" : "ar"}, {hebrew, "he"}, {thai, "th"},
                                                    {deva, "hi"}, {greek, "el"}, {bengali, "bn"}};
     const std::pair<int, const char*>* best = nullptr;
     for (const auto& sc : scripts)
         if (sc.first > 0 && (!best || sc.first > best->first)) best = &sc;
-    if (best && best->first >= latin) return best->second;
+    if (best && best->first >= latin) {
+        if (sure) *sure = best->first >= 2;
+        return best->second;
+    }
     if (!latin) return {};
     // Latin script: the language whose everyday little words show up most.
     static const std::pair<const char*, std::vector<std::string>> kWords[] = {
         {"en", {"the", "and", "you", "is", "are", "i", "it", "to", "of", "that", "what", "this", "my", "we", "do", "don't", "i'm", "was", "have", "not", "with"}},
         {"es", {"el", "la", "que", "de", "y", "es", "no", "un", "una", "por", "con", "para", "qué", "yo", "lo", "pero", "está", "como", "muy", "eso"}},
         {"pt", {"o", "a", "que", "de", "não", "é", "um", "uma", "eu", "você", "com", "para", "isso", "tá", "muito", "mas", "como", "aqui", "vamos", "tudo"}},
-        {"fr", {"le", "la", "les", "et", "est", "je", "tu", "pas", "que", "un", "une", "c'est", "de", "des", "on", "vous", "ça", "mais", "il", "avec"}},
+        {"fr", {"le", "la", "les", "et", "est", "je", "tu", "pas", "que", "un", "une", "c'est", "de", "des", "on", "vous", "ça", "mais", "il", "avec",
+                "sa", "son", "ses", "mon", "ma", "pour", "dans", "qui", "au", "du", "ne", "plus", "j'ai", "suis", "oui", "non", "quoi"}},
         {"de", {"der", "die", "das", "und", "ist", "ich", "du", "nicht", "ein", "eine", "was", "mit", "auf", "es", "wir", "auch", "aber", "sie", "ja", "zu"}},
         {"it", {"il", "la", "che", "di", "e", "è", "non", "un", "una", "io", "tu", "per", "con", "sono", "ma", "come", "questo", "anche", "lo", "cosa"}},
         {"nl", {"de", "het", "een", "en", "is", "ik", "je", "niet", "dat", "wat", "van", "op", "met", "maar", "ook", "jij", "zijn", "we", "hoe", "nee"}},
@@ -480,14 +488,16 @@ std::string guessLanguage(const std::string& text) {
     }
     flush();
     const char* pick = nullptr;
-    int top = 0;
+    int top = 0, second = 0;
     for (const auto& l : kWords) {
         int n = 0;
         for (const auto& word : words)
             for (const auto& x : l.second)
                 if (word == x) { ++n; break; }
-        if (n > top) { top = n; pick = l.first; }
+        if (n > top) { second = top; top = n; pick = l.first; }
+        else if (n > second) second = n;
     }
+    if (sure) *sure = top >= 2 && top >= second * 2;
     return pick ? pick : "en";  // nothing matched: English is the likeliest guess in a voice chat
 }
 

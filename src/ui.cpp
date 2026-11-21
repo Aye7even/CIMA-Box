@@ -1489,11 +1489,12 @@ void captionLine(UiModel& m, const CaptionLine& line, float fontSize, bool showO
     const bool people = m.cfg.fx.voiceIds;  // voices are followed across captions
     const bool person = line.voiceId >= 0 && people;
     if (person && std::find(m.mutedVoices.begin(), m.mutedVoices.end(), line.voiceId) != m.mutedVoices.end()) return;
-    const bool tagged = line.speaker >= 0 || person;
-    // Someone it can't name yet (too short, or between two voices): a quiet bar and no number,
-    // rather than a number that would be a guess.
-    const bool unnamed = people && !person;
-    const ImVec4 color = person ? kPeople[line.voiceId % 8] : unnamed ? kLine : tagged ? kVoices[line.speaker % 4] : kText;
+    // Every line gets the same indent and a bar, so the text always starts at the same place: a
+    // voice's colour when it's known, a quiet bar and no number when it isn't (too short, between
+    // two voices, or only one person talking) rather than a number that would be a guess.
+    const bool tagged = true;
+    const bool unnamed = people ? !person : line.speaker < 0;
+    const ImVec4 color = person ? kPeople[line.voiceId % 8] : unnamed ? kLine : kVoices[line.speaker % 4];
     const bool contrast = m.cfg.fx.highContrast;
     if (contrast) fontSize *= 1.2f;
     const float indent = em() * 0.9f;
@@ -1533,7 +1534,9 @@ void captionLine(UiModel& m, const CaptionLine& line, float fontSize, bool showO
     if (tagged) {
         ImGui::Unindent(indent);
         const float bar = std::max(2.f, std::floor(em() * 0.2f));
-        dl->AddRectFilled(ImVec2(start.x, start.y + 2), ImVec2(start.x + bar, ImGui::GetItemRectMax().y - 2), col(color), bar * 0.5f);
+        // The same voice going on: one unbroken bar down its lines, joined to the line above.
+        const float top = nameIt ? start.y + 2 : start.y - ImGui::GetStyle().ItemSpacing.y;
+        dl->AddRectFilled(ImVec2(start.x, top), ImVec2(start.x + bar, ImGui::GetItemRectMax().y - 2), col(color), bar * 0.5f);
     }
 }
 

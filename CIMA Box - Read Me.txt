@@ -1,4 +1,4 @@
-CIMA Box 3.0.3
+CIMA Box 3.0.4
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people

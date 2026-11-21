@@ -108,7 +108,9 @@ size_t lastSentenceEnd(const std::string& text);
 // when the spoken language is set to automatic and nothing reported it. Non-Latin scripts decide it
 // on their own; Latin-script text is matched against each language's most common little words.
 // Short or mixed text may guess wrong; "" when there's nothing to go on.
-std::string guessLanguage(const std::string& text);
+// `sure` (optional): the guess is clear (a non-Latin script, or several of one language's little
+// words and clearly more than any other's). Short or mixed text gives false.
+std::string guessLanguage(const std::string& text, bool* sure = nullptr);
 // About how many words `text` is (Chinese and Japanese, written without spaces: 2 characters a word).
 int roughWords(const std::string& text);
 // Two pieces of one sentence, heard either side of a pause, as one: the closing "." the transcript

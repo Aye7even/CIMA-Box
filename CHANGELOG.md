@@ -6,6 +6,10 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 3.0.4
+- Captions look cleaner when several people talk: every line starts at the same place (lines it can't put a voice to used to sit further left), one person's lines share one unbroken bar, and the label says every language heard ("English, French").
+- Fixed: Listen didn't translate someone speaking another language when two people talked at once (an English line next to a French one: the French stayed in French). The speech service names one language for the whole caption, so every line was treated as that one. Now, when a caption has several lines, a line whose own words clearly show another language is translated from that language, and a line already in your language is left as is (and hidden with "Only other languages" on, without hiding the others).
+
 ## 3.0.3
 - Fixed: VR captions that stopped showing new lines after a while (while the app still showed them). CIMA Box now checks every picture it hands SteamVR and, every few seconds, that the panel is still there and really showing. When SteamVR drops, hides or refuses it, the panel is rebuilt (or SteamVR reconnected) by itself, and what happened goes in the log.
 - New: Reset VR captions, on the VR page and in the SteamVR menu: starts the headset side over and redraws everything.
