@@ -1040,10 +1040,13 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                      : "  - Prefer the everyday word over the dictionary word, and use light slang where friends would.\n") +
                 (hint.empty() ? std::string()
                              : "  - In " + target + " that means: " + hint +
-                                   (st.variety.empty() || st.varietyName.empty()
+                                   (st.variety.empty()
                                         ? std::string(".\n")
-                                        : ", but always with " + st.varietyName + "'s own words and endings wherever they differ "
-                                          "from the standard language.\n")) +
+                                        : ". That describes the standard language, and " +
+                                              (st.varietyName.empty() ? spoken : st.varietyName) +
+                                              " outranks it: wherever " + (st.varietyName.empty() ? spoken : st.varietyName) +
+                                              " has its own pronouns, words or endings, use those and not the ones "
+                                              "just listed.\n")) +
                 "  - How far to go (shown in English, do the same in " + spoken + "): \"Could you tell me where the mirror "
                 "is?\" becomes " + (veryCasual ? "\"where's the mirror at\"" : "\"where's the mirror?\"") +
                 "; \"I am very tired today\" becomes " + (veryCasual ? "\"I'm so dead today\"" : "\"I'm so tired today\"") +
@@ -1054,7 +1057,7 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                 (veryCasual ? "their best friend" : "a friend") + "? If it could be a line from a textbook, a subtitle, "
                 "a customer service chat or a polite stranger, it is wrong: rewrite it shorter, looser and more " +
                 (veryCasual ? "slangy" : "relaxed") + " in the informal speech level. Then go through your line word by "
-                "word against what they said: an opener, a reaction, a filler or a detail they didn't say gets deleted." +
+                "word against what they said: an opener, a reaction, a filler, a swear word or a detail they didn't say gets deleted." +
                 (st.variety.empty() || mixed
                      ? std::string()
                      : " Then check the dialect: is this really " + (st.varietyName.empty() ? spoken : st.varietyName) +
@@ -1131,7 +1134,9 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         else
             s += "1. Speech level: INFORMAL, in every sentence" +
                  (ll ? std::string(": ") + ll->casual : std::string(": the informal forms and the informal \"you\"")) +
-                 ". Even when the original sentence is polite or formal. One polite form makes the whole line wrong.\n";
+                 ". Even when the original sentence is polite or formal. One polite form makes the whole line wrong, "
+                 "and so does a polite request phrase (the equivalents of \"could you please\", \"would you mind\", "
+                 "\"please\" where a friend wouldn't say it): say it the blunt way friends do.\n";
         if (!st.variety.empty() && !mixed)
             s += "2. Dialect: " + spoken + ". Wherever it has its own word, ending or spelling, use that one and not the "
                  "standard " + target + " one. A line a newsreader could say in standard " + target + " is wrong.\n";
@@ -1140,7 +1145,9 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         else
             s += "2. Language: " + target + " only, the everyday spoken kind. No words left in " + source + ".\n";
         s += "3. Same content: nothing added, nothing explained, nothing left out except a word you won't say.\n"
-             "4. One answer: the line itself. No second version, no notes, no brackets.";
+             "4. One answer: the line itself. No second version, no notes, no brackets.\n"
+             "5. Punctuation stays: a question ends with a question mark, sentences are separated by full stops or "
+             "commas. A voice reads it aloud and needs them.";
     }
     return s + "\nAnswer with only the line to say, inside <line></line>, and nothing outside it." + kSkipRule;
 }
@@ -1223,6 +1230,31 @@ bool localModel(Http& http, const TranslateSetup& st, const std::string& instruc
     return false;
 }
 
+// Laughter and crying typed as letters (ㅋㅋ, ㅎㅎ, ㅠㅠ, ㅜㅜ): the instructions forbid them, and a model
+// writes them now and then anyway. A voice can't say them, so they're taken out of a line to be spoken.
+// These letters on their own are never part of a Korean word, so nothing real is lost.
+std::string withoutTypedLaughter(const std::string& s) {
+    static const char* const kLetters[] = {"\xE3\x85\x8B", "\xE3\x85\x8E", "\xE3\x85\xA0", "\xE3\x85\x9C"};
+    std::string out;
+    bool removed = false;
+    for (size_t i = 0; i < s.size();) {
+        bool hit = false;
+        for (const char* l : kLetters)
+            if (s.compare(i, 3, l) == 0) { hit = true; break; }
+        if (hit) {
+            i += 3;
+            removed = true;
+            continue;
+        }
+        out += s[i++];
+    }
+    if (!removed) return s;
+    for (size_t at = out.find("  "); at != std::string::npos; at = out.find("  ")) out.erase(at, 1);
+    for (const char* p : {" ?", " !", " ,", " ."})
+        for (size_t at = out.find(p); at != std::string::npos; at = out.find(p)) out.erase(at, 1);
+    return trimText(out);
+}
+
 bool aiCall(Http& h, const TranslateSetup& st, const std::string& instructions, const std::string& source,
             const std::string& text, int ms, std::string& out, std::string& err, int& why) {
     const std::string key = modelKey(st);
@@ -1240,6 +1272,7 @@ bool aiCall(Http& h, const TranslateSetup& st, const std::string& instructions, 
         ok = openai(h, st, instructions, source, text, ms, out, err, why, level);
     }
     learn(key, level);
+    if (ok && !st.faithful && st.multiLines == 0) out = withoutTypedLaughter(out);  // lines for the voice only
     return ok;
 }
 

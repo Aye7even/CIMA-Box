@@ -1133,5 +1133,6 @@
  "Checks your line. Uses extra characters": "Revisa tu frase. Gasta caracteres extra",
  "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say \"Translated (early)\".": "Durante la pausa al final de una frase, lo dicho hasta ahí se traduce por adelantado. Solo se usa si de verdad habías terminado, así que la voz dice lo mismo, antes. Si sigues hablando, esa petición se descarta: puede costar hasta dos peticiones extra a la IA por frase. Las frases que lo usaron dicen \"Traducido (antes)\".",
  "Translated (early)": "Traducido (antes)",
- "translate (early)": "traducir (antes)"
+ "translate (early)": "traducir (antes)",
+ "Describe a person here, not what to do. For instructions like \"more slang\", pick My own above.": "Describe aquí a una persona, no lo que hay que hacer. Para instrucciones como \"más jerga\", elige A mi manera arriba."
 }

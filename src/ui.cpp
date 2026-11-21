@@ -702,6 +702,7 @@ void translationService(Settings& c, bool forCaptions) {
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##persona", T("Sound like... (optional)"), &c.persona);
         if (c.persona.empty()) note("For example: a guy in his 20s from Seoul. Region and age change the slang.");
+        else note("Describe a person here, not what to do. For instructions like \"more slang\", pick My own above.");
         toggleRow("Match how they talk to me", &c.mirror);
         note(c.mirror ? "Uses the last few lines from the Listen captions to pick up their words. Your style above "
                         "stays; it only leans a little toward theirs. Needs Listen on."

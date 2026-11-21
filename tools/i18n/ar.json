@@ -1133,5 +1133,6 @@
  "Checks your line. Uses extra characters": "يتحقق من جملتك. أحرف إضافية",
  "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say \"Translated (early)\".": "أثناء الوقفة في نهاية الجملة، يُترجم ما قيل حتى تلك اللحظة مسبقًا. لا يُستخدم إلا إذا كنت قد انتهيت فعلًا، فيقول الصوت الشيء نفسه لكن أبكر. إذا واصلت الكلام، يُهمل ذلك الطلب: قد يكلّف حتى طلبين إضافيين للذكاء الاصطناعي لكل جملة. الجمل التي استفادت منه تظهر \"تُرجمت (مسبقًا)\".",
  "Translated (early)": "تُرجمت (مسبقًا)",
- "translate (early)": "الترجمة (مسبقًا)"
+ "translate (early)": "الترجمة (مسبقًا)",
+ "Describe a person here, not what to do. For instructions like \"more slang\", pick My own above.": "صِف شخصًا هنا، لا ما يجب فعله. للتعليمات مثل \"عامية أكثر\"، اختر \"على طريقتي\" أعلاه."
 }

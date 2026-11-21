@@ -1133,5 +1133,6 @@
  "Checks your line. Uses extra characters": "检查你的句子。额外消耗字符",
  "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say \"Translated (early)\".": "在句子结尾的停顿里，会提前翻译到目前为止说的话。只有你确实说完了才会使用，所以语音说的内容不变，只是更早。如果你继续说，这次请求会被丢弃：每句话最多可能多花两次 AI 请求。用上了的句子会显示“已翻译（提前）”。",
  "Translated (early)": "已翻译（提前）",
- "translate (early)": "翻译（提前）"
+ "translate (early)": "翻译（提前）",
+ "Describe a person here, not what to do. For instructions like \"more slang\", pick My own above.": "这里请描述一个人，而不是要做什么。像“多用俚语”这样的指示，请在上面选择“自定义”。"
 }

@@ -6,6 +6,17 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 3.1.1
+- Fixed: Casual and Very casual add nothing you didn't say. The AI was allowed a filler word per line and its own examples started with "wait" and "ugh", so it copied that. Both are gone, and its last check goes through the line word by word: an opener, a reaction, a filler, a swear word or a detail you didn't say is deleted. What you really said, an "um" included, may stay.
+- Fixed: a dialect now outranks the language's general slang hint, typed dialects too (Indonesian with a dialect came out as Jakarta slang).
+- Fixed: laughter typed as letters (ㅋㅋ, ㅎㅎ, ㅠㅠ) is taken out of a line before the voice speaks it.
+- Better: with a dialect picked, the AI's last check before answering is whether the line really is in that dialect (all styles).
+- Better: the informal forms are named for more languages (Filipino po/opo, Thai ครับ/ค่ะ), and Filipino is told to use spoken Manila Tagalog, not the bookish kind.
+- Better, local models: polite request phrases ("could you please") are ruled out on Casual and Very casual, and punctuation is kept so questions sound like questions.
+- "Sound like" says it's for describing a person; instructions belong in "My own".
+- "Which means": turning it on also checks the line that's already showing. The switch and the Home toggle say that it uses extra translation characters (every line is translated a second time), but no AI tokens and no ElevenLabs credits.
+- "Start translating before I finish talking": lines that used it show "Translated (early)", the log says for every line whether it was used and, if not, why, and a line now gets at most three early requests however many pauses it has.
+
 ## 3.1.0
 - New: local models. "Local" is a new translation service that runs an AI on your own PC: free, private, no key, and it works offline once downloaded.
   - Three models to choose from by quality and hardware, each showing its download size and the memory it needs: Light (Gemma 4 E2B, 2.6 GB), Balanced (Gemma 4 E4B, 4.2 GB) and Best (Gemma 4 12B, 6.7 GB).
@@ -20,10 +31,7 @@ starting with `- `. Write them for the people using the app.
   - With an online AI as the service and a model downloaded: "Send lines this AI declines or is too slow for to my local model". The local model tries those lines first; if it says no or is too slow as well, DeepL, Microsoft or Free translate them as before. Off by default, because the model stays loaded while you play.
   - A note when the language you picked is one small models aren't good at.
 - New: "Which means" under "They heard". Your translated line is put back into your language by a plain translator (Free, then Microsoft or DeepL, never the AI), so you can see it says what you meant. It uses extra translation characters (every line is translated a second time: the free translator's daily allowance first, then your Microsoft or DeepL key), but no AI tokens and no ElevenLabs credits, and the voice doesn't wait for it. Off by default: turn it on with the "What my line means" toggle on Home, or under the translation service. Turning it on also checks the line that's already showing.
-- New (optional, off by default): "Start translating before I finish talking". During the pause that ends a sentence, the words so far are translated ahead of time, and used only if you really had finished with those same words, so the voice says exactly what it would have said, sooner. It never speaks half a sentence. If you go on talking, the early request is thrown away (up to two extra AI requests per line). Works best with Live transcription on, and on shorter lines: a long line with many pauses uses up its tries (three per line) before its real end. Lines that used it show "Translated (early)", and the log says for every line whether it was used and, if not, why.
-- Better: Casual and Very casual add nothing you didn't say. The AI was allowed a filler word per line and its own examples started with "wait" and "ugh", so it copied that; both are gone, and its last check now goes through the line word by word. Casual comes from the forms and the slang, not extra words.
-- Better: the informal forms are named for more languages (Filipino po/opo, Thai ครับ/ค่ะ), and Filipino is told to use spoken Manila Tagalog, not the bookish kind.
-- Better: with a dialect picked, the AI's last check before answering is whether the line really is in that dialect (all styles).
+- New (optional, off by default): "Start translating before I finish talking". During the pause that ends a sentence, the words so far are translated ahead of time, and used only if you really had finished with those same words, so the voice says exactly what it would have said, sooner. It never speaks half a sentence. If you go on talking, the early request is thrown away (up to two extra AI requests per line). Works best with Live transcription on. The log says how often it was used.
 - Better: captions and your own words are written down by Scribe v3, ElevenLabs' newer speech-to-text model (fewer wrong words, better at telling speakers apart). If your account doesn't have it, CIMA Box notices once and uses Scribe v2 as before.
 - Better: captions are translated knowing what you just said, so replies like "me too" or "which one?" come out right.
 - Faster and cheaper with Claude: the fixed part of the instructions is cached at Anthropic, so answers start sooner and that part costs a tenth. The spending estimate counts it at the real price.

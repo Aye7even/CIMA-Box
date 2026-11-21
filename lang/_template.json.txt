@@ -325,6 +325,7 @@
   "Like talking with a friend you hang out with a lot.": "",
   "Like your closest friend: loose, slang, swearing kept.": "",
   "For example: a guy in his 20s from Seoul. Region and age change the slang.": "",
+  "Describe a person here, not what to do. For instructions like \"more slang\", pick My own above.": "",
   "Uses the last few lines from the Listen captions to pick up their words. Your style above stays; it only leans a little toward theirs. Needs Listen on.": "",
   "Translates each phrase on its own.": "",
   "A local model gets at least 5 seconds: its first lines are slow, then it speeds up.": "",

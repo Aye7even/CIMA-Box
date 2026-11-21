@@ -1133,5 +1133,6 @@
  "Checks your line. Uses extra characters": "Проверка фразы. Тратит символы",
  "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say \"Translated (early)\".": "Во время паузы в конце предложения сказанное к этому моменту переводится заранее. Перевод используется, только если ты действительно закончил, так что голос скажет то же самое, но раньше. Если ты продолжишь говорить, этот запрос отбрасывается: это может стоить до двух лишних запросов к ИИ на фразу. У фраз, где это сработало, написано «Переведено (заранее)».",
  "Translated (early)": "Переведено (заранее)",
- "translate (early)": "перевод (заранее)"
+ "translate (early)": "перевод (заранее)",
+ "Describe a person here, not what to do. For instructions like \"more slang\", pick My own above.": "Опиши здесь человека, а не что нужно делать. Для указаний вроде «больше сленга» выбери «Свой» выше."
 }

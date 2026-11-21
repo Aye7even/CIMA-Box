@@ -1133,5 +1133,6 @@
  "Checks your line. Uses extra characters": "Cek kalimatmu. Pakai karakter tambahan",
  "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say \"Translated (early)\".": "Saat jeda di akhir kalimat, kata-kata sejauh itu diterjemahkan lebih dulu. Hasilnya hanya dipakai kalau kamu memang sudah selesai, jadi suaranya mengucapkan hal yang sama, lebih cepat. Kalau kamu lanjut bicara, permintaan itu dibuang: bisa memakan sampai dua permintaan AI tambahan per kalimat. Kalimat yang memakainya bertuliskan \"Diterjemahkan (lebih awal)\".",
  "Translated (early)": "Diterjemahkan (lebih awal)",
- "translate (early)": "terjemahan (lebih awal)"
+ "translate (early)": "terjemahan (lebih awal)",
+ "Describe a person here, not what to do. For instructions like \"more slang\", pick My own above.": "Jelaskan seseorang di sini, bukan apa yang harus dilakukan. Untuk perintah seperti \"lebih banyak slang\", pilih Gayaku di atas."
 }

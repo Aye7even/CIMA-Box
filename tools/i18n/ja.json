@@ -1133,5 +1133,6 @@
  "Checks your line. Uses extra characters": "文を確認。文字数を余分に使います",
  "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say \"Translated (early)\".": "文の終わりの間（ま）に、そこまでの言葉を先に翻訳しておきます。本当に話し終えていた場合だけ使うので、声は同じ内容をより早く話します。話し続けた場合、そのリクエストは捨てられます。1 文につき最大 2 回の追加 AI リクエストがかかることがあります。使われた文には「翻訳（先行）」と表示されます。",
  "Translated (early)": "翻訳（先行）",
- "translate (early)": "翻訳（先行）"
+ "translate (early)": "翻訳（先行）",
+ "Describe a person here, not what to do. For instructions like \"more slang\", pick My own above.": "ここには人物を書いてください（指示ではなく）。「もっとスラングを」のような指示は、上の「自分で」を選んでください。"
 }

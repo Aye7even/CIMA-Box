@@ -1133,5 +1133,6 @@
  "Checks your line. Uses extra characters": "문장 확인. 글자 수를 더 써요",
  "During the pause at the end of a sentence, the words so far are translated ahead of time. They're used only if you really had finished, so the voice says the same thing, sooner. If you go on talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say \"Translated (early)\".": "문장 끝의 잠깐 멈춘 사이에, 그때까지 한 말을 미리 번역해 둬요. 정말로 말을 끝냈을 때만 쓰기 때문에, 음성은 같은 내용을 더 빨리 말해요. 계속 말하면 그 요청은 버려져요. 한 문장에 AI 요청이 최대 두 번 더 들 수 있어요. 이 기능이 쓰인 문장에는 \"번역됨(미리)\"이라고 표시돼요.",
  "Translated (early)": "번역됨(미리)",
- "translate (early)": "번역(미리)"
+ "translate (early)": "번역(미리)",
+ "Describe a person here, not what to do. For instructions like \"more slang\", pick My own above.": "여기에는 지시가 아니라 사람을 설명해 주세요. \"속어를 더\"처럼 지시하려면 위에서 \"직접\"을 고르세요."
 }
