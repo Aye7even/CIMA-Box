@@ -41,7 +41,8 @@ void lookPreset(LookSettings& l, int preset);  // sets the four colors of a pres
 struct Settings {
     std::string apiKey;
     int page = kPageHome;
-    std::vector<std::string> homeTiles;  // the quick toggles on Home, in order (empty = the usual ones)
+    std::vector<std::string> homeTiles;
+    std::vector<std::string> recentTargets;  // languages you had people hear, newest first (SteamVR menu)  // the quick toggles on Home, in order (empty = the usual ones)
     int engine = kVoiceChanger;
     std::string voiceId;
     std::string stsModel = "eleven_multilingual_sts_v2";
@@ -71,6 +72,8 @@ struct Settings {
     int translateService = 0;          // TranslateService, shared by both pages
     std::string deeplKey;
     std::string claudeKey, geminiKey, openaiKey;  // AI translation (natural, slang-aware)
+    std::string msKey, msRegion;  // Microsoft Translator: an optional free backup (2 million characters a month)
+    bool aiBackup = true;         // with keys for two AIs, the other one covers lines the chosen one misses
     std::string claudeModel = "claude-haiku-5-5";
     std::string geminiModel = "gemini-3.5-flash-lite";
     std::string openaiModel = "gpt-6-luna";
@@ -90,6 +93,7 @@ struct Settings {
     std::string uiLanguage = "en";     // the app's own language
     bool checkUpdates = true;          // look for a new version when the app starts
     std::string lastSeenVersion;       // "What's new" shows what changed since this one
+    std::string skipUpdate;            // went back from this version: don't offer it again (a newer one, yes)
     int usageNotice = 0;               // which "your keys, your costs" notice was read (kUsageNotice = the current one)
     std::string inDevice, outDevice, monDevice;  // empty = system default
     bool monitor = false;
@@ -229,6 +233,8 @@ struct UiModel {
     bool firstRun = false;                   // no ElevenLabs key yet: show the getting-started steps
     UpdateState update;                      // GitHub updates
     bool updatesConfigured = false;          // this build knows where updates come from
+    bool olderOpen = false;                  // Settings: the list of earlier versions is showing
+    std::string olderPick;                   // the earlier version picked, waiting for "Go back"
     std::string settingsPath;                // where cimabox.json is saved
     int settingsPlace = kPlaceSettingsFolder;  // SettingsPlace
     std::string settingsError;               // moving the settings didn't work
@@ -298,10 +304,13 @@ struct UiActions {
     bool resetBaseline = false, resetMatch = false, placeVrHere = false;
     bool openVrBindings = false;       // SteamVR's screen for picking the push-to-talk button
     bool startCheck = false, stopCheck = false, openSoundPanel = false;
+    bool resetVr = false;              // start the headset captions over (they stopped updating)
     bool refreshApps = false, clearCaptions = false;
     int setCaptionsOnly = -1;  // 0 / 1 when the user switches the compact view
     int setMini = -1;          // 0 / 1 when the user switches the mini window
     bool checkUpdates = false, installUpdate = false, openSettingsFolder = false;
+    bool listOlder = false;                  // look up the earlier versions
+    std::string installOlder;                // go back to this version and restart
     bool pickPicture = false, clearPicture = false;  // Settings > Look
     int setSettingsPlace = -1;  // SettingsPlace picked in Settings > About
     std::string sendText;       // Text page: say this

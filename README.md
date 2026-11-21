@@ -46,8 +46,10 @@ apart who is speaking. Keep the captions in a small window on top of your game.
 ![The Listen page](docs/listen.png)
 
 **VR**: those captions on a small see-through panel inside your headset, in any SteamVR game. Put it
-in front of your eyes, on your wrist, or in a fixed spot. Switch who you're talking to from the
-SteamVR menu without taking the headset off.
+in front of your eyes, on your wrist, or in a fixed spot. The CIMA Box tab in the SteamVR menu lets you
+switch the voice changer, its mode, the language people hear and who you're talking to, turn Listen on and
+off, resize or reset the captions, and stop a line, all without taking the headset off. If the headset panel
+ever stops updating, it fixes itself (or press Reset VR captions).
 
 ![The VR page, with a preview of the caption panel](docs/vr.png)
 

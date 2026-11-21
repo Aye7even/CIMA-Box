@@ -555,12 +555,16 @@ void translationService(Settings& c, bool forCaptions) {
                      : c.translateService == kOpenAI ? &c.openaiKey
                                                      : nullptr;
     if (key && key->empty()) {
+        // One field per service: with a shared ID, a key being typed when the service changed could
+        // land in the wrong service's key.
+        ImGui::PushID(c.translateService);
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##servicekey", c.translateService == kDeepL    ? T("Paste your DeepL API key")
                                                  : c.translateService == kClaude ? T("Paste your Claude API key (console.anthropic.com)")
                                                  : c.translateService == kOpenAI ? T("Paste your OpenAI API key (platform.openai.com)")
                                                                                  : T("Paste your Gemini API key (aistudio.google.com)"),
                                  key, ImGuiInputTextFlags_Password);
+        ImGui::PopID();
     }
     if (c.translateService == kMyMemory)
         note(forCaptions ? "MyMemory, no sign-up. Its 5,000 characters a day last only minutes of steady captions."
@@ -575,6 +579,15 @@ void translationService(Settings& c, bool forCaptions) {
 
     if (ai && c.deeplKey.empty())
         note("Tip: add a DeepL key in Settings too. It steps in when the AI is slow.");
+    // A key for a second AI: it can cover the lines this one says no to or fails on.
+    int otherAis = 0;
+    for (int svc : {kClaude, kGemini, kOpenAI})
+        if (svc != c.translateService && !(svc == kClaude ? c.claudeKey : svc == kGemini ? c.geminiKey : c.openaiKey).empty())
+            ++otherAis;
+    if (otherAis > 0) {
+        toggleRow("Use my other AI key as a backup", &c.aiBackup);
+        note("Only for lines this AI says no to or fails on, never just slow ones, so no line is paid for twice.");
+    }
     if (!forCaptions) {
         fieldLabel("How you talk");
         static const char* const kLevels[] = {"Polite", "Casual", "Very casual", "My own"};
@@ -893,7 +906,8 @@ void voicePanel(UiModel& m, UiActions& act) {
                                                      : "Only picks up clear changes in your voice.");
             if (modelTakesTags(c.ttsModel))
                 note("Follows the words you stress, words you draw out, your pauses, laughs, and how each part of a "
-                     "sentence was said (excited, flat, whispered...). Adds no delay.");
+                     "sentence was said: excited, whispered, shouted, hesitant, rushed, slow, sad, flat. It compares you "
+                     "with your own usual voice and how much it normally varies, so it works on any mic. Adds no delay.");
             else
                 note("This model would read tags out loud and spell out capitals, so only pauses, questions and drawn-out "
                      "words carry over. Pick a v3 or v4 model for the full effect.",
@@ -905,6 +919,7 @@ void voicePanel(UiModel& m, UiActions& act) {
                 note(b);
             }
             if (button("Relearn my usual voice")) act.resetBaseline = true;
+            note("It keeps learning as you talk, and relearns the mic part by itself when you switch microphones.");
         } else {
             note("Off: the voice reads only your words, in its own tone.");
         }
@@ -1171,6 +1186,7 @@ const Findable kFindables[] = {
     {"Skip speech in my language", kPageListen, "Source", "skip ignore my language", TOGGLE(listen.onlyOtherLanguages)},
     {"Send to VRChat chatbox", kPageListen, "Source", "chatbox osc captions", TOGGLE(listen.chatbox)},
     // VR
+    {"Reset VR captions", kPageVR, "Placement", "vr captions stuck frozen not updating stopped reset reconnect", nullptr},
     {"Where", kPageVR, "Placement", "vr panel position head hand fixed", nullptr},
     {"What I say", kPageVR, "Placement", "vr show me", TOGGLE(vr.showMe)},
     {"CIMA Box tab in the SteamVR menu", kPageVR, "Placement", "steamvr dashboard menu tab", TOGGLE(vr.dashboard)},
@@ -1664,6 +1680,17 @@ void vrPlacementPanel(UiModel& m, UiActions& act) {
     VrSettings& v = m.cfg.vr;
     if (!m.vrSupported) note("VR captions need the Windows build with SteamVR.", kDanger);
     note(v.on ? T(m.vr.status) : T("Switch it on at the top right. It only connects while SteamVR is running."));
+    if (v.on) {  // when the panel stops showing new lines: start the headset side over
+        const bool glow = jumpAnchor("Reset VR captions");
+        if (button("Reset VR captions", false, ImGui::CalcTextSize(T("Reset VR captions")).x + em() * 2.4f)) act.resetVr = true;
+        if (glow) jumpGlow(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+        note("If new captions stop showing in the headset.");
+        if (m.vr.recoveries > 0) {
+            char b[200];
+            std::snprintf(b, sizeof(b), TF("Fixed itself %d times this session (SteamVR had dropped or refused the panel)."), m.vr.recoveries);
+            note(b);
+        }
+    }
     gap(0.3f);
 
     fieldLabel("Where");
@@ -1932,6 +1959,12 @@ void settingsPage(UiModel& m, UiActions& act) {
     apiKeyField("OpenAI API key", "##openaikey", c.openaiKey, m.showKey,
                 "Another choice for the same: natural translations with dialects and slang.");
     guideLink(m, kGuideOpenAI);
+    apiKeyField("Microsoft Translator key (optional)", "##mskey", c.msKey, m.showKey,
+                "A free backup: 2 million characters a month and 100+ languages. Needs a Microsoft Azure account.");
+    if (!c.msKey.empty()) {
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##msregion", T("Region, only if Azure shows one (like westus)"), &c.msRegion);
+    }
     gap(0.2f);
     toggleRow("Show keys", &m.showKey);
     subheading("Spending limit");
@@ -2011,6 +2044,81 @@ void settingsPage(UiModel& m, UiActions& act) {
         ImGui::BeginDisabled(working);
         if (u.stage != kUpdateAvailable && button("Check for updates")) act.checkUpdates = true;
         ImGui::EndDisabled();
+
+        // Going back: in case a new version breaks something for you.
+        gap(0.2f);
+        if (!m.olderOpen) {
+            ImGui::BeginDisabled(working);
+            if (button("Go back to an earlier version")) {
+                m.olderOpen = true;
+                m.olderPick.clear();
+                act.listOlder = true;
+            }
+            ImGui::EndDisabled();
+        } else {
+            fieldLabel("Go back to an earlier version");
+            note("Only versions that can update themselves are listed, so you can always come back.");
+            if (u.olderStage == kOlderLoading || u.olderStage == kOlderNone) {
+                note(std::string(T("Looking for earlier versions")) + dots());
+            } else if (u.olderStage == kOlderFailed) {
+                note(T(u.olderMessage), kDanger);
+                if (button("Try again")) act.listOlder = true;
+            } else if (u.older.empty()) {
+                note("No earlier versions to go back to.");
+            } else if (!m.olderPick.empty()) {
+                char line[200];
+                std::snprintf(line, sizeof(line), TF("Go back to %s and restart? Your settings and keys stay."), m.olderPick.c_str());
+                note(line, kSignal);
+                ImGui::BeginDisabled(working);
+                const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+                if (button("Go back", true, half)) act.installOlder = m.olderPick;
+                ImGui::SameLine();
+                if (button("Cancel", false, half)) m.olderPick.clear();
+                ImGui::EndDisabled();
+            } else {
+                size_t shown = 0;
+                for (const ReleaseInfo& r : u.older) {
+                    if (++shown > 6) break;  // the six most recent are plenty
+                    ImGui::PushID(r.version.c_str());
+                    std::string summary = r.notes;
+                    // The first real line of its notes, without the markdown dash.
+                    {
+                        size_t a = 0;
+                        while (a < summary.size()) {
+                            size_t b = summary.find('\n', a);
+                            if (b == std::string::npos) b = summary.size();
+                            std::string ln = summary.substr(a, b - a);
+                            while (!ln.empty() && (ln[0] == '-' || ln[0] == '*' || ln[0] == '#' || ln[0] == ' ')) ln.erase(ln.begin());
+                            while (!ln.empty() && (ln.back() == '\r' || ln.back() == ' ')) ln.pop_back();
+                            const bool heading = ln == r.version || ln == "v" + r.version || ln == "CIMA Box " + r.version;
+                            if (!ln.empty() && !heading) { summary = ln; break; }
+                            a = b + 1;
+                        }
+                        if (a >= summary.size()) summary.clear();
+                        if (summary.size() > 90) summary = summary.substr(0, 87) + "...";
+                    }
+                    const float bw = ImGui::CalcTextSize(T("Go back")).x + ImGui::GetStyle().FramePadding.x * 2.f;
+                    const float rowRight = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted(("CIMA Box " + r.version).c_str());
+                    ImGui::SameLine(rowRight - bw);
+                    ImGui::BeginDisabled(working);
+                    if (button("Go back", false, bw)) m.olderPick = r.version;
+                    ImGui::EndDisabled();
+                    if (!r.date.empty()) ImGui::TextColored(kMuted, "%s", r.date.c_str());
+                    if (!summary.empty()) {
+                        ImGui::PushTextWrapPos(0.f);
+                        ImGui::TextColored(kMuted, "%s", summary.c_str());
+                        ImGui::PopTextWrapPos();
+                    }
+                    gap(0.15f);
+                    ImGui::Separator();
+                    gap(0.15f);
+                    ImGui::PopID();
+                }
+            }
+            if (m.olderPick.empty() && button("Hide")) m.olderOpen = false;
+        }
     }
     subheading("Service status");
     note("Checked every few minutes. If something breaks while a service shows problems, it's on their side.");

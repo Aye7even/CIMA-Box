@@ -65,8 +65,8 @@ struct VrOverlay::Impl {
     VrState st;
     bool placeRequest = false, placedReady = false;
     float placed[12] = {};
-    VrTalking talking;
-    int pressed = -1;                  // menu button pressed, for the app to pick up
+    VrMenu menuWanted;
+    int pressed = -1;                  // id of a menu button pressed, for the app to pick up
     std::vector<uint8_t> thumb;
     int thumbSize = 0;
 
@@ -82,12 +82,24 @@ struct VrOverlay::Impl {
     vr::VRInputValueHandle_t lastHand = vr::k_ulInvalidInputValueHandle;
     Clock::time_point nextBindCheck = Clock::now();
 
+    // Keeping the panel alive: SteamVR can refuse a picture or drop or hide the panel (a scene switch,
+    // the compositor restarting). Every call is checked; the panel is rebuilt when that happens, and
+    // SteamVR reconnected when rebuilding doesn't help.
+    std::atomic<bool> resetWanted{false};
+    std::function<void(const std::string&)> log;
+    std::vector<Clock::time_point> rebuilt;  // recent rebuilds (thread-only)
+    Clock::time_point lastReconnect = Clock::now() - std::chrono::minutes(5);
+    int uploadFails = 0;                     // pictures refused in a row
+    float shrink = 1.f;                      // < 1: the picture is drawn smaller (same size in the headset)
+    Clock::time_point nextCheck = Clock::now(), lastHiddenNote = Clock::now() - std::chrono::minutes(5);
+
     // thread-only
     bool inited = false, waitForExit = false;
     vr::VROverlayHandle_t handle = vr::k_ulOverlayHandleInvalid;
     vr::VROverlayHandle_t dash = vr::k_ulOverlayHandleInvalid, dashThumb = vr::k_ulOverlayHandleInvalid;
-    VrTalking shownTalking;
-    bool haveShownTalking = false;
+    VrMenu shownMenu;
+    bool haveShownMenu = false;
+    int menuH = 0;                     // the menu picture's height (the pointer is scaled to it)
     int hover = -1, shownHover = -1;
     MenuSpec menu;
     PanelImage menuImage;
@@ -99,6 +111,55 @@ struct VrOverlay::Impl {
     float fade = 0.f;  // 0 hidden .. 1 fully shown
     bool overlayShown = false;
     std::string placeProblem;  // why the panel can't be placed right now, empty when it can
+
+    void note(const std::string& s) {
+        if (log) log("VR captions: " + s);
+    }
+    static std::string errName(vr::EVROverlayError e) {
+        const char* n = vr::VROverlay() ? vr::VROverlay()->GetOverlayErrorNameFromEnum(e) : nullptr;
+        return n ? n : std::to_string(int(e));
+    }
+    bool createCaptionOverlay() {
+        const vr::EVROverlayError e = vr::VROverlay()->CreateOverlay("cimabox.captions", "CIMA Box captions", &handle);
+        if (e != vr::VROverlayError_None) {
+            handle = vr::k_ulOverlayHandleInvalid;
+            note("couldn't create the panel (" + errName(e) + ")");
+            return false;
+        }
+        vr::VROverlay()->SetOverlaySortOrder(handle, 10);  // above other overlays' panels
+        return true;
+    }
+    // Throws the panel away and makes it again; redraws and places it on the next pass. When that has
+    // already happened a few times in the last minute, reconnects to SteamVR instead.
+    void rebuild(const std::string& why) {
+        const auto now = Clock::now();
+        rebuilt.erase(std::remove_if(rebuilt.begin(), rebuilt.end(), [&](Clock::time_point t) { return now - t > std::chrono::seconds(60); }),
+                      rebuilt.end());
+        rebuilt.push_back(now);
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            ++st.recoveries;
+        }
+        if (rebuilt.size() >= 3) {
+            note(why + "; rebuilding didn't help, so reconnecting to SteamVR");
+            rebuilt.clear();
+            shutdownVr();
+            // Straight back in, unless that already happened in the last minute (then a short pause).
+            nextTry = now - lastReconnect < std::chrono::seconds(60) ? now + std::chrono::seconds(3) : now;
+            lastReconnect = now;
+            return;
+        }
+        note(why + "; rebuilding the panel");
+        if (handle != vr::k_ulOverlayHandleInvalid) vr::VROverlay()->DestroyOverlay(handle);
+        handle = vr::k_ulOverlayHandleInvalid;
+        overlayShown = false;
+        shownVersion = ~0ull;
+        haveShownCfg = false;
+        if (!createCaptionOverlay()) {
+            shutdownVr();
+            nextTry = now + std::chrono::seconds(1);
+        }
+    }
 
     void setStatus(const std::string& s, bool connected) {
         std::lock_guard<std::mutex> lk(mtx);
@@ -121,7 +182,7 @@ struct VrOverlay::Impl {
         haveShownCfg = false;
     }
 
-    // The "CIMA Box" tab in the SteamVR menu: a row of buttons for who you're talking to.
+    // The "CIMA Box" tab in the SteamVR menu: rows of buttons the app describes (setMenu).
     void createDashboard() {
         if (dash != vr::k_ulOverlayHandleInvalid) return;
         vr::IVROverlay* ov = vr::VROverlay();
@@ -131,8 +192,7 @@ struct VrOverlay::Impl {
         }
         ov->SetOverlayWidthInMeters(dash, 2.2f);
         ov->SetOverlayInputMethod(dash, vr::VROverlayInputMethod_Mouse);
-        const vr::HmdVector2_t scale = {{float(menu.width), float(menu.height)}};
-        ov->SetOverlayMouseScale(dash, &scale);
+        menuH = 0;  // the pointer's scale is set when it is drawn
         std::vector<uint8_t> icon;
         int size = 0;
         {
@@ -141,7 +201,7 @@ struct VrOverlay::Impl {
             size = thumbSize;
         }
         if (size > 0) ov->SetOverlayRaw(dashThumb, icon.data(), uint32_t(size), uint32_t(size), 4);
-        haveShownTalking = false;  // draw it
+        haveShownMenu = false;  // draw it
     }
     void destroyDashboard() {
         if (dash != vr::k_ulOverlayHandleInvalid) vr::VROverlay()->DestroyOverlay(dash);
@@ -154,8 +214,8 @@ struct VrOverlay::Impl {
         if (dash == vr::k_ulOverlayHandleInvalid) return;
         vr::VREvent_t e;
         while (vr::VROverlay()->PollNextOverlayEvent(dash, &e, sizeof(e))) {
-            // Pointer y runs up from the bottom of the image; the buttons are centred, so either way works.
-            const float x = e.data.mouse.x, y = float(menu.height) - e.data.mouse.y;
+            // The pointer's y runs up from the bottom of the picture.
+            const float x = e.data.mouse.x, y = float(menuH) - e.data.mouse.y;
             if (e.eventType == vr::VREvent_MouseMove) {
                 hover = menuButtonAt(menu, x, y);
             } else if (e.eventType == vr::VREvent_MouseButtonUp) {
@@ -163,27 +223,30 @@ struct VrOverlay::Impl {
                 if (b >= 0) {
                     std::lock_guard<std::mutex> lk(mtx);
                     pressed = b;
-                    talking.choice = b;  // shows right away, before the app confirms it
                 }
             }
         }
-        VrTalking now;
+        VrMenu now;
         {
             std::lock_guard<std::mutex> lk(mtx);
-            now = talking;
+            now = menuWanted;
         }
-        if (haveShownTalking && now == shownTalking && hover == shownHover) return;
+        if (haveShownMenu && now == shownMenu && hover == shownHover) return;
         menu.title = now.title;
         menu.footer = now.footer;
-        menu.buttons = now.buttons;
-        menu.selected = now.choice;
+        menu.rows = now.rows;
         menu.hover = hover;
         menu.accentColor = c.style.accentColor;
         sharedPainter().paintMenu(menu, menuImage);
+        if (menuImage.height != menuH) {  // rows came or went: the pointer follows the new size
+            menuH = menuImage.height;
+            const vr::HmdVector2_t scale = {{float(menuImage.width), float(menuImage.height)}};
+            vr::VROverlay()->SetOverlayMouseScale(dash, &scale);
+        }
         vr::VROverlay()->SetOverlayRaw(dash, menuImage.rgba.data(), uint32_t(menuImage.width), uint32_t(menuImage.height), 4);
-        shownTalking = now;
+        shownMenu = now;
         shownHover = hover;
-        haveShownTalking = true;
+        haveShownMenu = true;
     }
 
     bool tryInit() {
@@ -200,12 +263,12 @@ struct VrOverlay::Impl {
             return false;
         }
         inited = true;
-        if (vr::VROverlay()->CreateOverlay("cimabox.captions", "CIMA Box captions", &handle) != vr::VROverlayError_None) {
+        if (!createCaptionOverlay()) {
             setStatus("Couldn't create the caption overlay in SteamVR", false);
             shutdownVr();
             return false;
         }
-        vr::VROverlay()->SetOverlaySortOrder(handle, 10);  // above other overlays' panels
+        lastNew = Clock::now();  // whatever is there shows again after (re)connecting
         setStatus("Connected to SteamVR", true);
         return true;
     }
@@ -373,6 +436,13 @@ struct VrOverlay::Impl {
                 }
             }
             if (!inited) continue;
+            if (resetWanted.exchange(false)) {  // "Reset VR captions": start the headset side over
+                note("reset (asked for)");
+                shutdownVr();
+                nextTry = now;
+                setStatus("Resetting", false);
+                continue;
+            }
             serviceInput(c);
             if (!c.on) {  // only the push-to-talk button: no panel, no menu tab
                 if (overlayShown) { vr::VROverlay()->HideOverlay(handle); overlayShown = false; }
@@ -392,13 +462,13 @@ struct VrOverlay::Impl {
                 std::lock_guard<std::mutex> lk(mtx);
                 c = cfg;
             }
-            VrTalking t;
+            std::string tag;
             {
                 std::lock_guard<std::mutex> lk(mtx);
-                t = talking;
+                tag = menuWanted.tag;
             }
             serviceDashboard(c);
-            c.style.tag = c.showTalkingTo ? t.tag : std::string();
+            c.style.tag = c.showTalkingTo ? tag : std::string();
 
             // Redraw only when the words or the look changed.
             const bool lookChanged = !haveShownCfg || !sameLook(c, shownCfg);
@@ -406,14 +476,57 @@ struct VrOverlay::Impl {
                 if (ver != shownVersion && !ls.empty()) lastNew = now;
                 PanelStyle style = c.style;
                 style.showSub = c.showOriginal;
+                if (shrink < 1.f) {  // a smaller picture, in case SteamVR's limit on its size is what's refusing it
+                    style.width = int(float(style.width) * shrink);
+                    style.textPx *= shrink;
+                }
                 {
                     std::lock_guard<std::mutex> lk(mtx);
                     if (ver == shownVersion) ls = lines;
                 }
                 sharedPainter().paint(ls, style, image);
-                if (!image.empty)
-                    vr::VROverlay()->SetOverlayRaw(handle, image.rgba.data(), uint32_t(image.width), uint32_t(image.height), 4);
                 shownVersion = ver;
+                if (!image.empty) {
+                    const vr::EVROverlayError e =
+                        vr::VROverlay()->SetOverlayRaw(handle, image.rgba.data(), uint32_t(image.width), uint32_t(image.height), 4);
+                    if (e != vr::VROverlayError_None) {
+                        if (++uploadFails >= 4 && shrink > 0.5f) {
+                            shrink = 0.5f;
+                            note("drawing the panel at half resolution from now on");
+                        }
+                        rebuild("SteamVR didn't take the new captions (" + errName(e) + ")");
+                        if (!inited) continue;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                        continue;  // drawn again on the next pass, on the new panel
+                    }
+                    uploadFails = 0;
+                    lastNew = now;  // a new picture shows, even if the words were the same
+                }
+            }
+            {  // SteamVR's own messages about the panel: a picture it couldn't load means a rebuild
+                vr::VREvent_t pe;
+                bool failed = false;
+                while (vr::VROverlay()->PollNextOverlayEvent(handle, &pe, sizeof(pe)))
+                    if (pe.eventType == vr::VREvent_ImageFailed) failed = true;
+                if (failed) {
+                    rebuild("SteamVR couldn't load the captions picture");
+                    continue;
+                }
+            }
+            if (now >= nextCheck) {  // every few seconds: is the panel still there, and really visible?
+                nextCheck = now + std::chrono::seconds(3);
+                vr::VROverlayHandle_t found = vr::k_ulOverlayHandleInvalid;
+                if (vr::VROverlay()->FindOverlay("cimabox.captions", &found) != vr::VROverlayError_None || found != handle) {
+                    rebuild("SteamVR had dropped the caption panel");
+                    continue;
+                }
+                if (overlayShown && !vr::VROverlay()->IsOverlayVisible(handle)) {
+                    if (now - lastHiddenNote > std::chrono::minutes(1)) {
+                        note("SteamVR had hidden the panel; showing it again");
+                        lastHiddenNote = now;
+                    }
+                    vr::VROverlay()->ShowOverlay(handle);
+                }
             }
             if (!haveShownCfg || !samePlace(c, shownCfg) || now >= nextPlace) {
                 place(c);
@@ -463,6 +576,7 @@ VrOverlay::~VrOverlay() { stop(); }
 #if defined(_WIN32) && defined(CIMA_HAS_OPENVR)
 void VrOverlay::start() {
     if (p_->running.exchange(true)) return;
+    p_->log = onLog;
     p_->thread = std::thread([this] { p_->loop(); });
 }
 void VrOverlay::stop() {
@@ -481,6 +595,7 @@ void VrOverlay::setActionManifest(const std::string& path) { p_->manifest = path
 bool VrOverlay::buttonDown() const { return p_->pttDown; }
 void VrOverlay::buzz() { p_->buzzWanted = true; }
 void VrOverlay::openBindings() { p_->bindingsWanted = true; }
+void VrOverlay::reset() { p_->resetWanted = true; }
 void VrOverlay::setLines(const std::vector<PanelLine>& lines, uint64_t version) {
     std::lock_guard<std::mutex> lk(p_->mtx);
     if (version == p_->version) return;
@@ -498,15 +613,14 @@ bool VrOverlay::takePlacedPose(float pose[12]) {
     p_->placedReady = false;
     return true;
 }
-void VrOverlay::setTalking(const VrTalking& t) {
+void VrOverlay::setMenu(const VrMenu& m) {
     std::lock_guard<std::mutex> lk(p_->mtx);
-    if (p_->pressed >= 0) return;  // a press in VR is on its way to the app: don't undo it
-    p_->talking = t;
+    p_->menuWanted = m;
 }
-bool VrOverlay::takeTalkingTo(int& choice) {
+bool VrOverlay::takeMenuPress(int& id) {
     std::lock_guard<std::mutex> lk(p_->mtx);
     if (p_->pressed < 0) return false;
-    choice = p_->pressed;
+    id = p_->pressed;
     p_->pressed = -1;
     return true;
 }
@@ -522,13 +636,14 @@ void VrOverlay::configure(const VrSettings&) {}
 void VrOverlay::setLines(const std::vector<PanelLine>&, uint64_t) {}
 void VrOverlay::placeHere() {}
 bool VrOverlay::takePlacedPose(float*) { return false; }
-void VrOverlay::setTalking(const VrTalking&) {}
-bool VrOverlay::takeTalkingTo(int&) { return false; }
+void VrOverlay::setMenu(const VrMenu&) {}
+bool VrOverlay::takeMenuPress(int&) { return false; }
 void VrOverlay::setThumbnail(const uint8_t*, int) {}
 void VrOverlay::setActionManifest(const std::string&) {}
 bool VrOverlay::buttonDown() const { return false; }
 void VrOverlay::buzz() {}
 void VrOverlay::openBindings() {}
+void VrOverlay::reset() {}
 #endif
 
 VrState VrOverlay::state() const {

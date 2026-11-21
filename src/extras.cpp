@@ -417,6 +417,80 @@ const std::vector<std::string>& openEnders(const std::string& lang) {
 
 }  // namespace
 
+std::string guessLanguage(const std::string& text) {
+    // Count letters by script.
+    int latin = 0, cyr = 0, ukr = 0, hangul = 0, kana = 0, han = 0, arabic = 0, persian = 0, hebrew = 0, thai = 0,
+        deva = 0, greek = 0, bengali = 0;
+    for (size_t i = 0; i < text.size();) {
+        const unsigned char c = text[i];
+        int len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
+        if (i + len > text.size()) break;
+        unsigned cp = len == 1 ? c : len == 2 ? (c & 0x1F) : len == 3 ? (c & 0x0F) : (c & 0x07);
+        for (int k = 1; k < len; ++k) cp = (cp << 6) | (static_cast<unsigned char>(text[i + k]) & 0x3F);
+        i += len;
+        if ((cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') || (cp >= 0xC0 && cp <= 0x24F) || (cp >= 0x1E00 && cp <= 0x1EFF)) ++latin;
+        else if (cp >= 0x400 && cp <= 0x4FF) {
+            ++cyr;
+            if (cp == 0x456 || cp == 0x457 || cp == 0x454 || cp == 0x491 || cp == 0x406 || cp == 0x407 || cp == 0x404 || cp == 0x490) ++ukr;
+        } else if (cp >= 0xAC00 && cp <= 0xD7AF) ++hangul;
+        else if (cp >= 0x3040 && cp <= 0x30FF) ++kana;
+        else if (cp >= 0x4E00 && cp <= 0x9FFF) ++han;
+        else if (cp >= 0x600 && cp <= 0x6FF) {
+            ++arabic;
+            if (cp == 0x67E || cp == 0x686 || cp == 0x698 || cp == 0x6AF || cp == 0x6CC) ++persian;
+        } else if (cp >= 0x590 && cp <= 0x5FF) ++hebrew;
+        else if (cp >= 0xE00 && cp <= 0xE7F) ++thai;
+        else if (cp >= 0x900 && cp <= 0x97F) ++deva;
+        else if (cp >= 0x370 && cp <= 0x3FF) ++greek;
+        else if (cp >= 0x980 && cp <= 0x9FF) ++bengali;
+    }
+    if (kana) return "ja";  // Japanese mixes kanji in; any kana means Japanese
+    const std::pair<int, const char*> scripts[] = {{hangul, "ko"}, {han, "zh"}, {cyr, ukr ? "uk" : "ru"},
+                                                   {arabic, persian ? "fa" : "ar"}, {hebrew, "he"}, {thai, "th"},
+                                                   {deva, "hi"}, {greek, "el"}, {bengali, "bn"}};
+    const std::pair<int, const char*>* best = nullptr;
+    for (const auto& sc : scripts)
+        if (sc.first > 0 && (!best || sc.first > best->first)) best = &sc;
+    if (best && best->first >= latin) return best->second;
+    if (!latin) return {};
+    // Latin script: the language whose everyday little words show up most.
+    static const std::pair<const char*, std::vector<std::string>> kWords[] = {
+        {"en", {"the", "and", "you", "is", "are", "i", "it", "to", "of", "that", "what", "this", "my", "we", "do", "don't", "i'm", "was", "have", "not", "with"}},
+        {"es", {"el", "la", "que", "de", "y", "es", "no", "un", "una", "por", "con", "para", "qué", "yo", "lo", "pero", "está", "como", "muy", "eso"}},
+        {"pt", {"o", "a", "que", "de", "não", "é", "um", "uma", "eu", "você", "com", "para", "isso", "tá", "muito", "mas", "como", "aqui", "vamos", "tudo"}},
+        {"fr", {"le", "la", "les", "et", "est", "je", "tu", "pas", "que", "un", "une", "c'est", "de", "des", "on", "vous", "ça", "mais", "il", "avec"}},
+        {"de", {"der", "die", "das", "und", "ist", "ich", "du", "nicht", "ein", "eine", "was", "mit", "auf", "es", "wir", "auch", "aber", "sie", "ja", "zu"}},
+        {"it", {"il", "la", "che", "di", "e", "è", "non", "un", "una", "io", "tu", "per", "con", "sono", "ma", "come", "questo", "anche", "lo", "cosa"}},
+        {"nl", {"de", "het", "een", "en", "is", "ik", "je", "niet", "dat", "wat", "van", "op", "met", "maar", "ook", "jij", "zijn", "we", "hoe", "nee"}},
+        {"fil", {"ang", "ng", "sa", "mga", "ko", "mo", "ako", "ikaw", "ka", "na", "hindi", "ba", "naman", "lang", "po", "kasi", "yung", "siya", "ito", "talaga"}},
+        {"id", {"yang", "dan", "di", "ini", "itu", "aku", "kamu", "tidak", "nggak", "gak", "ada", "apa", "saya", "dengan", "untuk", "udah", "sudah", "juga", "banget", "aja"}},
+        {"pl", {"i", "w", "nie", "to", "się", "jest", "że", "na", "co", "jak", "ale", "tak", "ja", "ty", "mi", "z", "do", "czy", "już", "jestem"}},
+        {"tr", {"bir", "ve", "bu", "ne", "da", "de", "ben", "sen", "çok", "var", "yok", "mi", "mı", "için", "ama", "değil", "evet", "hayır", "nasıl", "şey"}},
+        {"vi", {"tôi", "bạn", "là", "không", "có", "và", "của", "được", "này", "một", "những", "cái", "đi", "rồi", "với", "người", "gì", "thì", "mình", "nhé"}},
+        {"sv", {"och", "att", "det", "är", "jag", "du", "inte", "en", "som", "på", "med", "har", "vad", "för", "men", "så", "vi", "den", "hej", "nej"}},
+    };
+    // Lowercase ASCII words (accented letters stay as they are, which is what the lists hold).
+    std::vector<std::string> words;
+    std::string w;
+    auto flush = [&] { if (!w.empty()) { words.push_back(w); w.clear(); } };
+    for (unsigned char c : text) {
+        if (c >= 'A' && c <= 'Z') w += char(c + 32);
+        else if ((c >= 'a' && c <= 'z') || c >= 0x80 || c == '\'') w += char(c);
+        else flush();
+    }
+    flush();
+    const char* pick = nullptr;
+    int top = 0;
+    for (const auto& l : kWords) {
+        int n = 0;
+        for (const auto& word : words)
+            for (const auto& x : l.second)
+                if (word == x) { ++n; break; }
+        if (n > top) { top = n; pick = l.first; }
+    }
+    return pick ? pick : "en";  // nothing matched: English is the likeliest guess in a voice chat
+}
+
 int roughWords(const std::string& text) {
     int words = 0, cjk = 0;
     bool in = false;

@@ -186,6 +186,8 @@ float framePitch(const float* x, int n) {
 
 struct Span {
     float loud = -100, peak = kNaN, mid = kNaN, range = 0, tilt = -100, voiced = 0, seconds = 0, endRise = 0;
+    float jumpy = 0;  // share of steps between pitch readings that jump more than 2 semitones: high = breathy
+                      // or half-whispered, where the pitch reading can't be trusted
     int pitched = 0;
 };
 
@@ -206,6 +208,16 @@ Span measure(const VoiceTrack& t, float start, float end) {
     s.tilt = median(tilt);
     s.pitched = int(pitch.size());
     s.voiced = float(pitch.size()) / float(db.size());
+    {
+        int steps = 0, jumps = 0;
+        for (int f = a + 1; f < b; ++f) {
+            const float p0 = t.pitch[size_t(f - 1)], p1 = t.pitch[size_t(f)];
+            if (std::isnan(p0) || std::isnan(p1)) continue;
+            ++steps;
+            jumps += std::fabs(p1 - p0) > 2.f ? 1 : 0;
+        }
+        s.jumpy = steps > 0 ? float(jumps) / float(steps) : 0.f;
+    }
     if (pitch.size() >= 3) {
         s.peak = percentile(pitch, 0.8f);
         s.mid = median(pitch);
@@ -249,10 +261,36 @@ void fitLine(const std::vector<float>& x, const std::vector<float>& y, float& a,
 struct Thresholds {
     float stressScore, stressLoud, stressPitch, stretch;
     float shoutDb, shoutEffort, excitedPitch, softDb, flatRange, rise;
+    float spread;             // how many of your usual swings a part must stand out by
+    float fast, slow;         // speaking rate against your usual one
 };
 Thresholds thresholds(int strength) {
-    if (strength == kEmotionStrong) return {1.6f, 2.0f, 1.5f, 1.9f, 6.f, 2.0f, 2.0f, -4.f, 3.0f, 2.0f};
-    return {2.2f, 3.0f, 2.0f, 2.2f, 8.f, 2.5f, 2.5f, -6.f, 2.5f, 3.0f};
+    if (strength == kEmotionStrong) return {1.6f, 2.0f, 1.5f, 1.9f, 6.f, 2.0f, 2.0f, -4.f, 3.0f, 2.0f, 1.3f, 1.28f, 0.72f};
+    return {2.2f, 3.0f, 2.0f, 2.2f, 8.f, 2.5f, 2.5f, -6.f, 2.5f, 3.0f, 1.6f, 1.38f, 0.64f};
+}
+
+// Hesitation sounds the transcriber writes down, in the app's languages.
+bool isFiller(const std::string& word) {
+    std::string w;
+    for (unsigned cp : decode(word))
+        if (isLetter(cp)) w += encode({cp < 0x80 ? unsigned(std::tolower(int(cp))) : cp});
+    static const char* const kFillers[] = {
+        "um", "umm", "uh", "uhh", "uhm", "erm", "er", "hmm", "mm", "eh", "euh", "äh", "ähm", "ehm", "eee", "eto", "ano",
+        "\xE3\x81\x88\xE3\x83\xBC\xE3\x81\xA8",  // えーと
+        "\xE3\x81\x88\xE3\x81\xA3\xE3\x81\xA8",  // えっと
+        "\xE3\x81\x82\xE3\x81\xAE",                  // あの
+        "\xE3\x81\x88\xE3\x83\xBC",                  // えー
+        "\xEC\x9D\x8C",                                  // 음
+        "\xEC\x96\xB4",                                  // 어
+        "\xEA\xB7\xB8\xEB\x8B\x88\xEA\xB9\x8C",  // 그니까
+        "\xE5\x97\xAF",                                  // 嗯
+        "\xE5\x91\x83",                                  // 呃
+        "\xD1\x8D\xD0\xBC",                            // эм
+        "\xD0\xBD\xD1\x83",                            // ну
+    };
+    for (const char* f : kFillers)
+        if (w == f) return true;
+    return false;
 }
 
 std::string twoLetterOk(const std::string& lower) {
@@ -301,6 +339,12 @@ VoiceTrack trackVoice(const std::vector<int16_t>& pcm) {
     for (int f = 1; f + 1 < frames; ++f)
         if (!std::isnan(t.pitch[size_t(f)]) && std::isnan(t.pitch[size_t(f - 1)]) && std::isnan(t.pitch[size_t(f + 1)]))
             t.pitch[size_t(f)] = kNaN;
+    // A single frame far from both neighbours is a misread (an octave slip, a noise burst), not the voice.
+    for (int f = 1; f + 1 < frames; ++f) {
+        const float a = t.pitch[size_t(f - 1)], b = t.pitch[size_t(f)], c = t.pitch[size_t(f + 1)];
+        if (std::isnan(a) || std::isnan(b) || std::isnan(c)) continue;
+        if (std::fabs(b - a) > 5.f && std::fabs(b - c) > 5.f && std::fabs(a - c) < 3.f) t.pitch[size_t(f)] = 0.5f * (a + c);
+    }
     return t;
 }
 
@@ -535,10 +579,11 @@ Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& t
     Span whole;
     if (timed && !words.empty() && words.front().start >= 0) whole = measure(track, words.front().start, words.back().end);
     const bool useBase = base.ready();
-    const float refLoud = useBase ? base.loudDb : whole.loud;
+    const bool useMic = useBase && base.micParts >= 3;  // the mic's loudness and brightness are known
+    const float refLoud = useMic ? base.loudDb : whole.loud;
     const float refPitch = useBase ? base.pitch : whole.mid;
     const float refRange = useBase ? base.range : whole.range;
-    const float refTilt = useBase ? base.tilt : whole.tilt;
+    const float refTilt = useMic ? base.tilt : whole.tilt;
 
     std::vector<std::string> partTags;
     for (const PartSpan& ps : spans) {
@@ -552,21 +597,50 @@ Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& t
         const bool enough = m.seconds >= 0.3f && m.pitched >= 6;
         // Comparing a part with its own phrase only means something when there are other parts.
         const bool canCompare = useBase || spans.size() >= 2;
+        // Pitch is only evidence when it was read steadily: breathy or half-whispered speech makes the
+        // reading jump around, which would otherwise look like an excited, wide-ranging voice.
+        const bool steady = enough && m.voiced >= 0.45f && m.jumpy <= 0.3f;
+        // How far is far, for this speaker: their usual part-to-part swing (once it's learned).
+        const float pitchSd = useBase ? std::clamp(std::sqrt(base.pitchVar), 0.8f, 4.f) : 1.5f;
+        const float loudSd = useBase ? std::clamp(std::sqrt(base.loudVar), 1.5f, 6.f) : 2.5f;
+        // Speaking rate (words a second) and hesitation, from the timing and the words: no mic changes these.
+        const size_t nWords = ps.lastWord - ps.firstWord + 1;
+        const float span = last.end - first.start;
+        const float rate = span > 0.3f ? float(nWords) / span : 0.f;
+        const float rateRatio = useBase && base.rate > 0.5f && rate > 0.f ? rate / base.rate : 1.f;
+        int fillers = 0, smallPauses = 0;
+        for (size_t wi = ps.firstWord; wi <= ps.lastWord; ++wi) {
+            fillers += isFiller(tokens[words[wi].token].text) ? 1 : 0;
+            if (wi > ps.firstWord && words[wi].start >= 0 && words[wi - 1].end >= 0) {
+                const float g = words[wi].start - words[wi - 1].end;
+                smallPauses += g >= 0.18f && g < 0.35f ? 1 : 0;
+            }
+        }
         std::string why;
 
-        if (m.seconds >= 0.4f && m.voiced < 0.2f) {
-            part.tag = "whispers";
-        } else if (enough && canCompare && dLoud >= th.shoutDb &&
-                   (dTilt >= th.shoutEffort || (dPitch >= 4.f && dLoud >= th.shoutDb + 3.f))) {
-            part.tag = "shouts";        // loud AND pushed hard: leaning into the mic alone doesn't count
+        if ((m.seconds >= 0.4f && m.voiced < 0.2f) ||
+            (m.seconds >= 0.5f && m.voiced < 0.45f && (m.jumpy > 0.3f || (canCompare && dLoud <= -4.f)))) {
+            part.tag = "whispers";      // mostly breath, or a half-whisper: some voice, but unsteady or quiet
+        } else if (steady && canCompare && dLoud >= std::max(th.shoutDb, 2.f * loudSd) &&
+                   (dPitch >= std::max(3.f, th.spread * pitchSd) || (dTilt >= th.shoutEffort && dPitch >= 1.5f))) {
+            part.tag = "shouts";        // much louder AND higher: leaning into the mic alone doesn't count
             part.exclaim = true;
-        } else if (enough && canCompare && dPitch >= th.excitedPitch &&
-                   (m.range >= refRange * 1.3f || dTilt >= 1.5f || dLoud >= 3.f)) {
-            part.tag = "excited";
+        } else if (steady && canCompare && dPitch >= std::max(th.excitedPitch, th.spread * pitchSd) &&
+                   (m.range >= refRange * 1.3f || dLoud >= std::max(3.f, loudSd) || rateRatio >= 1.15f)) {
+            part.tag = "excited";       // clearly higher than you usually swing, plus livelier, louder or faster
             part.exclaim = true;
-        } else if (enough && canCompare && dLoud <= th.softDb && dTilt <= -1.5f) {
+        } else if (nWords >= 3 && fillers >= 1 && (fillers + smallPauses) * 3 >= int(nWords)) {
+            part.tag = "hesitant";      // "um", "uh" and stop-start pauses (even pauses alone are just slow)
+        } else if (useBase && steady && dPitch <= -std::max(1.5f, pitchSd) && m.range < refRange * 0.75f && rateRatio <= 0.9f &&
+                   dLoud <= -2.f) {
+            part.tag = "sad";           // lower, narrower, slower and quieter, all at once
+        } else if (enough && canCompare && dLoud <= th.softDb && (dTilt <= -1.5f || dPitch <= -1.f)) {
             part.tag = "softly";
-        } else if (enough && m.seconds >= 0.8f && m.range < th.flatRange && std::fabs(dPitch) < 2.f && dLoud < 4.f) {
+        } else if (nWords >= 4 && span >= 1.f && rateRatio >= th.fast) {
+            part.tag = "quickly";
+        } else if (nWords >= 3 && span >= 1.f && rateRatio <= th.slow) {
+            part.tag = "slowly";
+        } else if (steady && m.seconds >= 0.8f && m.range < th.flatRange && std::fabs(dPitch) < 2.f && dLoud < 4.f) {
             part.tag = "flatly";        // monotone
         }
         // Question: the voice rises over the last word.
@@ -631,20 +705,47 @@ Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& t
         partTags.push_back(part.tag.empty() ? (part.question ? "question" : "usual") : part.tag);
         out.parts.push_back(std::move(part));
 
-        // ---- learn the usual voice from ordinary parts (and from anything until it is learned)
-        if (m.pitched >= 12 && m.voiced >= 0.25f && (!base.ready() || out.parts.back().tag.empty() || out.parts.back().tag == "flatly")) {
-            const float a = std::max(0.1f, 1.f / float(base.phrases + 1));
-            const float rate = float(ps.lastWord - ps.firstWord + 1) / std::max(0.3f, last.end - first.start);
+        // ---- learn the usual voice: from every clearly voiced part, quickly at first, then slowly for
+        // good. Parts that sounded unusual count for less, so a shout doesn't move it much, but a usual
+        // voice learned wrong at the start still corrects itself.
+        if (m.pitched >= 12 && m.voiced >= 0.45f && m.jumpy <= 0.3f) {
+            const std::string& t = out.parts.back().tag;
+            const bool usual = t.empty() || t == "flatly" || t == "quickly" || t == "slowly" || t == "hesitant";
+            const float weight = !base.ready() || usual ? 1.f : 0.35f;
+            const float a = weight * std::max(0.04f, 1.f / float(base.phrases + 1));
+            const float partRate = float(nWords) / std::max(0.3f, span);
+            const float aMic = weight * std::max(0.04f, 1.f / float(base.micParts + 1));
+            auto follow = [](float rate, float& mean, float* var, float x) {
+                const float d = x - mean;
+                mean += rate * d;
+                if (var) *var = (1.f - rate) * (*var + rate * d * d);
+            };
             if (base.phrases == 0) {
-                base.loudDb = m.loud; base.pitch = m.mid; base.range = std::max(1.f, m.range); base.tilt = m.tilt; base.rate = rate;
+                base.pitch = m.mid; base.range = std::max(1.f, m.range); base.rate = partRate;
             } else {
-                base.loudDb += a * (m.loud - base.loudDb);
-                base.pitch += a * (m.mid - base.pitch);
-                base.range += a * (std::max(1.f, m.range) - base.range);
-                base.tilt += a * (m.tilt - base.tilt);
-                base.rate += a * (rate - base.rate);
+                follow(a, base.pitch, &base.pitchVar, m.mid);
+                follow(a, base.range, nullptr, std::max(1.f, m.range));
+                if (nWords >= 3) follow(a, base.rate, &base.rateVar, partRate);
             }
-            ++base.phrases;
+            if (base.micParts == 0) {
+                base.loudDb = m.loud;
+                base.tilt = m.tilt;
+            } else {
+                follow(aMic, base.loudDb, &base.loudVar, m.loud);
+                follow(aMic, base.tilt, nullptr, m.tilt);
+            }
+            if (base.phrases < 100000) ++base.phrases;
+            if (base.micParts < 100000) ++base.micParts;
+        }
+        // Several parts in a row all "softly" (or all "shouts") is the mic, not you: a quieter or
+        // closer mic, or a new one. Learn its loudness again.
+        {
+            const std::string& t = out.parts.back().tag;
+            base.loudStreak = t == "softly" ? std::min(0, base.loudStreak) - 1 : t == "shouts" ? std::max(0, base.loudStreak) + 1 : 0;
+            if (std::abs(base.loudStreak) >= 3) {
+                base.micParts = 0;
+                base.loudStreak = 0;
+            }
         }
     }
 

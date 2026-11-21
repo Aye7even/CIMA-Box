@@ -8,6 +8,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -38,13 +39,12 @@ struct VrSettings {
 };
 
 // What the SteamVR menu tab shows (texts come translated from the app).
-struct VrTalking {
-    int choice = 0;                       // selected button (TalkingTo)
-    std::string title, footer, tag;       // tag: the note on the caption panel
-    std::vector<std::string> buttons;
-    bool operator==(const VrTalking& o) const {
-        return choice == o.choice && title == o.title && footer == o.footer && tag == o.tag && buttons == o.buttons;
-    }
+// The CIMA Box tab in the SteamVR menu (rows of buttons; the app numbers them), and the note on the
+// caption panel ("Talking to: a girl").
+struct VrMenu {
+    std::string title, footer, tag;
+    std::vector<MenuRow> rows;
+    bool operator==(const VrMenu& o) const { return title == o.title && footer == o.footer && tag == o.tag && rows == o.rows; }
 };
 
 struct VrState {
@@ -52,6 +52,7 @@ struct VrState {
     bool connected = false;
     bool visible = false;
     // The push-to-talk button
+    int recoveries = 0;   // times the caption panel was rebuilt or SteamVR reconnected because it stopped updating
     std::string button;   // "Not picked yet", "Ready", ... (empty when it isn't used)
     bool buttonBound = false;
     bool buttonDown = false;
@@ -72,8 +73,8 @@ public:
     void setLines(const std::vector<PanelLine>& lines, uint64_t version);  // only re-sent when `version` changes
     void placeHere();                                                // Fixed: put it in front of you now
     bool takePlacedPose(float pose[12]);                             // after placeHere(): the pose, to save
-    void setTalking(const VrTalking& t);                             // cheap; call every frame
-    bool takeTalkingTo(int& choice);                                 // a button was pressed in the SteamVR menu
+    void setMenu(const VrMenu& m);                             // cheap; call every frame
+    bool takeMenuPress(int& id);                               // a button pressed in the SteamVR menu (its id), once
     void setThumbnail(const uint8_t* rgba, int size);                // the menu tab's icon (square RGBA)
     VrState state() const;
     // Push to talk with a controller button.
@@ -81,6 +82,10 @@ public:
     bool buttonDown() const;                          // cheap, any thread
     void buzz();                                      // a short vibration on the hand that pressed it
     void openBindings();                              // SteamVR's screen for picking the button
+    // Starts the headset side over: lets go of SteamVR, connects again and redraws everything.
+    void reset();
+    // Where problems with SteamVR are written (set before start; called from the VR thread).
+    std::function<void(const std::string&)> onLog;
 
 private:
     struct Impl;

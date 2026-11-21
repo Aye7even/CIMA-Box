@@ -7,6 +7,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 
 enum UpdateStage {
     kUpdateIdle = 0,     // not checked yet
@@ -18,17 +19,27 @@ enum UpdateStage {
     kUpdateFailed,       // message says why
 };
 
+struct ReleaseInfo {
+    std::string version;   // from the tag, without the "v"
+    std::string notes, page, exeUrl, sigUrl;
+    std::string date;      // "2026-11-20", when it was published
+};
+
+// Going back: the earlier versions that can be installed.
+enum OlderStage { kOlderNone = 0, kOlderLoading, kOlderReady, kOlderFailed };
+
 struct UpdateState {
     int stage = kUpdateIdle;
     std::string message;   // English; the interface translates the known ones
     std::string latest;    // newest version, "2.5.0"
     std::string notes;     // its release notes
+    int olderStage = kOlderNone;
+    std::string olderMessage;          // why the list couldn't be loaded
+    std::vector<ReleaseInfo> older;    // newest first: signed, with the updater, not this version
 };
 
-struct ReleaseInfo {
-    std::string version;   // from the tag, without the "v"
-    std::string notes, page, exeUrl, sigUrl;
-};
+// The first version that could update itself: anything older couldn't come back to a newer one.
+constexpr const char* kFirstWithUpdater = "2.5.0";
 
 class Updater {
 public:
@@ -42,6 +53,8 @@ public:
 
     void check();                      // in the background
     void install();                    // in the background; only after check() found one
+    void listOlder();                  // in the background: fills state().older
+    void installOlder(const std::string& version);  // one from state().older, in the background
     UpdateState state() const;
     bool restartWanted() const;        // installed: close the app, then call relaunch()
 
@@ -58,6 +71,9 @@ private:
 
 // Pieces, exposed for testing.
 bool parseRelease(const std::string& json, ReleaseInfo& out, std::string& err);
+// The versions someone can go back to, from GitHub's list of releases: signed ones from
+// kFirstWithUpdater on, not drafts or test releases, not `current`; newest first, at most `max`.
+std::vector<ReleaseInfo> olderReleases(const std::string& listJson, const std::string& current, size_t max);
 int compareVersions(const std::string& a, const std::string& b);  // <0, 0, >0 like strcmp; "v2.5" == "2.5.0"
 bool derSignatureToRaw(const std::string& der, std::string& raw64);  // openssl's DER -> r||s, 32 bytes each
 // SHA-256 + ECDSA P-256 check against a public key given as 128 hex digits (X then Y).

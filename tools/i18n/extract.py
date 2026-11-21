@@ -66,7 +66,7 @@ for _name in ['const KeyGuideText kKeyGuides', 'const char* top[]', 'const char*
     _i=_ui.index(_name); _j=_ui.index('};' if not _name.startswith('for') else '})', _i)
     for _s in literals(_ui[_i:_j]):
         if not _s.startswith('http') and '.com' not in _s and '.io' not in _s: found.append(_s)
-scan_file('main.cpp', ['T','TF','quotaItem','notice'])
+scan_file('main.cpp', ['T','TF','quotaItem','notice','button'])
 # Check my setup: every sentence in it is shown (translated) in the check window
 _m=open(src+'main.cpp').read()
 _i=_m.index('// ---------------------------------------------------------------- Check my setup'); _j=_m.index('static SetupCheck gCheck;')

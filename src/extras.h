@@ -104,6 +104,11 @@ bool sentenceUnfinished(const std::string& text, const std::string& lang);
 // Where the last finished sentence inside `text` ends: the index where the next sentence starts
 // (after its . ? ! and the space). npos when there's no finished sentence before the end.
 size_t lastSentenceEnd(const std::string& text);
+// A best guess at the language `text` is written in, as a language code ("ru", "fil", "en"...), for
+// when the spoken language is set to automatic and nothing reported it. Non-Latin scripts decide it
+// on their own; Latin-script text is matched against each language's most common little words.
+// Short or mixed text may guess wrong; "" when there's nothing to go on.
+std::string guessLanguage(const std::string& text);
 // About how many words `text` is (Chinese and Japanese, written without spaces: 2 characters a word).
 int roughWords(const std::string& text);
 // Two pieces of one sentence, heard either side of a pause, as one: the closing "." the transcript

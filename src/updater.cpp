@@ -114,12 +114,32 @@ bool parseRelease(const std::string& body, ReleaseInfo& out, std::string& err) {
     out.version = tag;
     out.notes = str(j, "body");
     out.page = str(j, "html_url");
+    out.date = str(j, "published_at").substr(0, 10);
     if (j.contains("assets") && j["assets"].is_array())
         for (const json& a : j["assets"]) {
             if (str(a, "name") == kExeAsset) out.exeUrl = str(a, "browser_download_url");
             if (str(a, "name") == kSigAsset) out.sigUrl = str(a, "browser_download_url");
         }
     return true;
+}
+
+std::vector<ReleaseInfo> olderReleases(const std::string& listJson, const std::string& current, size_t max) {
+    std::vector<ReleaseInfo> out;
+    const json j = json::parse(listJson, nullptr, false);
+    if (!j.is_array()) return out;
+    for (const json& r : j) {
+        if (!r.is_object() || r.value("draft", false) || r.value("prerelease", false)) continue;
+        ReleaseInfo info;
+        std::string err;
+        if (!parseRelease(r.dump(), info, err)) continue;
+        if (info.exeUrl.empty() || info.sigUrl.empty()) continue;           // nothing signed to install
+        if (compareVersions(info.version, kFirstWithUpdater) < 0) continue;  // couldn't update itself back
+        if (compareVersions(info.version, current) == 0) continue;          // the one running now
+        out.push_back(info);
+    }
+    std::sort(out.begin(), out.end(), [](const ReleaseInfo& a, const ReleaseInfo& b) { return compareVersions(a.version, b.version) > 0; });
+    if (out.size() > max) out.resize(max);
+    return out;
 }
 
 // DER: 30 len 02 lenR R 02 lenS S (R and S big-endian, maybe with a leading 00).
@@ -186,8 +206,8 @@ struct Updater::Impl {
     UpdateState st;
     ReleaseInfo release;
     std::string current;
-    std::thread worker;
-    std::atomic<bool> busy{false}, restart{false}, cancel{false};
+    std::thread worker, lister;
+    std::atomic<bool> busy{false}, listing{false}, restart{false}, cancel{false};
 
     void set(int stage, const std::string& message) {
         std::lock_guard<std::mutex> lk(mtx);
@@ -236,6 +256,27 @@ struct Updater::Impl {
             return {kUpdateFailed, "The newest release is missing CIMABox.exe or its signature."};
         }
         return {kUpdateAvailable, "An update is available."};
+    }
+
+    void doList() {
+        Http http;
+        http.cancel = &cancel;
+        HttpRequest r;
+        r.url = gApiBase + "/repos/" + gRepo + "/releases?per_page=40";
+        r.headers = {"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"};
+        r.timeoutSec = 20;
+        long status = 0;
+        std::string body, err;
+        std::vector<ReleaseInfo> list;
+        std::string problem;
+        if (!http.perform(r, status, body, err)) problem = "Couldn't reach GitHub. Check your connection.";
+        else if (status == 403 || status == 429) problem = "GitHub is limiting update checks right now. Try again later.";
+        else if (status != 200) problem = "GitHub answered " + std::to_string(status) + ".";
+        else list = olderReleases(body, current, 12);
+        std::lock_guard<std::mutex> lk(mtx);
+        st.older = list;
+        st.olderStage = problem.empty() ? kOlderReady : kOlderFailed;
+        st.olderMessage = problem;
     }
 
     bool download(Http& http, const std::string& url, std::string& out) {
@@ -303,6 +344,35 @@ Updater::Updater(const std::string& currentVersion) : p_(new Impl) { p_->current
 Updater::~Updater() {
     p_->cancel = true;
     if (p_->worker.joinable()) p_->worker.join();
+    if (p_->lister.joinable()) p_->lister.join();
+}
+
+void Updater::listOlder() {
+    if (gRepo.empty() || p_->listing.exchange(true)) return;
+    if (p_->lister.joinable()) p_->lister.join();
+    {
+        std::lock_guard<std::mutex> lk(p_->mtx);
+        p_->st.olderStage = kOlderLoading;
+        p_->st.olderMessage.clear();
+    }
+    p_->lister = std::thread([this] {
+        p_->doList();
+        p_->listing = false;
+    });
+}
+
+void Updater::installOlder(const std::string& version) {
+    {
+        std::lock_guard<std::mutex> lk(p_->mtx);
+        bool found = false;
+        for (const ReleaseInfo& r : p_->st.older)
+            if (r.version == version) {
+                p_->release = r;  // what doInstall downloads, checks and swaps in
+                found = true;
+            }
+        if (!found) return;
+    }
+    p_->run(kUpdateDownloading, "Downloading the update", &Impl::doInstall);
 }
 
 bool Updater::configured() {

@@ -1,5 +1,6 @@
 // Text translation between the transcription and the voice.
 #pragma once
+#include <map>
 #include <string>
 #include <vector>
 
@@ -34,6 +35,8 @@ const Variety* findVariety(const std::string& id);
 struct TranslateSetup {
     int service = kMyMemory;
     std::string deeplKey, claudeKey, geminiKey, openaiKey;
+    std::string msKey, msRegion;  // Microsoft Translator (optional backup); region only for regional resources
+    bool aiBackup = true;         // another AI with a key steps in on lines this one misses
     std::string claudeModel = "claude-haiku-5-5";
     std::string geminiModel = "gemini-3.5-flash-lite";
     std::string openaiModel = "gpt-6-luna";
@@ -118,7 +121,13 @@ private:
     Http spare_;       // a second connection to the AI, for a second copy of a slow request
     Http wordsHttp_;   // DeepL (or Free) for listed and swear words, alongside the AI
     Http backupHttp_;  // DeepL (or Free) backup, ready in case the AI runs out of time
+    Http otherHttp_;   // a second AI (when there's a key for one), for lines the chosen AI fails on
     std::string typicalKey_;  // the service and model typicalMs_ is for
     int typicalMs_ = 0;       // how long that AI usually takes to answer a line (0 = not known yet)
-    std::chrono::steady_clock::time_point busyUntil_{};  // it said it was busy: no second copies until then
+    // Extra time a language needs on top of the time limit, per AI model and language (and dialect).
+    // Some languages simply take longer to write out (Filipino sentences run long, and every word
+    // costs the AI more): with one limit for all, they'd miss it on nearly every line. It grows a
+    // little each time that language runs out of time and shrinks when it answers with room to
+    // spare, never past double the limit.
+    std::map<std::string, int> extraMs_;
 };

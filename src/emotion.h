@@ -63,11 +63,20 @@ private:
     int nextTemp_ = 100, last_ = -1;
 };
 
-// The speaker's usual voice, learned from ordinary phrases and saved with the settings.
+// The speaker's usual voice and how much it normally varies, learned from their speech and saved
+// with the settings. It keeps learning (slowly, and less from parts that sounded unusual), so a few
+// odd phrases at the start correct themselves.
 struct VoiceBaseline {
     float loudDb = -30, pitch = 6, range = 4, tilt = -12, rate = 3;
-    int phrases = 0;
-    static constexpr int kReady = 3;
+    // How much each normally moves from part to part (variance): someone expressive swings more,
+    // so a part has to stand out by more than their usual swing to count.
+    float pitchVar = 2.25f, loudVar = 6.25f, rateVar = 0.6f;
+    int phrases = 0;                      // parts learned from
+    // Loudness and brightness depend on the mic (and how close you are); pitch, its swing and your
+    // pace are yours. After a mic change only the mic's part is learned again.
+    int micParts = 0;                     // parts learned from on this mic
+    int loudStreak = 0;                   // parts in a row that came out "softly" (-) or "shouts" (+)
+    static constexpr int kReady = 8;
     bool ready() const { return phrases >= kReady; }
 };
 
@@ -88,7 +97,8 @@ struct HeardToken {
 struct SpokenPart {
     std::string plain;     // the words as heard, for translating
     std::string marked;    // the words with stressed / drawn-out words and sounds marked (same language only)
-    std::string tag;       // "excited", "shouts", "whispers", "softly", "flatly", or empty
+    std::string tag;       // "excited", "shouts", "whispers", "softly", "flatly", "hesitant", "quickly",
+                           // "slowly", "sad", or empty
     bool question = false, exclaim = false;
     float pauseBefore = 0; // seconds of silence before this part
     std::vector<std::string> leadSounds, trailSounds;  // sounds at its edges, for after translation

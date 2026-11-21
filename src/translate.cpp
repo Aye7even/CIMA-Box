@@ -43,7 +43,7 @@ const std::vector<Language>& languages() {
         {"Dutch", "nl", "nld dut", "nl", "NL", "NL", true, "Flemish"},
         {"English", "en", "eng", "en", "EN-US", "EN", true, ""},
         {"Estonian", "et", "est ekk", "et", "ET", "ET", false, ""},
-        {"Filipino", "fil", "fil tgl tl", "tl", "FIL", "FIL", true, "Tagalog"},
+        {"Filipino", "fil", "fil tgl tl", "tl", "TL", "TL", true, "Tagalog"},  // DeepL calls it Tagalog, "TL"
         {"Finnish", "fi", "fin", "fi", "FI", "FI", true, ""},
         {"French", "fr", "fra fre", "fr", "FR", "FR", true, ""},
         {"Fula", "ff", "ful fuc", "ff", "FF", "FF", false, "Pulaar Fulani"},
@@ -185,9 +185,21 @@ std::vector<std::string> chunks(const std::string& text, size_t maxBytes) {
     return out;
 }
 
+// The day (counted from 1970) Free ran out of its daily allowance, or -1. Until the day changes,
+// Free isn't asked again: every ask would only come back "limit reached", after a wait.
+std::atomic<long> gFreeOutDay{-1};
+long dayNumber() {
+    return long(std::chrono::duration_cast<std::chrono::hours>(std::chrono::system_clock::now().time_since_epoch()).count() / 24);
+}
+bool freeUsedUp() { return gFreeOutDay.load() == dayNumber(); }
+
 bool myMemory(Http& http, const std::string& text, const Language& from, const Language& to, std::string& out,
               std::string& err) {
     out.clear();
+    if (freeUsedUp()) {
+        err = "Free translation limit reached for today. Switch to DeepL or try again tomorrow.";
+        return false;
+    }
     for (const std::string& piece : chunks(text, 450)) {
         HttpRequest r;
         r.url = "https://api.mymemory.translated.net/get?q=" + Http::urlEncode(piece) + "&langpair=" +
@@ -212,7 +224,10 @@ bool myMemory(Http& http, const std::string& text, const Language& from, const L
         }
         const bool warning = translated.rfind("MYMEMORY WARNING", 0) == 0;
         if (status != 200 || apiStatus != 200 || translated.empty() || warning) {
-            if (warning || apiStatus == 429) err = "Free translation limit reached for today. Switch to DeepL or try again tomorrow.";
+            if (warning || apiStatus == 429) {
+                err = "Free translation limit reached for today. Switch to DeepL or try again tomorrow.";
+                gFreeOutDay = dayNumber();
+            }
             else err = "Translation failed (" + std::to_string(apiStatus) + ")" + (details.empty() ? "" : ": " + details);
             return false;
         }
@@ -224,8 +239,18 @@ bool myMemory(Http& http, const std::string& text, const Language& from, const L
 
 }  // namespace
 
+// Keys DeepL turned away at the address their ending points to, but took at the other one (a free
+// key without ":fx", or the other way round): from then on, that other address.
+std::mutex gDeeplHostMx;
+std::map<std::string, bool> gDeeplFlipped;
+
 std::string deeplHost(const std::string& key) {
-    const bool free = key.size() > 3 && key.compare(key.size() - 3, 3, ":fx") == 0;
+    bool free = key.size() > 3 && key.compare(key.size() - 3, 3, ":fx") == 0;
+    {
+        std::lock_guard<std::mutex> lk(gDeeplHostMx);
+        const auto it = gDeeplFlipped.find(key);
+        if (it != gDeeplFlipped.end() && it->second) free = !free;
+    }
     return free ? "https://api-free.deepl.com" : "https://api.deepl.com";
 }
 
@@ -257,9 +282,12 @@ thread_local std::string tlFormality;
 thread_local std::string tlContext;
 
 bool deeplOnce(Http& http, const std::string& key, const std::string& text, const Language* from, const std::string& target,
-               std::string& out, std::string& err, bool& languageRefused, bool formality = true) {
+               std::string& out, std::string& err, bool& languageRefused, bool formality = true, bool hostTried = false,
+               bool nextGen = false) {
     languageRefused = false;
     json req = {{"text", json::array({text})}, {"target_lang", target}};
+    // DeepL's newer languages (Tagalog, Cebuano and others) are only done by its next-gen model.
+    if (nextGen) req["model_type"] = "prefer_quality_optimized";
     if (from) req["source_lang"] = from->deeplSource;
     const bool formal = formality && !tlFormality.empty();
     if (formal) req["formality"] = tlFormality;
@@ -279,8 +307,29 @@ bool deeplOnce(Http& http, const std::string& key, const std::string& text, cons
         std::string lower;
         for (char c : msg) lower += char(std::tolower(static_cast<unsigned char>(c)));
         if (status == 400 && formal && lower.find("formality") != std::string::npos)  // not for this language after all
-            return deeplOnce(http, key, text, from, target, out, err, languageRefused, false);
-        if (status == 400 && lower.find("lang") != std::string::npos) languageRefused = true;
+            return deeplOnce(http, key, text, from, target, out, err, languageRefused, false, hostTried, nextGen);
+        // It can't read the spoken language as given (or it was guessed wrong): let DeepL work it out.
+        if (status == 400 && from && lower.find("source_lang") != std::string::npos)
+            return deeplOnce(http, key, text, nullptr, target, out, err, languageRefused, formal, hostTried, nextGen);
+        // Only a target language DeepL doesn't have counts as "DeepL doesn't do this language". Any
+        // other refusal is an error to show, not a reason to quietly switch to Free.
+        if (status == 400 && lower.find("target_lang") != std::string::npos) {
+            if (!nextGen)  // maybe a language only the next-gen model does: once more, asking for that model
+                return deeplOnce(http, key, text, from, target, out, err, languageRefused, formal, hostTried, true);
+            languageRefused = true;
+        }
+        // Refused at this address: the key may belong to the other one (free and Pro keys go to
+        // different places, told apart by the ":fx" ending). One try there.
+        if (status == 403 && !hostTried) {
+            {
+                std::lock_guard<std::mutex> lk(gDeeplHostMx);
+                gDeeplFlipped[key] = !gDeeplFlipped[key];
+            }
+            if (deeplOnce(http, key, text, from, target, out, err, languageRefused, formal, true, nextGen)) return true;
+            std::lock_guard<std::mutex> lk(gDeeplHostMx);
+            gDeeplFlipped[key] = !gDeeplFlipped[key];  // not that either: back as it was
+            return false;
+        }
         if (status == 403) msg = "the API key was rejected";
         else if (status == 456) msg = "this month's character quota is used up";
         err = "DeepL " + std::to_string(status) + (msg.empty() ? "" : ": " + msg);
@@ -305,6 +354,56 @@ bool deepl(Http& http, const std::string& key, const std::string& text, const La
         if (!languageRefused) return false;
     }
     return deeplOnce(http, key, text, from, to.deeplTarget, out, err, languageRefused);
+}
+
+// Microsoft Translator's name for a language, where it differs from ours.
+std::string msCode(const Language& l) {
+    static const std::pair<const char*, const char*> kDiff[] = {
+        {"zh", "zh-Hans"}, {"no", "nb"}, {"sr", "sr-Cyrl"}, {"mn", "mn-Cyrl"}, {"iw", "he"}};
+    for (const auto& d : kDiff)
+        if (std::string(l.code) == d.first) return d.second;
+    return l.code;
+}
+
+// Microsoft Translator (Azure), an optional backup: 2 million characters a month free, 100+ languages
+// (Filipino too). `languageRefused`: it doesn't do this language, so the next backup should.
+bool microsoft(Http& http, const std::string& key, const std::string& region, const std::string& text, const Language* from,
+               const Language& to, std::string& out, std::string& err, bool& languageRefused) {
+    languageRefused = false;
+    if (key.empty()) { err = "No Microsoft Translator key"; return false; }
+    const std::string payload = json::array({{{"Text", text}}}).dump();
+    HttpRequest r;
+    r.url = "https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=" + Http::urlEncode(msCode(to)) +
+            (from ? "&from=" + Http::urlEncode(msCode(*from)) : std::string());
+    r.headers = {"Ocp-Apim-Subscription-Key: " + key, "Content-Type: application/json"};
+    if (!region.empty()) r.headers.push_back("Ocp-Apim-Subscription-Region: " + region);
+    r.body = &payload;
+    r.timeoutSec = 15;
+    long status = 0;
+    std::string body;
+    if (!http.perform(r, status, body, err)) return false;
+    const json j = json::parse(body, nullptr, false);
+    if (status != 200) {
+        long code = 0;
+        if (j.is_object() && j.contains("error") && j["error"].is_object() && j["error"].contains("code") &&
+            j["error"]["code"].is_number_integer())
+            code = j["error"]["code"].get<long>();
+        // 400035 / 400036: the source / target language isn't one it has.
+        if (code == 400035 && from) return microsoft(http, key, region, text, nullptr, to, out, err, languageRefused);
+        if (code == 400036) languageRefused = true;
+        err = code == 403001 ? "Microsoft Translator: this month's free characters are used up"
+            : status == 401  ? "Microsoft Translator: the key (or its region) was refused"
+            : status == 429  ? "Microsoft Translator: too many requests right now"
+            : "Microsoft Translator " + std::to_string(status) + (code ? " (" + std::to_string(code) + ")" : std::string());
+        return false;
+    }
+    if (!j.is_array() || j.empty() || !j[0].is_object() || !j[0].contains("translations") || !j[0]["translations"].is_array() ||
+        j[0]["translations"].empty() || !j[0]["translations"][0].contains("text") || !j[0]["translations"][0]["text"].is_string()) {
+        err = "Unexpected Microsoft Translator response";
+        return false;
+    }
+    out = j[0]["translations"][0]["text"].get<std::string>();
+    return !out.empty();
 }
 
 }  // namespace
@@ -379,7 +478,18 @@ bool extractAnswer(const std::string& raw, const std::string& source, std::strin
 std::string httpProblem(const char* service, long status, const std::string& message) {
     std::string why = message;
     if (status == 401 || status == 403) why = "the API key was rejected";
-    else if (status == 429) why = "too many requests or out of credit";
+    else if (status == 429) {
+        const std::string low = lowerCopy(message);
+        // Gemini says "quota ... billing" for its free plan's per-minute limit too: not about credit.
+        why = std::string(service) == "Gemini"
+                  ? "hit the plan's request limit (per minute, or for the day)"
+              : low.find("credit") != std::string::npos || low.find("billing") != std::string::npos
+                  ? "out of credit"
+              : low.find("per day") != std::string::npos || low.find("daily") != std::string::npos ||
+                        low.find("perday") != std::string::npos
+                  ? "the plan's daily limit is used up"
+                  : "too many requests for the plan's limit (slowing down for a bit)";
+    }
     else if (status == 529 || status == 503) why = "the service is overloaded right now";
     return std::string(service) + " " + std::to_string(status) + (why.empty() ? "" : ": " + why);
 }
@@ -387,7 +497,10 @@ std::string httpProblem(const char* service, long status, const std::string& mes
 thread_local std::string tlRaw;  // the last AI answer as it came (for the <g> gender note)
 
 // Why an AI call failed, to decide whether one more try is worth it.
-enum AiFail { kFailOther = 0, kFailRejected, kFailBusy };
+// kFailBusy: overloaded for a moment (worth one more try). kFailLimited: too many requests for the
+// plan (another try right away only makes it worse). kFailDead: won't work until something changes
+// (key refused, out of credit, the plan can't use the model).
+enum AiFail { kFailOther = 0, kFailRejected, kFailBusy, kFailLimited, kFailDead };
 
 std::string errorMessage(const json& j) {
     if (j.is_object() && j.contains("error") && j["error"].is_object() && j["error"].contains("message") &&
@@ -425,8 +538,10 @@ bool claude(Http& http, const TranslateSetup& st, const std::string& instruction
                 noEffort = true;
                 continue;
             }
-            if ((status == 429 && lowerCopy(msg).find("credit") == std::string::npos) || status == 529 || status == 503)
-                why = kFailBusy;
+            const std::string low = lowerCopy(msg);
+            if (status == 401 || status == 403 || low.find("credit balance") != std::string::npos) why = kFailDead;
+            else if (status == 429) why = kFailLimited;
+            else if (status == 529 || status == 503 || status == 500) why = kFailBusy;
             err = httpProblem("Claude", status, msg);
             return false;
         }
@@ -485,7 +600,10 @@ bool gemini(Http& http, const TranslateSetup& st, const std::string& instruction
                 ++thinking;  // that level isn't offered by this model: one step up, or none at all
                 continue;
             }
-            if (status == 429 || status == 503) why = kFailBusy;  // the free plan's per-minute limit, or busy
+            if (status == 401 || status == 403 || (status == 400 && lowerCopy(msg).find("api key") != std::string::npos))
+                why = kFailDead;
+            else if (status == 429) why = kFailLimited;  // the free plan's per-minute (or daily) limit
+            else if (status == 503 || status == 500) why = kFailBusy;
             err = httpProblem("Gemini", status, msg);
             return false;
         }
@@ -547,13 +665,17 @@ bool openai(Http& http, const TranslateSetup& st, const std::string& instruction
                 ++reasoning;  // this model doesn't take that reasoning setting: try the next one
                 continue;
             }
-            if (code == "insufficient_quota" || low.find("quota") != std::string::npos)
+            if (code == "insufficient_quota" || low.find("quota") != std::string::npos) {
+                why = kFailDead;
                 err = "OpenAI: no credit left on the account (add credits in Billing)";
-            else if (status == 404 || code == "model_not_found")
+            } else if (status == 404 || code == "model_not_found") {
+                why = kFailDead;
                 err = "OpenAI: your plan can't use " + (st.openaiModel.empty() ? std::string("gpt-6-luna") : st.openaiModel) +
                       " (adding credit usually unlocks it)";
-            else {
-                if (status == 429 || status == 503 || status == 500) why = kFailBusy;
+            } else {
+                if (status == 401 || status == 403) why = kFailDead;
+                else if (status == 429) why = kFailLimited;
+                else if (status == 503 || status == 500) why = kFailBusy;
                 err = httpProblem("OpenAI", status, msg);
             }
             return false;
@@ -771,10 +893,14 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
     // must not pull the result back to polite: the setting decides, not the source sentence.
     // Arabic with no dialect picked: one widely understood spoken Arabic, never a mix. Left to itself a
     // model jumps between Egyptian, Gulf and Levantine words in one line, which sounds wrong to everyone.
+    // Taglish and Hinglish are a mix of the language and English on purpose. The usual rules ("every
+    // word in Filipino", "never the speaker's English") say the opposite, and a model handed both
+    // stops to work out which one wins: slower, and the line comes out unsure of itself.
+    const bool mixed = st.variety.find("mix of") != std::string::npos;
     const std::string hint = to.code == std::string("ar") && st.variety.empty()
         ? "a neutral, widely understood spoken Arabic (close to the \"white dialect\", اللهجة البيضاء): everyday words "
           "most Arabs understand, no fusha formality, and never mix words from different dialects in one line"
-        : casualHint(to.code);
+        : mixed ? std::string() : casualHint(to.code);
     const bool custom = st.level == kLevelCustom && !trimText(st.customStyle).empty();
     const bool polite = !custom && st.level == kLevelPolite;
     const bool veryCasual = !custom && st.level == kLevelVeryCasual;
@@ -850,11 +976,15 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         "Write exactly what " + who + " would actually say out loud here.\n"
         "- " + level + "\n" + dialect + genders + keep + st.wordNote +
         "- A text-to-speech voice will speak it: write only spoken words. No emoji, hashtags, texting abbreviations or "
-        "laughter written as letters (no ㅋㅋ, lol, www, jaja, хаха), no quotation marks, no notes.\n"
-        "- Every word you say must be " + target + ". Don't keep words or phrases from the original language just "
-        "because they were there: someone who only speaks " + target +
-        " has to understand all of it. Names stay exactly as they are: people, places, games, apps, brands and "
-        "products (like VRChat, Discord, ElevenLabs, Claude), and any words you were told to keep.\n"
+        "laughter written as letters (no ㅋㅋ, lol, www, jaja, хаха), no quotation marks, no notes.\n" +
+        (mixed ? "- Mix in English the way people who speak " + spoken.substr(0, spoken.find(',')) + " really do: the everyday "
+                 "English words and short phrases they switch to without thinking, with the rest in " + target + ". Names "
+                 "stay exactly as they are: people, places, games, apps, brands and products (like VRChat, Discord, "
+                 "ElevenLabs, Claude), and any words you were told to keep.\n"
+               : "- Every word you say must be " + target + ". Don't keep words or phrases from the original language just "
+                 "because they were there: someone who only speaks " + target +
+                 " has to understand all of it. Names stay exactly as they are: people, places, games, apps, brands and "
+                 "products (like VRChat, Discord, ElevenLabs, Claude), and any words you were told to keep.\n") +
         "- If it is already in " + spoken + ", just make it sound natural in that style.\n"
         "- If what they said is garbled or unclear, say your best guess of what they meant. Never explain or comment.\n"
         "- If there is a word you won't say, just leave that word out and translate the rest as it is. Never replace "
@@ -921,6 +1051,49 @@ bool aiCall(Http& h, const TranslateSetup& st, const std::string& instructions, 
     }
     learn(key, level);
     return ok;
+}
+
+// Languages whose lines take clearly longer for an AI to write out than the same thing in English:
+// the sentences are longer and each word costs the model more pieces to write.
+bool longLanguage(const std::string& code) {
+    return code == "fil" || code == "tl" || code == "ceb";
+}
+
+// How each AI service is doing, shared by every translator (My voice, Listen, the screen...). They
+// all use the same key, so when one hits the plan's limit, all of them should ease off, and when the
+// key is refused or out of credit, none of them should keep waiting on it.
+struct Health {
+    std::chrono::steady_clock::time_point busyUntil{};  // too many requests / overloaded: no extra copies
+    std::chrono::steady_clock::time_point deadUntil{};  // refused / no credit: go straight to the backup
+    std::string deadWhy;
+};
+std::mutex gHealthMx;
+std::map<std::string, Health> gHealth;
+Health healthOf(const std::string& k) {
+    std::lock_guard<std::mutex> lk(gHealthMx);
+    return gHealth[k];
+}
+void markBusy(const std::string& k, int seconds) {
+    std::lock_guard<std::mutex> lk(gHealthMx);
+    auto& h = gHealth[k];
+    h.busyUntil = std::max(h.busyUntil, std::chrono::steady_clock::now() + std::chrono::seconds(seconds));
+}
+void markDead(const std::string& k, const std::string& why) {
+    std::lock_guard<std::mutex> lk(gHealthMx);
+    auto& h = gHealth[k];
+    h.deadUntil = std::chrono::steady_clock::now() + std::chrono::minutes(3);  // then one line tries it again
+    h.deadWhy = why;
+}
+void markAlive(const std::string& k) {
+    std::lock_guard<std::mutex> lk(gHealthMx);
+    gHealth[k].deadUntil = {};
+}
+
+// Which AI, model and key a Health entry is for. Per key: a new key (or one with credit added and
+// pasted again) starts fresh. Only the key's last characters, and only in memory.
+std::string healthKey(const TranslateSetup& st) {
+    const std::string& k = st.service == kClaude ? st.claudeKey : st.service == kGemini ? st.geminiKey : st.openaiKey;
+    return modelKey(st) + "|" + (k.size() > 8 ? k.substr(k.size() - 8) : k);
 }
 
 int msSince(std::chrono::steady_clock::time_point t) {
@@ -1071,25 +1244,114 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
     tlContext = beforeText;
     struct ClearContext { ~ClearContext() { tlContext.clear(); } } clearContext;
     tlFormality = st.faithful || st.level == kLevelCustom ? "" : st.level == kLevelPolite ? "prefer_more" : "prefer_less";
-    auto deeplOrFree = [&](bool deeplFirst) {
+    // Free has to be told the spoken language. When it's set to automatic and nothing reported it,
+    // a guess from the words themselves (the AI and DeepL work it out on their own).
+    const Language* freeFrom = from ? from : findLanguage(guessLanguage(text));
+    // DeepL, then Microsoft Translator (whichever have keys), then Free (unless withFree is false).
+    // A problem with one doesn't stop the next; the first one's problem is kept for the message.
+    auto deeplOrFree = [&](bool deeplFirst, bool withFree = true) {
+        std::string problem;
         if (deeplFirst && !st.deeplKey.empty()) {
             bool refused = false;
             if (deepl(http, st.deeplKey, text, from, to, st.deeplVariant, out, err, refused)) { via = "DeepL"; return true; }
-            if (!refused) return false;
+            if (!refused) problem = err;
         }
-        if (!from) {
-            err = "The free service needs to know the spoken language. Pick it, or add a DeepL key.";
+        if (deeplFirst && !st.msKey.empty()) {
+            bool refused = false;
+            if (microsoft(http, st.msKey, st.msRegion, text, from, to, out, err, refused)) { via = "Microsoft"; return true; }
+            if (!refused && problem.empty()) problem = err;
+        }
+        if (!withFree) {
+            if (!problem.empty()) err = problem;
             return false;
         }
-        if (myMemory(http, text, *from, to, out, err)) { via = "Free"; return true; }
+        if (!freeFrom) {
+            err = problem.empty() ? "The free service needs to know the spoken language. Pick it, or add a DeepL key." : problem;
+            return false;
+        }
+        if (myMemory(http, text, *freeFrom, to, out, err)) {
+            via = problem.empty() ? "Free" : "Free (" + problem + ")";
+            return true;
+        }
+        if (!problem.empty()) err = problem + "; Free: " + err;
         return false;
     };
 
     if (isAiService(st.service)) {
         const char* name = st.service == kClaude ? "Claude" : st.service == kGemini ? "Gemini" : "OpenAI";
         const std::string instructions = aiInstructions(st, from, to);
-        // A dialect takes the model more work: allow it half again as long (up to 1.5 s more).
-        const int budget = st.timeoutMs + (st.variety.empty() ? 0 : std::min(1500, st.timeoutMs / 2));
+        // A dialect takes the model more work: allow it half again as long (up to 1.5 s more). On top of
+        // that, what this language has been found to need (see extraMs_).
+        // This AI's shared health (see Health), per key too: a new key (or one with credit added and
+        // pasted again) starts fresh. Only the key's last characters, and only in memory.
+        const std::string hk = healthKey(st);
+        // Something quick to fall back on if the AI is late: DeepL, Microsoft, or Free while it has some
+        // left today.
+        const bool backupReady = !st.deeplKey.empty() || !st.msKey.empty() || (freeFrom && !freeUsedUp());
+        // Another AI with a key (the person's own choice of a second one): it covers the lines this AI
+        // fails on (declined, refused, out of credit, too many requests, an error), never just slow ones,
+        // so a line is never paid for twice. One try, on its own connection.
+        auto otherAi = [&]() -> int {
+            if (!st.aiBackup) return -1;
+            for (int svc : {kClaude, kGemini, kOpenAI}) {
+                if (svc == st.service) continue;
+                TranslateSetup b = st;
+                b.service = svc;
+                const std::string& k = svc == kClaude ? st.claudeKey : svc == kGemini ? st.geminiKey : st.openaiKey;
+                if (k.empty()) continue;
+                if (std::chrono::steady_clock::now() < healthOf(healthKey(b)).deadUntil) continue;
+                return svc;
+            }
+            return -1;
+        };
+        auto askOtherAi = [&](std::string& o, std::string& e) -> bool {
+            const int svc = otherAi();
+            if (svc < 0 || (http.cancel && *http.cancel)) return false;
+            TranslateSetup b = st;
+            b.service = svc;
+            const std::string bk = healthKey(b);
+            Http& h = otherHttp_;  // kept open between lines
+            h.cancel = http.cancel;
+            int why = kFailOther;
+            const bool ok = aiCall(h, b, aiInstructions(b, from, to), text, text, std::max(4000, st.timeoutMs * 2), o, e, why);
+            if (ok) markAlive(bk);
+            else if (why == kFailDead) markDead(bk, e);
+            else if (why == kFailLimited) markBusy(bk, 120);
+            if (ok) {
+                const char* other = svc == kClaude ? "Claude" : svc == kGemini ? "Gemini" : "OpenAI";
+                via = other;
+            }
+            return ok;
+        };
+        // The AI refused the key or is out of credit (found out in the last few minutes, by any part of
+        // the app): no point waiting on it for every line. Straight to a backup, saying why: DeepL or
+        // Microsoft, then the other AI, then Free.
+        {
+            const Health h = healthOf(hk);
+            if (std::chrono::steady_clock::now() < h.deadUntil) {
+                bool ok = deeplOrFree(true, false);
+                if (!ok) {
+                    std::string o, e;
+                    ok = askOtherAi(o, e);
+                    if (ok) out = o;
+                }
+                if (!ok && backupReady) ok = deeplOrFree(false);
+                if (ok) {
+                    via += " (" + h.deadWhy + ")";
+                    return true;
+                }
+            }
+        }
+        const std::string langKey = hk + "|" + to.code + "|" + st.variety;
+        auto found = extraMs_.find(langKey);
+        if (found == extraMs_.end())  // a head start for the languages known to run long
+            found = extraMs_.emplace(langKey, longLanguage(to.code) ? st.timeoutMs / 4 : 0).first;
+        int& extra = found->second;
+        int budget = st.timeoutMs + (st.variety.empty() ? 0 : std::min(1500, st.timeoutMs / 2)) + extra;
+        // Nothing to fall back on (no DeepL key, and Free used up or can't tell the language): cutting the
+        // AI off at the time limit would only leave the line untranslated. Wait for it instead.
+        const int normalBudget = budget;  // second copies keep to this, not the longer wait below
+        if (!backupReady) budget = std::max(budget, std::max(8000, st.timeoutMs * 3));
         const auto started = std::chrono::steady_clock::now();
         auto left = [&] {
             return budget - int(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count());
@@ -1098,6 +1360,7 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
         std::string firstErr;
         std::string ask = text;
         int lastWhy = kFailOther;
+        bool declined = false;  // it gave something other than the line (held back on it) at least once
         wordsGender = 0;
         // A second copy of a slow request: same AI, same model, same instructions, on a connection of
         // its own. A slow answer is usually one stuck at the service for a moment, and a fresh copy
@@ -1110,7 +1373,7 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             typicalMs_ = 0;
         }
         auto spareAfter = [&](int ms) {
-            if (std::chrono::steady_clock::now() < busyUntil_) return 0;  // it's busy: a copy would only add to that
+            if (std::chrono::steady_clock::now() < healthOf(hk).busyUntil) return 0;  // it's busy: a copy would only add to that
             // Clearly later than usual: a quarter longer than this AI usually takes (half the time limit
             // until that's known). The copy is only sent if it still has its usual time to answer.
             const int wait = std::max(500, typicalMs_ > 0 ? typicalMs_ * 5 / 4 + 150 : ms / 2);
@@ -1122,7 +1385,9 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             Shot shots[2];
             const auto t0 = std::chrono::steady_clock::now();
             const int winner = sendWithSpare(
-                http, spare_, spareAfter(ms),
+                // Second copies cost tokens: only within the normal time limit, as before, even when
+                // there's no backup and the AI is given longer.
+                http, spare_, spareAfter(std::min(ms, normalBudget)),
                 [&](Http& h, int i) {
                     const int time = ms - msSince(t0);
                     if (time < 300) {
@@ -1136,7 +1401,9 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                     return ok;
                 },
                 [&] { return shots[0].why != kFailRejected; });  // it declined the line: a copy would too
-            if (shots[0].why == kFailBusy || shots[1].why == kFailBusy) busyUntil_ = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            // Over the plan's limit: no second copies for two minutes (they'd count against it too).
+            if (shots[0].why == kFailLimited || shots[1].why == kFailLimited) markBusy(hk, 120);
+            else if (shots[0].why == kFailBusy || shots[1].why == kFailBusy) markBusy(hk, 60);
             const Shot& w = shots[winner >= 0 ? winner : 0];
             o = w.out;
             why = w.why;
@@ -1154,7 +1421,7 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
         struct WordResult { std::string word; int by = 0; };  // by: 1 DeepL, 2 Free, 0 neither
         const std::string formality = tlFormality;
         auto lookUpWords = [&](const std::vector<std::string>& found) {
-            return std::async(std::launch::async, [this, found, &st, from, &to, formality, text, cancel = http.cancel] {
+            return std::async(std::launch::async, [this, found, &st, from, freeFrom, &to, formality, text, cancel = http.cancel] {
                 Http& h = wordsHttp_;  // kept open between lines
                 h.cancel = cancel;
                 tlFormality = formality;
@@ -1164,7 +1431,7 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                     std::string e;
                     bool refused = false;
                     if (!st.deeplKey.empty() && deepl(h, st.deeplKey, found[i], from, to, st.deeplVariant, res[i].word, e, refused)) res[i].by = 1;
-                    else if (from && myMemory(h, found[i], *from, to, res[i].word, e)) res[i].by = 2;
+                    else if (freeFrom && myMemory(h, found[i], *freeFrom, to, res[i].word, e)) res[i].by = 2;
                     else res[i].word.clear();
                 }
                 tlContext.clear();
@@ -1260,8 +1527,13 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                 backupVia = "DeepL";
                 return true;
             }
-            if (!st.deeplKey.empty() && !refused) return false;
-            if (from && myMemory(h, text, *from, to, backupOut, backupErr)) {
+            if (!st.msKey.empty() && !backupStop &&
+                microsoft(h, st.msKey, st.msRegion, text, from, to, backupOut, backupErr, refused)) {
+                backupVia = "Microsoft";
+                return true;
+            }
+            if (backupStop) return false;
+            if (freeFrom && myMemory(h, text, *freeFrom, to, backupOut, backupErr)) {
                 backupVia = "Free";
                 return true;
             }
@@ -1279,6 +1551,12 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             int why = kFailOther;
             good = call(text, ask, ms, out, why);
             lastWhy = why;
+            // It held back on the line: start the backup now, alongside the second try, so whichever
+            // answers first is ready (the AI's answer still wins if it comes in time).
+            if (why == kFailRejected) {
+                declined = true;
+                backupNow = true;
+            }
             if (good || err == "cancelled") break;
             if (attempt == 0) firstErr = err;
             // Declined a line with swearing in it: asking again almost never changes the answer, and it
@@ -1301,6 +1579,8 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
         if (good) {
             backupStop = true;  // not needed: stop it if it's running (the future waits for it to end)
             via = name;
+            markAlive(hk);
+            if (budget - left() < st.timeoutMs * 6 / 10) extra = std::max(0, extra - 100);  // plenty of room: ease off
             if (st.readGender) {  // the speaker's own words showed their gender
                 if (tlRaw.find("<g>f</g>") != std::string::npos) wordsGender = kGenderWoman;
                 else if (tlRaw.find("<g>m</g>") != std::string::npos) wordsGender = kGenderMan;
@@ -1334,13 +1614,35 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             st.varietyName.empty() || !st.deeplVariant.empty() ? std::string() : "; standard " + std::string(to.name);
         // Too slow or failed: this phrase goes through DeepL (or Free) so the conversation keeps going.
         const bool slow = lowerCopy(err).find("timed out") != std::string::npos || lowerCopy(err).find("timeout") != std::string::npos;
-        const std::string why = slow ? std::string(name) + " too slow" : err;
+        // Said as it was: a line the AI held back on isn't a slow AI.
+        const std::string why = declined ? std::string(name) + " declined this line"
+                              : slow     ? std::string(name) + " too slow"
+                                         : err;
+        // Ran out of time (not because the service said it was busy, and not over a line it held back
+        // on): give this language a bit more next time, up to double the limit.
+        if (slow && !declined && backupReady && std::chrono::steady_clock::now() >= healthOf(hk).busyUntil)
+            extra = std::min(st.timeoutMs, extra + st.timeoutMs / 4);
+        if (lastWhy == kFailDead) markDead(hk, err);
         backupNow = true;  // the AI is done one way or another: the backup goes now if it hasn't yet
-        if (backup.get()) {
+        const bool gotBackup = backup.get();
+        auto useBackup = [&] {
             out = backupOut;
             via = backupVia + " (" + why + (backupVia == "Free" && !st.varietyName.empty() ? "; standard " + std::string(to.name) : standardNote) + ")";
             return true;
+        };
+        // DeepL or Microsoft: used as is. Free, when the AI only ran late: used too (it's ready now).
+        if (gotBackup && (backupVia != "Free" || (slow && !declined))) return useBackup();
+        // The AI failed on the line (declined, refused, an error) and there's a key for another AI: that
+        // one says it far better than Free. Only now, so a line is never paid for at two AIs.
+        {
+            std::string o, e;
+            if (askOtherAi(o, e)) {
+                out = o;
+                via += " (" + why + ")";
+                return true;
+            }
         }
+        if (gotBackup) return useBackup();
         if (deeplOrFree(true)) {
             via += " (" + why + (via == "Free" && !st.varietyName.empty() ? "; standard " + std::string(to.name) : standardNote) + ")";
             return true;
@@ -1356,13 +1658,20 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             return true;
         }
         if (!refused) return false;
-        // DeepL doesn't translate this language (pair): use the free service for it instead.
-        if (!from) {
+        // DeepL doesn't translate this language (pair): Microsoft Translator if there's a key, else Free.
+        if (!st.msKey.empty()) {
+            bool msRefused = false;
+            if (microsoft(http, st.msKey, st.msRegion, text, from, to, out, err, msRefused)) {
+                via = "Microsoft (DeepL doesn't do " + std::string(to.name) + ")";
+                return true;
+            }
+        }
+        if (!freeFrom) {
             err = "DeepL doesn't translate " + std::string(to.name) +
                   ". Pick the spoken language so the free service can, or pick another language.";
             return false;
         }
-        if (myMemory(http, text, *from, to, out, err)) { via = "Free (DeepL doesn't do " + std::string(to.name) + ")"; return true; }
+        if (myMemory(http, text, *freeFrom, to, out, err)) { via = "Free (DeepL doesn't do " + std::string(to.name) + ")"; return true; }
         err = "DeepL doesn't translate this language, and the free service failed too: " + err;
         return false;
     }

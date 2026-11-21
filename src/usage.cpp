@@ -82,12 +82,16 @@ struct UsageWatcher::Impl {
     std::thread thread;
     std::atomic<bool> running{false}, cancel{false};
     std::string elevenKey, deeplKey;
+    std::string refusedEl, refusedDl;  // keys that got 401/403 here (only the loop thread uses these)
     bool wake = false;
     Quota el, dl;
     std::chrono::steady_clock::time_point last{};
 
     void read(Http& http, const std::string& key, bool isEleven, Quota& q) {
         if (key.empty()) { q = Quota(); return; }
+        // This key was already refused: it won't start working by itself, so don't ask (and log) again
+        // every time. A different key is checked as usual.
+        if (key == (isEleven ? refusedEl : refusedDl)) return;
         HttpRequest r;
         if (isEleven) {
             r.url = "https://api.elevenlabs.io/v1/user/subscription";
@@ -109,7 +113,9 @@ struct UsageWatcher::Impl {
             q = Quota();
             q.problem = isEleven ? "This key isn't allowed to read usage (it needs User: Read access)."
                                  : "The DeepL key was refused.";
-            logLine(std::string(name) + " usage: HTTP " + std::to_string(status));
+            logLine(std::string(name) + " usage: HTTP " + std::to_string(status) +
+                    (isEleven ? " (this key can't read the account's credits; everything else still works)" : ""));
+            (isEleven ? refusedEl : refusedDl) = key;
             return;
         }
         if (status != 200 || !(isEleven ? parseElevenSubscription(body, q) : parseDeeplUsage(body, q))) {

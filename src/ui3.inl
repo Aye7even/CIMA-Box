@@ -220,7 +220,9 @@ void sidebar(UiModel& m, UiActions& act) {
     // The bottom: what needs attention, the mini window, what's left to spend, Settings.
     float bottomH = ImGui::GetFrameHeightWithSpacing() * 1.2f + em() * 2.6f;  // mini window + Settings
     if (!m.usage.empty()) bottomH += em() * (1.4f + 1.25f * float(m.usage.size()));
-    const bool update = m.update.stage == kUpdateAvailable || m.update.stage == kUpdateDownloading || m.update.stage == kUpdateReady;
+    // The version you went back from isn't offered here again (Settings still shows it); a newer one is.
+    const bool update = (m.update.stage == kUpdateAvailable && m.update.latest != m.cfg.skipUpdate) ||
+                        m.update.stage == kUpdateDownloading || m.update.stage == kUpdateReady;
     if (update) bottomH += ImGui::GetFrameHeightWithSpacing();
     if (!m.capturing.empty()) bottomH += ImGui::GetFrameHeightWithSpacing();
     const float y = ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - bottomH;
@@ -367,6 +369,66 @@ void pageHeader(UiModel& m, UiActions& act) {
             ImGui::EndTooltip();
         }
         right = a.x - em() * 0.8f;
+    }
+
+    // Listen is on: what it's listening to, from any page ("Listening to VRChat"). Lights up while
+    // someone talks; click to open the Listen page.
+    if (m.cfg.listen.on) {
+        const ListenSettings& ls = m.cfg.listen;
+        std::string what;
+        if (ls.source == kSrcApp) {
+            what = ls.app;
+            if (what.size() > 4 && (what.compare(what.size() - 4, 4, ".exe") == 0 || what.compare(what.size() - 4, 4, ".EXE") == 0))
+                what.resize(what.size() - 4);
+            if (!what.empty() && what[0] >= 'a' && what[0] <= 'z') what[0] = char(what[0] - 32);
+        } else if (ls.source == kSrcSpeakers) {
+            what = ls.speakers.empty() ? std::string(T("your speakers")) : ls.speakers;
+        } else {
+            what = ls.input.empty() ? std::string(T("your microphone")) : ls.input;
+        }
+        const bool problem = !m.listen.error.empty();
+        const bool waiting = !problem && m.listen.status.rfind("Waiting", 0) == 0;
+        const bool hearing = !problem && !waiting && m.listen.hearing;
+        const char* fmt = problem ? TF("Listen has a problem") : waiting ? TF("Waiting for %s") : TF("Listening to %s");
+        const float room = right - leftEnd - em() * 12.f;  // leave the search box some room
+        char label[200];
+        std::string shown = what;
+        for (;;) {  // shorten a long device name until it fits
+            std::snprintf(label, sizeof(label), fmt, shown.c_str());
+            if (ImGui::CalcTextSize(label).x + em() * 2.6f <= std::min(room, em() * 20.f) || shown.size() <= 6) break;
+            size_t cut = shown.size() - 1;
+            while (cut > 0 && (static_cast<unsigned char>(shown[cut]) & 0xC0) == 0x80) --cut;  // whole letters only
+            shown = shown.substr(0, cut);
+            while (!shown.empty() && shown.back() == ' ') shown.pop_back();
+            if (shown.size() > 3 && shown.compare(shown.size() - 3, 3, "\xE2\x80\xA6") == 0) shown.resize(shown.size() - 3);
+            shown += "\xE2\x80\xA6";  // …
+        }
+        const ImVec2 lsz = ImGui::CalcTextSize(label);
+        const float pw = lsz.x + em() * 2.6f, ph = ImGui::GetFrameHeight();
+        if (pw <= room) {
+            const ImVec2 a(right - pw, p.y + (h - ph) * 0.5f);
+            ImGui::SetCursorScreenPos(a);
+            if (ImGui::InvisibleButton("##listenpill", ImVec2(pw, ph))) m.cfg.page = kPageListen;
+            const bool hot = ImGui::IsItemHovered();
+            const ImVec4 c = problem ? kDanger : waiting ? kBusy : hearing ? kSignal : kText;
+            const float r = ImGui::GetStyle().FrameRounding;
+            // While someone talks the pill glows softly, pulsing with time.
+            const float pulse = hearing ? 0.10f + 0.06f * std::sin(float(ImGui::GetTime()) * 5.f) : 0.05f;
+            dl->AddRectFilled(a, ImVec2(a.x + pw, a.y + ph), col(ImVec4(c.x, c.y, c.z, hot ? pulse + 0.06f : pulse)), r);
+            dl->AddRect(a, ImVec2(a.x + pw, a.y + ph), col(ImVec4(c.x, c.y, c.z, hot ? 0.8f : 0.35f)), r);
+            drawIcon(dl, kIcHeadphones, ImVec2(a.x + em() * 0.95f, a.y + ph * 0.5f), em() * 0.95f, col(c));
+            dl->AddText(ImVec2(a.x + em() * 1.75f, a.y + (ph - lsz.y) * 0.5f), col(hot ? kText : ImVec4(c.x, c.y, c.z, 1.f)), label);
+            if (hot) {
+                ImGui::BeginTooltip();
+                ImGui::PushTextWrapPos(em() * 26.f);
+                if (problem) ImGui::TextColored(kDanger, "%s", T(m.listen.error));
+                else if (shown != what) ImGui::TextUnformatted(what.c_str());
+                ImGui::TextColored(kMuted, "%s", T("Captions are on. Click to open the Listen page."));
+                ImGui::PopTextWrapPos();
+                ImGui::EndTooltip();
+            }
+            right = a.x - em() * 0.8f;
+        }
     }
 
     // Find a setting or feature: looks like a search box, opens the search (Ctrl+F too).

@@ -6,4 +6,5 @@ out/
 update_private_key.pem
 *.pem
 cimabox.json
+cimabox.before-going-back.json
 voicechanger.json

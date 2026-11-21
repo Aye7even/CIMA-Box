@@ -1,4 +1,4 @@
-CIMA Box 3.0.2
+CIMA Box 3.0.3
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -218,6 +218,10 @@ Voice and language
                              aistudio.google.com (Gemini) or platform.openai.com (OpenAI). Costs
                              a tiny fraction of a cent per phrase.
     DeepL API key (backup) . Optional. Used for a phrase when the AI is too slow or fails.
+    Use my other AI key as a backup
+                             Shows when you have keys for two AIs (say Claude and Gemini). The
+                             other one translates the lines this one says no to or fails on.
+                             Never for lines that are only slow, so no line is paid for twice.
     How you talk ........... Polite (like with someone you just met in a lobby), Casual (a
                              friend you hang out with, the default), Very casual (your closest
                              friend: slang, swearing kept) or My own: describe it in your own
@@ -235,8 +239,10 @@ Voice and language
                              leans a little toward theirs. Needs Listen on.
     Time limit ............. If the AI hasn't answered by then (2 seconds by default), that phrase
                              uses DeepL (if you added a key) or Free instead. With a dialect it
-                             waits a little longer. The bottom strip shows which service did
-                             each phrase.
+                             waits a little longer, and a language that keeps running out of
+                             time (like Filipino) gets a bit more by itself, up to double.
+                             With no DeepL key and Free used up, it waits for the AI instead.
+                             The bottom strip shows which service did each phrase.
     AI model ............... Leave as is unless you want a bigger, slower model.
   Gender (AI services) ..... Many languages change words for who speaks and who listens
                              (Spanish cansado / cansada, Arabic enta / enti).
@@ -247,13 +253,23 @@ Voice and language
                              Switch it fast with a hotkey (Settings > Hotkeys) or, in VR, from
                              the CIMA Box tab in the SteamVR menu.
   Carry my emotion ......... (Re-speak and Translate) Listens to HOW you said things: stressed
-                             words, drawn-out words, pauses, laughs, questions, and whether you
-                             sounded excited, flat, quiet or were whispering or shouting. It
-                             passes that on to the voice. Adds no delay. Works fully with v3
-                             and v4; other models only get the punctuation.
+                             words, drawn-out words, pauses, laughs, questions, and whether each
+                             part sounded excited, whispered (half-whispers too), shouted,
+                             hesitant ("um", "uh"), rushed, slow, sad, quiet or flat. It passes
+                             that on to the voice. Adds no delay. Works fully with v3 and v4;
+                             other models only get the punctuation.
+                             It compares you with YOUR usual voice and how much it normally
+                             varies: an expressive person has to stand out more before it calls
+                             something excited. Pitch only counts when it was read steadily
+                             (breathy speech makes it jump), and speed and hesitation come from
+                             timing and words, which no mic changes. Leaning into the mic
+                             alone is never an emotion.
     Subtle / Strong ........ Strong picks up smaller changes in your voice.
-    Relearn my usual voice . It compares you to your normal voice, learned from your first few
-                             phrases. Press this after changing mics, or if it guesses wrong.
+    Relearn my usual voice . It learns your usual voice from your first 8 or so phrases and keeps
+                             learning as you talk, so a few odd ones at the start correct
+                             themselves. When you switch microphones it relearns only the mic's
+                             part (loudness and brightness) and keeps what it knows about your
+                             voice. Press this if it still guesses wrong.
   Fine-tune the voice ...... Click to unfold these. The defaults suit most voices.
   Stability ................ Higher = steadier, calmer delivery. Lower = more emotional and
                              varied (and less predictable). 0.4 to 0.6 sounds most natural.
@@ -415,9 +431,25 @@ Show
 In VR
   CIMA Box tab in the SteamVR menu
                              Press the system button on your controller: the SteamVR menu gets a
-                             CIMA Box tab with big buttons (Auto, Don't know, A guy, A girl,
-                             A group). Point and click with the laser to switch who you're
-                             talking to without taking the headset off.
+                             CIMA Box tab. Point and click with the laser, without taking the
+                             headset off:
+                               Voice changer  on/off, and Changer / Re-speak / Translate
+                               They hear      the language people hear, from the ones you used
+                                              last, and Swap (switches I speak and Translate to)
+                               Talking to     Auto, Don't know, A guy, A girl, A group
+                               Captions       Listen on/off, Hear them in my ear on/off,
+                                              text smaller/bigger, In front of me (Fixed
+                                              panel), Reset
+                               Right now      Stop speaking, Cancel, Translate screen
+                             The title shows what it's doing (Listening, Recording...), and every
+                             press shows a short note on the screen.
+  Reset VR captions ........ Starts the headset side over: lets go of SteamVR, connects again and
+                             redraws the panel. Use it if new captions stop showing in the headset
+                             while the app still shows them. (Also "Reset" in the SteamVR menu.)
+                             CIMA Box also watches for this by itself: it checks every picture
+                             SteamVR takes and whether the panel is still there and showing, and
+                             rebuilds it (or reconnects) when SteamVR drops or refuses it. The VR
+                             page says how many times that happened.
 
 Look
   The preview at the top shows exactly what you'll see in the headset.
@@ -604,6 +636,10 @@ Accounts
   Claude / Gemini / OpenAI API key
                              For natural translation with slang and dialects. You only need one.
   DeepL API key ............ Textbook translation, and the backup when the AI is slow.
+  Microsoft Translator key . Optional, free backup: 2 million characters a month, 100+
+                             languages. Needs a Microsoft Azure account; make a
+                             Translator resource on the free (F0) tier and copy its key. Fill in
+                             the Region only if Azure shows one for the resource.
   Show keys ................ Shows the keys instead of dots.
 
 Hotkeys
@@ -620,6 +656,11 @@ Updates
   Your settings and keys stay.
   Check when CIMA Box starts  Looks for a new version a few seconds after starting.
   Check for updates ........ Looks now.
+  Go back to an earlier version
+                             If an update breaks something for you: pick one of the recent
+                             versions and it's installed the same way (signature checked,
+                             settings and keys kept). Only versions that can update themselves
+                             are listed (2.5.0 and newer), so you can always come forward again.
   Keep CIMA Box in a normal folder (Desktop, Documents...), not in Program Files, so it can
   replace itself.
 
@@ -713,10 +754,18 @@ It waits after I've finished ........... Your sentence ended on a word like "and
                                          sentence" if it happens a lot.
 "Free translation limit reached" ....... Switch to DeepL, Claude, Gemini or OpenAI, or wait until
                                          tomorrow.
+"429: too many requests for the plan's
+limit" ................................. The AI service's plan allows only so many requests a
+                                         minute (free plans especially). CIMA Box eases off by
+                                         itself; a DeepL key covers those lines meanwhile.
+"out of credit" / "key was rejected" ... Add credit, or fix the key in Settings > Accounts. Until
+                                         then, lines go to DeepL or Free straight away.
 "(Claude too slow)" in the bottom strip  That phrase was done by DeepL or Free instead. Raise
                                          the Time limit a little if it happens a lot (CIMA Box
                                          already sends a second copy to the AI when it's slow,
-                                         so a higher limit rarely adds any wait).
+                                         so a higher limit rarely adds any wait). A language
+                                         that keeps missing the limit gets more time by
+                                         itself after a line or two.
 VR page says "Waiting for SteamVR" ..... Start SteamVR. It connects by itself.
 No CIMA Box tab in the SteamVR menu .... Turn on "CIMA Box tab in the SteamVR menu" on the VR
                                          page, and switch VR on at the top right.

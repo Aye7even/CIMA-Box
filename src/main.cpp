@@ -188,6 +188,9 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.claudeModel = j.value("claude_model", s.claudeModel);
         s.geminiModel = j.value("gemini_model", s.geminiModel);
         s.openaiKey = j.value("openai_key", s.openaiKey);
+        s.msKey = j.value("microsoft_key", s.msKey);
+        s.msRegion = j.value("microsoft_region", s.msRegion);
+        s.aiBackup = j.value("ai_backup", s.aiBackup);
         s.openaiModel = j.value("openai_model", s.openaiModel);
         s.customStyle = j.value("custom_style", s.customStyle);
         s.speechLevel = j.value("speech_level", s.speechLevel);
@@ -210,6 +213,7 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.monVolume = j.value("monitor_volume", s.monVolume);
         s.uiLanguage = j.value("app_language", s.uiLanguage);
         s.checkUpdates = j.value("check_updates", s.checkUpdates);
+        s.skipUpdate = j.value("skip_update", s.skipUpdate);
         s.lastSeenVersion = j.value("last_seen_version", s.lastSeenVersion);
         s.usageNotice = j.value("usage_notice", s.usageNotice);
         s.inDevice = j.value("input_device", s.inDevice);
@@ -229,6 +233,11 @@ static void settingsFromJson(const json& j, Settings& s) {
             s.homeTiles.clear();
             for (const auto& x : j["home_tiles"])
                 if (x.is_string()) s.homeTiles.push_back(x.get<std::string>());
+        }
+        if (j.contains("recent_targets") && j["recent_targets"].is_array()) {
+            s.recentTargets.clear();
+            for (const auto& x : j["recent_targets"])
+                if (x.is_string() && s.recentTargets.size() < 6) s.recentTargets.push_back(x.get<std::string>());
         }
         s.emotion = j.value("emotion", s.emotion);
         s.quality = j.value("audio_quality", s.quality);
@@ -296,11 +305,20 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.emotionStrength = j.value("emotion_strength", s.emotionStrength);
         if (j.contains("usual_voice") && j["usual_voice"].is_object()) {
             const json& b = j["usual_voice"];
-            s.baseline.loudDb = b.value("loud_db", s.baseline.loudDb);
-            s.baseline.pitch = b.value("pitch", s.baseline.pitch);
-            s.baseline.range = b.value("range", s.baseline.range);
-            s.baseline.rate = b.value("rate", s.baseline.rate);
-            s.baseline.phrases = b.value("phrases", s.baseline.phrases);
+            // Saved before 3.0.3 (no "v"): learned the old way, from too little and without the mic's
+            // brightness. Starts again (quickly, while you talk).
+            if (b.value("v", 0) >= 2) {
+                s.baseline.loudDb = b.value("loud_db", s.baseline.loudDb);
+                s.baseline.pitch = b.value("pitch", s.baseline.pitch);
+                s.baseline.range = b.value("range", s.baseline.range);
+                s.baseline.rate = b.value("rate", s.baseline.rate);
+                s.baseline.tilt = b.value("tilt", s.baseline.tilt);
+                s.baseline.pitchVar = b.value("pitch_var", s.baseline.pitchVar);
+                s.baseline.loudVar = b.value("loud_var", s.baseline.loudVar);
+                s.baseline.rateVar = b.value("rate_var", s.baseline.rateVar);
+                s.baseline.phrases = b.value("phrases", s.baseline.phrases);
+                s.baseline.micParts = b.value("mic_parts", s.baseline.micParts);
+            }
         }
         if (j.contains("listen") && j["listen"].is_object()) {
             const json& l = j["listen"];
@@ -367,6 +385,52 @@ static void tidySettings(Settings& s) {
     ls.textScale = std::max(0.9f, std::min(2.4f, ls.textScale));
 }
 
+// Going back to an earlier version: that version doesn't know the newer settings (a newer key, a
+// newer feature's choices) and drops them the first time it saves. So before going back, everything
+// is kept in a file of its own, and once a version at least as new as the one that kept it starts,
+// whatever is missing from the settings is put back from it (nothing that's there is changed).
+static std::string gRestoredFrom;  // for the log, which opens after the settings are read
+static fs::path keptSettingsFile() { return settingsDir() / "cimabox.before-going-back.json"; }
+
+static void mergeMissing(json& into, const json& from) {
+    for (auto it = from.begin(); it != from.end(); ++it) {
+        if (it.key() == "saved_by_version") continue;
+        if (!into.contains(it.key())) into[it.key()] = it.value();
+        else if (into[it.key()].is_object() && it.value().is_object()) mergeMissing(into[it.key()], it.value());
+    }
+}
+
+static void restoreAfterGoingBack(json& j) {
+    std::error_code ec;
+    const fs::path kept = keptSettingsFile();
+    if (!j.is_object() || !fs::exists(kept, ec)) return;
+    std::ifstream k(kept);
+    const json b = k ? json::parse(k, nullptr, false) : json();
+    k.close();
+    if (!b.is_object()) { fs::remove(kept, ec); return; }
+    const std::string by = b.value("saved_by_version", "");
+    if (by.empty() || compareVersions(CIMA_FULL_VERSION, by) < 0) return;  // still on the older version
+    mergeMissing(j, b);
+    fs::remove(kept, ec);
+    gRestoredFrom = by;
+}
+
+static void keepSettingsForLater(const std::string& settingsText) {
+    std::error_code ec;
+    const fs::path kept = keptSettingsFile();
+    // Going back twice in a row: keep the copy made by the newest version.
+    if (fs::exists(kept, ec)) {
+        std::ifstream k(kept);
+        const json b = k ? json::parse(k, nullptr, false) : json();
+        if (b.is_object() && compareVersions(b.value("saved_by_version", ""), CIMA_FULL_VERSION) > 0) return;
+    }
+    json j = json::parse(settingsText, nullptr, false);
+    if (!j.is_object()) return;
+    j["saved_by_version"] = CIMA_FULL_VERSION;
+    std::ofstream out(kept, std::ios::binary | std::ios::trunc);
+    out << j.dump(2);
+}
+
 static void loadSettings(Settings& s) {
     std::error_code ec;
     gPlace = choosePlace();
@@ -380,6 +444,7 @@ static void loadSettings(Settings& s) {
     std::ifstream f(file);
     gSettingsExisted = bool(f);
     json j = f ? json::parse(f, nullptr, false) : json();
+    restoreAfterGoingBack(j);
     settingsFromJson(j, s);
     tidySettings(s);
     if (s.apiKey.empty())
@@ -491,12 +556,13 @@ static std::string settingsJson(const Settings& s) {
         {"translate_service", s.translateService}, {"deepl_key", s.deeplKey},
         {"claude_key", s.claudeKey}, {"gemini_key", s.geminiKey}, {"claude_model", s.claudeModel},
         {"gemini_model", s.geminiModel}, {"openai_key", s.openaiKey}, {"openai_model", s.openaiModel},
+        {"microsoft_key", s.msKey}, {"microsoft_region", s.msRegion}, {"ai_backup", s.aiBackup},
         {"speech_level", s.speechLevel}, {"custom_style", s.customStyle}, {"persona", s.persona},
         {"ai_timeout_ms", s.aiTimeoutMs}, {"mirror", s.mirror}, {"input_device", s.inDevice},
         {"output_device", s.outDevice}, {"monitor_device", s.monDevice}, {"monitor", s.monitor},
         {"enabled", s.enabled}, {"activation", s.activation}, {"threshold_db", s.thresholdDb},
         {"hold_ms", s.holdMs}, {"sentence_wait_ms", s.sentenceWaitMs}, {"live_transcription", s.liveStt}, {"max_seconds", s.maxSeconds}, {"ptt_key", s.pttKey},
-        {"page", s.page}, {"home_tiles", s.homeTiles},
+        {"page", s.page}, {"home_tiles", s.homeTiles}, {"recent_targets", s.recentTargets},
         {"emotion", s.emotion}, {"emotion_strength", s.emotionStrength},
         {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough}, {"ptt_real_voice", s.pttRealVoice}, {"ptt_tap", s.pttTap},
         {"voice_chatbox", s.chatbox}, {"voice_chatbox_show", s.chatboxShow},
@@ -507,9 +573,11 @@ static std::string settingsJson(const Settings& s) {
         {"dialects", s.variety}, {"custom_dialects", s.customVariety}, {"voice_for_language", s.voiceFor},
         {"my_gender", s.myGender}, {"talking_to", s.talkingTo}, {"talking_to_key", s.talkKey},
         {"voice_per_language", s.voicePerLanguage}, {"output_volume", s.outVolume}, {"monitor_volume", s.monVolume},
-        {"app_language", s.uiLanguage}, {"check_updates", s.checkUpdates}, {"last_seen_version", s.lastSeenVersion}, {"usage_notice", s.usageNotice},
-        {"usual_voice", {{"loud_db", s.baseline.loudDb}, {"pitch", s.baseline.pitch}, {"range", s.baseline.range},
-                         {"rate", s.baseline.rate}, {"phrases", s.baseline.phrases}}},
+        {"app_language", s.uiLanguage}, {"check_updates", s.checkUpdates}, {"skip_update", s.skipUpdate}, {"last_seen_version", s.lastSeenVersion}, {"usage_notice", s.usageNotice},
+        {"usual_voice", {{"v", 2}, {"loud_db", s.baseline.loudDb}, {"pitch", s.baseline.pitch}, {"range", s.baseline.range},
+                         {"rate", s.baseline.rate}, {"tilt", s.baseline.tilt}, {"pitch_var", s.baseline.pitchVar},
+                         {"loud_var", s.baseline.loudVar}, {"rate_var", s.baseline.rateVar}, {"phrases", s.baseline.phrases},
+                         {"mic_parts", s.baseline.micParts}}},
     };
     j["look"] = {{"text_scale", s.look.textScale}, {"preset", s.look.preset}, {"accent", s.look.accent},
                  {"background", s.look.background}, {"panel", s.look.panel}, {"text", s.look.text},
@@ -542,7 +610,7 @@ static std::string settingsJson(const Settings& s) {
 // A profile: everything but the keys and what belongs to this PC's install.
 static std::string profileJson(const Settings& s, bool shared = false) {
     json j = json::parse(settingsJson(s), nullptr, false);
-    for (const char* k : {"api_key", "deepl_key", "claude_key", "gemini_key", "openai_key", "page", "setup_done", "setup_at",
+    for (const char* k : {"api_key", "deepl_key", "claude_key", "gemini_key", "openai_key", "microsoft_key", "microsoft_region", "page", "setup_done", "setup_at",
                           "setup_use", "setup_route", "setup_ai", "last_seen_version", "usual_voice", "usage_notice"})
         j.erase(k);
     if (j.contains("features")) {
@@ -726,6 +794,17 @@ struct App {
 static App g;
 static Listener gListen;  // the Listen page's own pipeline; runs next to the voice changer
 static VrOverlay gVr;     // captions inside the headset (idle unless switched on)
+// Buttons in the SteamVR menu (ids; ranges for the numbered ones).
+enum {
+    kMenuTalk = 0,        // + TalkingTo
+    kMenuScreen = 10,
+    kMenuOnOff = 20,
+    kMenuEngine = 30,     // + engine
+    kMenuLang = 40,       // + position in the row
+    kMenuSwap = 49,
+    kMenuListen = 50, kMenuEar, kMenuSmaller, kMenuBigger, kMenuPlace, kMenuResetVr,
+    kMenuStop = 60, kMenuCancel,
+};
 
 // Push to talk from the key or the VR controller button, held or tapped (tap to start, tap again
 // to stop). The controller gives a short buzz when recording starts and stops.
@@ -853,6 +932,9 @@ static TranslateSetup translateSetup(const Settings& s, bool speaking = true) {
     t.claudeModel = s.claudeModel;
     t.geminiModel = s.geminiModel;
     t.openaiKey = s.openaiKey;
+    t.msKey = s.msKey;
+    t.msRegion = s.msRegion;
+    t.aiBackup = s.aiBackup;
     t.openaiModel = s.openaiModel;
     t.level = s.speechLevel;
     t.customStyle = s.customStyle;
@@ -932,7 +1014,9 @@ static const ma_device_id* findDevice(const std::vector<ma_device_info>& list, c
 }
 
 // A device that keeps failing would otherwise write the same line every few seconds.
-static void logQuietly(const std::string& text) {
+static void logQuietly(const std::string& text) {  // any thread
+    static std::mutex m;
+    std::lock_guard<std::mutex> lk(m);
     static std::string last;
     static double at = -1e9;
     if (text == last && nowSeconds() - at < 120.0) return;
@@ -942,6 +1026,12 @@ static void logQuietly(const std::string& text) {
 }
 
 static void openCapture(const std::string& name) {
+    static bool opened = false;
+    if (opened && name != g.capName) {  // another mic: Carry my emotion learns its loudness and brightness again
+        std::lock_guard<std::mutex> lk(g.mtx);
+        g.baseline.micParts = 0;
+    }
+    opened = true;
     if (g.capOn) { ma_device_uninit(&g.capDev); g.capOn = false; }
     g.capName = name;
     ma_device_config c = ma_device_config_init(ma_device_type_capture);
@@ -992,9 +1082,6 @@ static void openSink(Sink& s, const std::string& name, bool wanted) {
     }
 }
 
-// Unplugged headsets, Bluetooth that reconnects, a driver that resets: notices a device that
-// stopped by itself, or a named device that is back after the system default stood in for it,
-// and opens it again. Checked every few seconds, and right away when a device reports a change.
 // ---------------------------------------------------------------- voice samples
 // A voice's free sample (an MP3 ElevenLabs keeps for every voice), played in your headphones: the
 // "Hear it yourself" device, or the default speakers. Never into the cable.
@@ -1279,6 +1366,9 @@ struct SetupCheck {
 };
 static SetupCheck gCheck;
 
+// Unplugged headsets, Bluetooth that reconnects, a driver that resets: notices a device that
+// stopped by itself, or a named device that is back after the system default stood in for it,
+// and opens it again. Checked every few seconds, and right away when a device reports a change.
 static void keepDevicesAlive(UiModel& ui) {
     static double lastCheck = 0;
     static bool capDown = false, outDown = false, monDown = false;
@@ -2547,6 +2637,15 @@ static std::string usingLine(const Settings& c) {
     line += std::string(". Listen ") + (c.listen.on ? "on" : "off") + " (" + sources[std::max(0, std::min(2, c.listen.source))] +
             (c.listen.source == kSrcApp ? " " + c.listen.app : "") + ", to " + c.listen.toLang + "). VR " + (c.vr.on ? "on" : "off") +
             ". Chatbox " + (c.chatbox || c.listen.chatbox ? "on" : "off") + ". App language " + c.uiLanguage + ".";
+    // Which keys are filled in (never the keys themselves), and the AI time limit: the first things to
+    // check when translations fall back or fail.
+    std::string keys;
+    for (const auto& k : {std::make_pair("ElevenLabs", &c.apiKey), std::make_pair("DeepL", &c.deeplKey),
+                          std::make_pair("Claude", &c.claudeKey), std::make_pair("Gemini", &c.geminiKey),
+                          std::make_pair("OpenAI", &c.openaiKey), std::make_pair("Microsoft", &c.msKey)})
+        if (!k.second->empty()) keys += (keys.empty() ? "" : ", ") + std::string(k.first);
+    line += " Keys: " + (keys.empty() ? std::string("none") : keys) + ". AI time limit " +
+            std::to_string(c.aiTimeoutMs / 1000) + "." + std::to_string(c.aiTimeoutMs % 1000 / 100) + " s.";
     std::string fx;
     auto add = [&fx](bool on, const char* name) {
         if (on) fx += (fx.empty() ? "" : ", ") + std::string(name);
@@ -2599,6 +2698,8 @@ int main() {
     logLine(std::string("CIMA Box ") + CIMA_FULL_VERSION + " started on " + windowsVersion() + ". Settings: " +
             (gPlace == kPlaceDocuments ? "Documents" : gPlace == kPlaceProgram ? "with the program" : "settings folder") + ".");
     ui.logPath = (settingsDir() / "cimabox.log").u8string();
+    if (!gRestoredFrom.empty())
+        logLine("Settings from " + gRestoredFrom + " that the earlier version didn't know were put back.");
     if (!logLastRunClosed()) logLine("The last time, CIMA Box didn't close normally (it crashed, or was ended by force or by a shutdown).");
     logLine(usingLine(ui.cfg));  // what this person uses, for reading the log later (no keys, nothing they said)
     ui.settingsPath = settingsFile().u8string();
@@ -2687,6 +2788,7 @@ int main() {
             gVr.setActionManifest(actions.u8string());
         }
     }
+    gVr.onLog = [](const std::string& s) { logQuietly(s); };
     gVr.start();
     if (!ui.cfg.apiKey.empty()) refreshCatalog(ui.cfg.apiKey);
 
@@ -2748,6 +2850,8 @@ int main() {
     std::future<std::vector<std::string>> tryJob;
     unsigned screenTex = 0;  // screen translation preview
     bool vrScreen = false;   // "Translate screen" pressed in the SteamVR menu
+    std::vector<std::string> vrMenuLangs;  // the language buttons in the SteamVR menu, in order (their codes)
+    std::string lastTarget;  // to keep "recent languages" up to date
     bool talkWasDown = false;
     std::string voiceKey, voiceKeyVoice;  // language/dialect the voice was last used with
     uint64_t vrSentConvo = ~0ull, vrVersion = 0;  // what the headset panel was last given
@@ -2938,13 +3042,62 @@ int main() {
 
         // ---- who you're talking to: chosen, or Auto = the last person who spoke, by their voice
         {
-            int vrChoice;
-            if (gVr.takeTalkingTo(vrChoice)) {  // picked in the SteamVR dashboard
-                if (vrChoice < kTalkCount) {
-                    ui.cfg.talkingTo = vrChoice;
-                    notice("Talking to: %s", kTalkNotice[vrChoice % kTalkCount]);
+            int id;
+            while (gVr.takeMenuPress(id)) {  // a button in the SteamVR menu
+                Settings& c = ui.cfg;
+                if (id >= kMenuTalk && id < kMenuTalk + kTalkCount) {
+                    c.talkingTo = id - kMenuTalk;
+                    notice("Talking to: %s", kTalkNotice[c.talkingTo % kTalkCount]);
+                } else if (id == kMenuScreen) {
+                    vrScreen = true;
+                } else if (id == kMenuOnOff) {
+                    c.enabled = !c.enabled;
+                    notice(c.enabled ? "Voice changer on" : "Voice changer off");
+                } else if (id >= kMenuEngine && id < kMenuEngine + 3) {
+                    c.engine = id - kMenuEngine;
+                    static const char* const kModes[] = {"Changer", "Re-speak", "Translate"};
+                    notice("Mode: %s", kModes[c.engine]);
+                } else if (id >= kMenuLang && id < kMenuLang + int(vrMenuLangs.size())) {
+                    c.targetLang = vrMenuLangs[size_t(id - kMenuLang)];
+                    const Language* l = findLanguage(c.targetLang);
+                    notice("They hear: %s", l ? l->name : c.targetLang.c_str());
+                } else if (id == kMenuSwap && !c.spokenLang.empty() && !c.targetLang.empty()) {
+                    std::swap(c.spokenLang, c.targetLang);
+                    const Language* l = findLanguage(c.targetLang);
+                    notice("They hear: %s", l ? l->name : c.targetLang.c_str());
+                } else if (id == kMenuListen) {
+                    c.listen.on = !c.listen.on;
+                    notice(c.listen.on ? "Listen on" : "Listen off");
+                } else if (id == kMenuEar) {
+                    c.fx.hearThem = !c.fx.hearThem;
+                    if (c.fx.hearThem) c.listen.on = true;  // it reads out the captions
+                    notice(c.fx.hearThem ? "Hear them in my ear: on" : "Hear them in my ear: off");
+                } else if (id == kMenuSmaller || id == kMenuBigger) {
+                    c.vr.style.textPx = std::clamp(c.vr.style.textPx + (id == kMenuBigger ? 4.f : -4.f), 24.f, 64.f);
+                    notice(id == kMenuBigger ? "Captions bigger" : "Captions smaller");
+                } else if (id == kMenuPlace) {
+                    gVr.placeHere();
+                    notice("Captions moved in front of you");
+                } else if (id == kMenuResetVr) {
+                    gVr.reset();
+                    notice("Resetting VR captions");
+                } else if (id == kMenuStop) {
+                    stopSpeaking();
+                    notice("Stopped speaking");
+                } else if (id == kMenuCancel) {
+                    g.cancelPending = true;
+                    notice("Cancelled");
                 }
-                else vrScreen = true;  // the "Translate screen" button after them
+            }
+            // Recent languages (for the SteamVR menu): the last few you had people hear.
+            if (ui.cfg.targetLang != lastTarget) {
+                lastTarget = ui.cfg.targetLang;
+                auto& r = ui.cfg.recentTargets;
+                if (!lastTarget.empty()) {
+                    r.erase(std::remove(r.begin(), r.end(), lastTarget), r.end());
+                    r.insert(r.begin(), lastTarget);
+                    if (r.size() > 6) r.resize(6);
+                }
             }
             int resolved = kListenerUnknown;
             bool guessed = false;
@@ -2972,11 +3125,61 @@ int main() {
             ui.talkingResolved = resolved;
             ui.talkingGuessed = guessed;
             // The SteamVR menu tab and the note on the caption panel, in the app's language.
-            VrTalking vt;
-            vt.choice = ui.cfg.talkingTo;
-            vt.title = T("CIMA Box: who are you talking to?");
-            for (const char* b : {"Auto", "Don't know", "A guy", "A girl", "A group"}) vt.buttons.push_back(T(b));
-            if (ui.cfg.screen.on) vt.buttons.push_back(T("Translate screen"));
+            // The SteamVR menu: the things you'd otherwise take the headset off for.
+            const Settings& c = ui.cfg;
+            VrMenu vt;
+            {
+                const char* state = !c.enabled ? "Off" : ui.recording ? "Recording" : ui.busy ? "Converting" : "Listening";
+                char t[160];
+                std::snprintf(t, sizeof(t), "CIMA Box  \xC2\xB7  %s", T(state));
+                vt.title = t;
+            }
+            auto button = [](const char* label, int id, bool on) { return MenuButton{T(label), id, on}; };
+            {
+                MenuRow r{T("Voice changer"), {}};
+                r.buttons.push_back(button(c.enabled ? "On" : "Off", kMenuOnOff, c.enabled));
+                const char* const modes[] = {"Changer", "Re-speak", "Translate"};
+                for (int i = 0; i < 3; ++i) r.buttons.push_back(button(modes[i], kMenuEngine + i, c.engine == i));
+                vt.rows.push_back(std::move(r));
+            }
+            vrMenuLangs.clear();
+            if (c.engine == kTranslate) {
+                MenuRow r{T("They hear"), {}};
+                std::vector<std::string> langs;
+                if (!c.targetLang.empty()) langs.push_back(c.targetLang);
+                for (const std::string& code : c.recentTargets)
+                    if (langs.size() < 4 && std::find(langs.begin(), langs.end(), code) == langs.end() && findLanguage(code)) langs.push_back(code);
+                for (size_t i = 0; i < langs.size(); ++i) {
+                    const Language* l = findLanguage(langs[i]);
+                    r.buttons.push_back(MenuButton{l ? T(l->name) : langs[i], kMenuLang + int(i), langs[i] == c.targetLang});
+                    vrMenuLangs.push_back(langs[i]);
+                }
+                if (!c.spokenLang.empty() && !c.targetLang.empty()) r.buttons.push_back(button("Swap", kMenuSwap, false));
+                if (!r.buttons.empty()) vt.rows.push_back(std::move(r));
+            }
+            {
+                MenuRow r{T("Talking to"), {}};
+                const char* const talk[] = {"Auto", "Don't know", "A guy", "A girl", "A group"};
+                for (int i = 0; i < kTalkCount; ++i) r.buttons.push_back(button(talk[i], kMenuTalk + i, c.talkingTo == i));
+                vt.rows.push_back(std::move(r));
+            }
+            {
+                MenuRow r{T("Captions"), {}};
+                r.buttons.push_back(button(c.listen.on ? "Listen: on" : "Listen: off", kMenuListen, c.listen.on));
+                r.buttons.push_back(button(c.fx.hearThem ? "In my ear: on" : "In my ear: off", kMenuEar, c.fx.hearThem));
+                r.buttons.push_back(button("Smaller", kMenuSmaller, false));
+                r.buttons.push_back(button("Bigger", kMenuBigger, false));
+                if (c.vr.placement == kVrFixed) r.buttons.push_back(button("In front of me", kMenuPlace, false));
+                r.buttons.push_back(button("Reset", kMenuResetVr, false));
+                vt.rows.push_back(std::move(r));
+            }
+            {
+                MenuRow r{T("Right now"), {}};
+                r.buttons.push_back(button("Stop speaking", kMenuStop, false));
+                if (!ui.pendingSay.empty()) r.buttons.push_back(button("Cancel", kMenuCancel, false));
+                if (c.screen.on) r.buttons.push_back(button("Translate screen", kMenuScreen, false));
+                vt.rows.push_back(std::move(r));
+            }
             const char* who = resolved == kListenerMan ? T("a guy") : resolved == kListenerWoman ? T("a girl")
                             : resolved == kListenerGroup ? T("a group") : nullptr;
             char line[256];
@@ -2992,7 +3195,7 @@ int main() {
                 std::snprintf(line, sizeof(line), TF("Talking to: %s"), who);
                 vt.tag = line;
             }
-            gVr.setTalking(vt);
+            gVr.setMenu(vt);
             previewTag = vt.tag;
         }
 
@@ -3082,6 +3285,7 @@ int main() {
         }
         if (act.placeVrHere) gVr.placeHere();
         if (act.openVrBindings) gVr.openBindings();
+        if (act.resetVr) { gVr.reset(); notice("Resetting VR captions"); }
         if (!ui.previewWanted.empty()) {
             const std::string want = ui.previewWanted;
             ui.previewWanted.clear();
@@ -3178,6 +3382,17 @@ int main() {
             if (act.installUpdate) {
                 saveSettings(ui.cfg);
                 updater.install();
+            }
+            if (act.listOlder) updater.listOlder();
+            if (!act.installOlder.empty()) {
+                // Don't offer the version being left again (a newer one still shows), and keep what an
+                // earlier version would drop, for when you come forward again.
+                const std::string latest = ui.update.latest;
+                ui.cfg.skipUpdate = !latest.empty() && compareVersions(latest, CIMA_FULL_VERSION) > 0 ? latest : CIMA_FULL_VERSION;
+                saveSettings(ui.cfg);
+                keepSettingsForLater(settingsJson(ui.cfg));
+                logLine("Going back to CIMA Box " + act.installOlder + ".");
+                updater.installOlder(act.installOlder);
             }
             ui.update = updater.state();
             if (updater.restartWanted()) glfwSetWindowShouldClose(win, GLFW_TRUE);  // relaunched after cleanup

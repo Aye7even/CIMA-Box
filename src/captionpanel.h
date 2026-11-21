@@ -31,14 +31,27 @@ struct PanelStyle {
 // A row of big buttons for the SteamVR dashboard: a title, the buttons, a line under them.
 // The buttons sit in the vertical middle of the image, so clicks land right whichever way up the
 // pointer's y runs.
+// The CIMA Box tab in the SteamVR menu: rows of buttons, each row with a name on the left.
+struct MenuButton {
+    std::string label;
+    int id = -1;       // what pressing it does (the app's numbering)
+    bool on = false;   // drawn selected / switched on
+    bool operator==(const MenuButton& o) const { return label == o.label && id == o.id && on == o.on; }
+};
+struct MenuRow {
+    std::string label;
+    std::vector<MenuButton> buttons;
+    bool operator==(const MenuRow& o) const { return label == o.label && buttons == o.buttons; }
+};
 struct MenuSpec {
-    int width = 1200, height = 330;
+    int width = 1500;
     std::string title, footer;
-    std::vector<std::string> buttons;
-    int selected = -1, hover = -1;
+    std::vector<MenuRow> rows;
+    int hover = -1;    // id of the button under the pointer
     uint32_t accentColor = 0x7FE3FF;
 };
-// The button under pixel x (and y, measured either from the top or the bottom), or -1.
+int menuHeight(const MenuSpec& m);  // follows from the rows
+// The id of the button under pixel x, y (y from the top), or -1.
 int menuButtonAt(const MenuSpec& m, float x, float y);
 
 struct PanelImage {

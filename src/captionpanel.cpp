@@ -70,25 +70,39 @@ int panelHeight(const PanelStyle& st) {
     return int(std::ceil(pad * 2 + tagRoom(st) + line * float(std::max(1, st.maxLines)) + st.textPx * 0.5f));  // + glow
 }
 
-// Menu layout: buttons centred vertically, evenly spread across.
-static void menuLayout(const MenuSpec& m, std::vector<std::array<float, 4>>& rects) {
-    rects.clear();
-    const size_t n = m.buttons.size();
-    if (n == 0) return;
-    const float margin = 30.f, gap = 18.f, bh = float(m.height) * 0.36f;
-    const float bw = (float(m.width) - 2 * margin - gap * float(n - 1)) / float(n);
-    const float top = (float(m.height) - bh) * 0.5f;
-    for (size_t i = 0; i < n; ++i) {
-        const float l = margin + float(i) * (bw + gap);
-        rects.push_back({l, top, l + bw, top + bh});
+// Menu layout: the title, then one row per MenuRow (its name on the left, its buttons spread over the
+// rest, none wider than kMaxButton), then the footer.
+namespace {
+constexpr float kMenuTop = 96, kRowH = 92, kRowGap = 16, kFooterH = 74, kNameW = 250, kMargin = 32, kButtonGap = 14, kMaxButton = 300;
+struct MenuRect { float l, t, r, b; int id; size_t row, index; };
+void menuLayout(const MenuSpec& m, std::vector<MenuRect>& out) {
+    out.clear();
+    float top = kMenuTop;
+    for (size_t ri = 0; ri < m.rows.size(); ++ri) {
+        const MenuRow& row = m.rows[ri];
+        const size_t n = row.buttons.size();
+        if (n > 0) {
+            const float left = kMargin + kNameW, room = float(m.width) - kMargin - left;
+            const float bw = std::min(kMaxButton, (room - kButtonGap * float(n - 1)) / float(n));
+            for (size_t i = 0; i < n; ++i) {
+                const float l = left + float(i) * (bw + kButtonGap);
+                out.push_back({l, top, l + bw, top + kRowH, row.buttons[i].id, ri, i});
+            }
+        }
+        top += kRowH + kRowGap;
     }
+}
+}  // namespace
+
+int menuHeight(const MenuSpec& m) {
+    return int(kMenuTop + float(m.rows.size()) * (kRowH + kRowGap) + (m.footer.empty() ? 10.f : kFooterH));
 }
 
 int menuButtonAt(const MenuSpec& m, float x, float y) {
-    std::vector<std::array<float, 4>> r;
+    std::vector<MenuRect> r;
     menuLayout(m, r);
-    for (size_t i = 0; i < r.size(); ++i)
-        if (x >= r[i][0] && x <= r[i][2] && y >= r[i][1] && y <= r[i][3]) return int(i);
+    for (const MenuRect& b : r)
+        if (x >= b.l && x <= b.r && y >= b.t && y <= b.b) return b.id;
     return -1;
 }
 
@@ -402,7 +416,7 @@ void CaptionPainter::paint(const std::vector<PanelLine>& lines, const PanelStyle
 
 void CaptionPainter::paintMenu(const MenuSpec& m, PanelImage& out) {
     std::lock_guard<std::mutex> lk(p_->mtx);
-    const int W = std::max(64, m.width), H = std::max(64, m.height);
+    const int W = std::max(64, m.width), H = std::max(64, menuHeight(m));
     std::vector<float> c(size_t(W) * size_t(H) * 4, 0.f);
     auto blend = [&](int x, int y, Rgb col, float a) {
         if (x < 0 || y < 0 || x >= W || y >= H || a <= 0) return;
@@ -450,16 +464,21 @@ void CaptionPainter::paintMenu(const MenuSpec& m, PanelImage& out) {
     roundRect(2, 2, float(W) - 2, float(H) - 2, 26, bg, 0.94f, accent, 0.35f);
     text(m.title, 38, -1, 34, 22, float(W) - 68, white, 1.f);
 
-    std::vector<std::array<float, 4>> rects;
+    // Row names on the left, buttons to the right.
+    for (size_t ri = 0; ri < m.rows.size(); ++ri) {
+        const float top = kMenuTop + float(ri) * (kRowH + kRowGap);
+        text(m.rows[ri].label, 30, -1, kMargin + 4, top + kRowH * 0.5f - 15, kNameW - 20, dim, 1.f);
+    }
+    std::vector<MenuRect> rects;
     menuLayout(m, rects);
-    for (size_t i = 0; i < rects.size(); ++i) {
-        const auto& r = rects[i];
-        const bool sel = int(i) == m.selected, hov = int(i) == m.hover;
+    for (const MenuRect& r : rects) {
+        const MenuButton& b = m.rows[r.row].buttons[r.index];
+        const bool sel = b.on, hov = b.id == m.hover;
         const Rgb fill = sel ? accent : Rgb{0.16f, 0.19f, 0.25f};
-        roundRect(r[0], r[1], r[2], r[3], 18, fill, sel ? 0.95f : (hov ? 0.95f : 0.8f), accent, hov && !sel ? 0.9f : 0.f);
+        roundRect(r.l, r.t, r.r, r.b, 18, fill, sel ? 0.95f : (hov ? 0.95f : 0.8f), accent, hov && !sel ? 0.9f : 0.f);
         const Rgb ink = sel ? Rgb{0.05f, 0.07f, 0.1f} : white;
-        const float px = 40;
-        text(m.buttons[i], px, (r[0] + r[2]) * 0.5f, 0, (r[1] + r[3]) * 0.5f - px * 0.5f, r[2] - r[0] - 20, ink, 1.f);
+        const float px = 34;
+        text(b.label, px, (r.l + r.r) * 0.5f, 0, (r.t + r.b) * 0.5f - px * 0.5f, r.r - r.l - 20, ink, 1.f);
     }
     if (!m.footer.empty()) text(m.footer, 32, -1, 34, float(H) - 66, float(W) - 68, dim, 1.f);
 
