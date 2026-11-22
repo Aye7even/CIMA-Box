@@ -40,6 +40,12 @@ struct VoicePrint {
     float pitch = 0, spread = 0, bright = 0, voiced = 0;  // voiced: seconds of clear voice it came from
     float pan = 0;        // where it came from (stereo games): -1 left .. +1 right
     bool hasPan = false;  // only with stereo sound that really moves between left and right
+    // Its fingerprint from the recognition model (voiceid.h), when that pack is installed: then the
+    // voices are compared by this, and the measurements above only fill in where it's missing.
+    std::vector<float> fp;
+    // The clip turned out to hold more than one voice (its two halves have different fingerprints:
+    // two people the speech service wrote down as one). It is nobody's voice: never named, never learned from.
+    bool mixed = false;
 };
 bool voicePrint(const std::vector<int16_t>& pcm16k, float startS, float endS, VoicePrint& out);
 // The same from only some stretches of the audio (seconds), joined: one person's own moments.
@@ -80,6 +86,15 @@ public:
     // `renamed`: (from, to) pairs for lines already shown; "from" >= 100 is a voice that had no number yet.
     int who(const VoicePrint& p, double now, const std::vector<int>& keep, std::vector<std::pair<int, int>>& renamed);
     void clear() { voices_.clear(); nextTemp_ = 100; last_ = -1; }
+    // How many numbers there are to give out. More with fingerprints (they can keep a dozen voices
+    // apart); the built-in way stays at kMax.
+    void setMax(int n) { max_ = n < 1 ? 1 : n; }
+    // The last who(): how alike the voice was to the nearest and the next nearest one known
+    // (1 = the same, 0 = unrelated), when both were compared by fingerprint. -1 otherwise. For the log.
+    float lastNearest() const { return lastNearest_; }
+    float lastNext() const { return lastNext_; }
+    // The last who(), in a few words: why the line got the answer it got. For the log.
+    const char* lastWhy() const { return lastWhy_; }
 
 private:
     struct Known {
@@ -92,6 +107,9 @@ private:
     };
     std::vector<Known> voices_;
     int nextTemp_ = 100, last_ = -1;
+    int max_ = kMax;
+    float lastNearest_ = -1, lastNext_ = -1;
+    const char* lastWhy_ = "";
 };
 
 // The speaker's usual voice and how much it normally varies, learned from their speech and saved

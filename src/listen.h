@@ -12,6 +12,8 @@
 
 enum ListenSource { kSrcApp = 0, kSrcSpeakers = 1, kSrcInput = 2, kSrcExternal = 3 /* pushPcm only */ };
 enum ListenPace { kPaceQuick = 0, kPaceBalanced = 1, kPaceFull = 2 };
+// Who gets captions in a crowd (see focus.h): everyone, the loudest (closest) voices, or the voice in front.
+enum ListenFocus { kFocusAll = 0, kFocusNear = 1, kFocusFront = 2 };
 
 struct ListenSettings {
     bool on = false;
@@ -27,6 +29,7 @@ struct ListenSettings {
     std::string toLang = "en";       // ISO 639-1
     float thresholdDb = -45.f;
     int pace = kPaceBalanced;
+    int focus = kFocusAll;
     bool tellApart = true;           // label different speakers inside one caption
     bool showOriginal = true;
     bool onlyOtherLanguages = false; // hide speech that is already in toLang
@@ -61,6 +64,8 @@ struct ListenState {
     bool busy = false;     // a phrase is being transcribed / translated
     float levelDb = -100.f;
     int lastMs = 0;        // end of the last phrase -> caption on screen
+    int sttMs = 0, translateMs = 0;  // ...of which: writing down the words, translating them
+    bool streaming = false;          // their words are streamed while they talk (captions while they talk)
 };
 
 struct ListenConfig {
@@ -73,7 +78,9 @@ struct ListenConfig {
     bool soundLabels = false;            // [laughter] in captions
     bool ignoreNoise = true;             // drop captions that are only music or noise
     bool liveCaptions = false;           // words while they're still talking
+    bool liveTranslate = true;           // ...and each finished sentence translated right away
     bool voiceIds = true;                // tell voices apart across captions
+    bool voiceModel = false;             // ...by fingerprint, with the recognition model (voiceid.h), when it's installed
     std::vector<int> keepVoices;         // voice numbers that must stay as they are (muted ones)
     bool maskSwears = false;             // f***
 };
@@ -103,6 +110,8 @@ public:
     // Audio entry for sources that deliver their own format (application capture, tests).
     // One thread at a time.
     void pushPcm(const int16_t* interleaved, size_t frames, int channels, int rate);
+    // For tests: a stand-in for the live speech service ("ws://127.0.0.1:port"). Before start().
+    void useLiveHost(const std::string& host);
 
 private:
     struct Impl;

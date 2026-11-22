@@ -195,8 +195,13 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.localModel = j.value("local_model", s.localModel);
         s.localGpu = j.value("local_gpu", s.localGpu);
         s.localOnDecline = j.value("local_on_decline", s.localOnDecline);
+        s.aiStream = j.value("ai_stream", s.aiStream);
+        s.aiPriority = j.value("ai_priority", s.aiPriority);
+        s.shortToPlain = j.value("short_to_plain", s.shortToPlain);
+        s.rememberLines = j.value("remember_lines", s.rememberLines);
         s.showMeaning = j.value("show_meaning", s.showMeaning);
         s.earlyTranslate = j.value("early_translate", s.earlyTranslate);
+        s.speakSentences = j.value("speak_sentences", s.speakSentences);
         s.openaiModel = j.value("openai_model", s.openaiModel);
         s.customStyle = j.value("custom_style", s.customStyle);
         s.speechLevel = j.value("speech_level", s.speechLevel);
@@ -337,6 +342,7 @@ static void settingsFromJson(const json& j, Settings& s) {
             ls.toLang = l.value("to", ls.toLang);
             ls.thresholdDb = l.value("threshold_db", ls.thresholdDb);
             ls.pace = l.value("pace", ls.pace);
+            ls.focus = std::max(0, std::min(2, l.value("focus", ls.focus)));
             ls.tellApart = l.value("tell_speakers_apart", ls.tellApart);
             ls.showOriginal = l.value("show_original", ls.showOriginal);
             ls.onlyOtherLanguages = l.value("only_other_languages", ls.onlyOtherLanguages);
@@ -470,7 +476,7 @@ static json featuresJson(const Settings& s) {
         {"deepl_words_on", f.deeplWordsOn}, {"deepl_words", f.deeplWords},
         {"quick_phrases", f.quickPhrases}, {"sent_counts", f.sentCounts},
         {"hear_them", f.hearThem}, {"ear_voice", f.earVoice}, {"ear_device", f.earDevice}, {"ear_volume", f.earVolume},
-        {"live_captions", f.liveCaptions}, {"answer_theirs", f.answerTheirs}, {"my_languages", f.myLanguages},
+        {"live_captions", f.liveCaptions}, {"live_translate", f.liveTranslate}, {"answer_theirs", f.answerTheirs}, {"my_languages", f.myLanguages},
         {"around_languages", f.aroundLanguages}, {"preview_ms", f.previewMs}, {"cancel_key", f.cancelKey},
         {"best", f.best}, {"gender_from_words", f.genderFromWords}, {"learning", f.learning},
         {"saved_lines", f.savedLines}, {"keep_history", f.keepHistory}, {"sound_labels", f.soundLabels},
@@ -511,6 +517,7 @@ static void readFeatures(const json& root, Settings& s) {
     f.earDevice = j.value("ear_device", f.earDevice);
     f.earVolume = std::max(0.f, std::min(2.f, j.value("ear_volume", f.earVolume)));
     f.liveCaptions = j.value("live_captions", f.liveCaptions);
+    f.liveTranslate = j.value("live_translate", f.liveTranslate);
     f.answerTheirs = j.value("answer_theirs", f.answerTheirs);
     strList("my_languages", f.myLanguages);
     strList("around_languages", f.aroundLanguages);
@@ -563,7 +570,8 @@ static std::string settingsJson(const Settings& s) {
         {"claude_key", s.claudeKey}, {"gemini_key", s.geminiKey}, {"claude_model", s.claudeModel},
         {"gemini_model", s.geminiModel}, {"openai_key", s.openaiKey}, {"openai_model", s.openaiModel},
         {"microsoft_key", s.msKey}, {"microsoft_region", s.msRegion}, {"ai_backup", s.aiBackup},
-        {"local_model", s.localModel}, {"local_gpu", s.localGpu}, {"local_on_decline", s.localOnDecline}, {"show_meaning", s.showMeaning}, {"early_translate", s.earlyTranslate},
+        {"local_model", s.localModel}, {"local_gpu", s.localGpu}, {"local_on_decline", s.localOnDecline}, {"ai_stream", s.aiStream}, {"ai_priority", s.aiPriority},
+        {"short_to_plain", s.shortToPlain}, {"remember_lines", s.rememberLines}, {"show_meaning", s.showMeaning}, {"early_translate", s.earlyTranslate}, {"speak_sentences", s.speakSentences},
         {"speech_level", s.speechLevel}, {"custom_style", s.customStyle}, {"persona", s.persona},
         {"ai_timeout_ms", s.aiTimeoutMs}, {"mirror", s.mirror}, {"input_device", s.inDevice},
         {"output_device", s.outDevice}, {"monitor_device", s.monDevice}, {"monitor", s.monitor},
@@ -606,7 +614,7 @@ static std::string settingsJson(const Settings& s) {
     const ListenSettings& ls = s.listen;
     j["listen"] = {
         {"source", ls.source}, {"app", ls.app}, {"speakers", ls.speakers}, {"input", ls.input},
-        {"from", ls.fromLang}, {"to", ls.toLang}, {"threshold_db", ls.thresholdDb}, {"pace", ls.pace},
+        {"from", ls.fromLang}, {"to", ls.toLang}, {"threshold_db", ls.thresholdDb}, {"pace", ls.pace}, {"focus", ls.focus},
         {"tell_speakers_apart", ls.tellApart}, {"show_original", ls.showOriginal},
         {"only_other_languages", ls.onlyOtherLanguages}, {"chatbox", ls.chatbox}, {"text_scale", ls.textScale},
     };
@@ -702,6 +710,7 @@ struct Phrase {
     bool test = false;          // the setup's test sound: only played, nowhere else
     std::chrono::steady_clock::time_point ended{};  // when you stopped talking (mic phrases)
     std::shared_future<LiveText> live;  // its words from live transcription (when it was on)
+    bool midCut = false;                // cut while you were still talking, after a finished sentence: its last words go on
 };
 
 struct Sink {  // one playback device fed by a ring buffer
@@ -957,6 +966,10 @@ static TranslateSetup translateSetup(const Settings& s, bool speaking = true) {
     t.msRegion = s.msRegion;
     t.aiBackup = s.aiBackup;
     t.localOnDecline = s.localOnDecline;
+    t.stream = s.aiStream;
+    t.priority = s.aiPriority;
+    t.shortToPlain = s.shortToPlain;
+    t.rememberLines = s.rememberLines;
     {   // a model on this PC, when one is loaded (as the service, or as another AI's backup)
         std::lock_guard<std::mutex> lk(gLocalMx);
         t.localUrl = gLocalNow.url;
@@ -1482,6 +1495,8 @@ static void captureLoop() {
     bool liveThis = false;   // this phrase is going to live transcription
     size_t liveSent = 0;     // how much of it has gone
     bool wasQuiet = false;   // early translation: in a pause that may end the phrase
+    bool cutAsked = false;   // a sentence is finished and you're on the next: this phrase ends at the next dip
+    int cutLook = 0;
     while (g.running) {
         if (!convOk || g.capRing.size() < size_t(kIn)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -1490,7 +1505,7 @@ static void captureLoop() {
         g.capRing.pop(in, kIn);
 
         GateParams p;
-        bool enabled, passthrough, matchMic, realBetween, jobsWaiting, liveWanted, earlyOn;
+        bool enabled, passthrough, matchMic, realBetween, jobsWaiting, liveWanted, earlyOn, sentencesOn;
         LiveStt::Options liveOptions;
         {
             std::lock_guard<std::mutex> lk(g.mtx);
@@ -1506,6 +1521,8 @@ static void captureLoop() {
             // Live transcription: for the modes that write down what you say.
             liveWanted = g.cfg.liveStt && !g.cfg.apiKey.empty() &&
                          (g.cfg.engine == kTranslate || g.cfg.engine == kRespeak);
+            sentencesOn = g.cfg.speakSentences && g.cfg.liveStt && g.cfg.activation != kPushToTalk &&
+                          (g.cfg.engine == kTranslate || g.cfg.engine == kRespeak);
             earlyOn = liveWanted && g.cfg.earlyTranslate && g.cfg.engine == kTranslate && isAiService(g.cfg.translateService);
             if (liveWanted && !wasOpen) {  // what a phrase starting now goes with
                 liveOptions.apiKey = g.cfg.apiKey;
@@ -1565,6 +1582,7 @@ static void captureLoop() {
                 fullBlock[i] = fullQ.empty() ? 0 : fullQ.front();
                 if (!fullQ.empty()) fullQ.pop_front();
             }
+            p.cutSoon = cutAsked;
             const bool done = seg.feed(low.data(), p, phrase.pcm, fullBlock, kFullPerBlock, &phrase.full);
             low.erase(low.begin(), low.begin() + Segmenter::kBlock);
             g.levelDb = seg.levelDb();
@@ -1592,6 +1610,44 @@ static void captureLoop() {
                     liveStt().audio(sofar.data() + liveSent, sofar.size() - liveSent);
                     liveSent = sofar.size();
                 }
+            }
+            // Sentence by sentence: the words so far show a finished sentence and at least two words of
+            // the next one. The phrase is ended here, so that sentence is translated and said now; the
+            // words after it wait for the rest of their sentence, as after any pause in mid-sentence.
+            if (liveThis && open && !done && sentencesOn && !cutAsked && ++cutLook >= 10) {
+                cutLook = 0;
+                std::string sofar;
+                {
+                    std::lock_guard<std::mutex> lk(g.mtx);
+                    sofar = g.livePartial;
+                }
+                bool unfinished = false;
+                const std::vector<std::string> parts = sentencesOf(sofar, unfinished);
+                if (parts.size() >= 2) {
+                    // Worth it only when what's finished is a real sentence (a short "Yeah." stays
+                    // with what follows), and the next one has clearly begun.
+                    auto count = [&](size_t from, size_t to, size_t& bytes) {
+                        size_t words = 0;
+                        bytes = 0;
+                        for (size_t i = from; i < to; ++i) {
+                            bytes += parts[i].size();
+                            words += 1 + size_t(std::count(parts[i].begin(), parts[i].end(), ' '));
+                        }
+                        return words;
+                    };
+                    const size_t last = unfinished ? parts.size() - 1 : parts.size();  // where the finished ones end
+                    size_t doneBytes = 0, nextBytes = 0;
+                    const size_t doneWords = count(0, last, doneBytes), nextWords = last < parts.size() ? count(last, parts.size(), nextBytes) : 0;
+                    // No spaces in Chinese or Japanese: by length there.
+                    cutAsked = (doneWords >= 6 || (doneWords <= 2 && doneBytes >= 36)) && (nextWords >= 2 || nextBytes >= 12);
+                }
+            }
+            if (done) {
+                phrase.midCut = cutAsked && !p.pushToTalk;
+                cutAsked = false;
+                cutLook = 0;
+            } else if (!open) {
+                cutAsked = false;
             }
             if (liveThis && done) {
                 if (phrase.pcm.size() > liveSent) liveStt().audio(phrase.pcm.data() + liveSent, phrase.pcm.size() - liveSent);
@@ -1743,6 +1799,7 @@ static void workerLoop() {
         Clock::time_point ended = Clock::now();
         std::shared_future<LiveText> liveResult;  // the phrase's words from live transcription, if it was on
         bool heardLive = false;
+        bool midCut = false;  // this phrase was ended mid-speech after a finished sentence
         bool earlyNow = false;  // a pause that may end the phrase being spoken: translate its words so far
         std::string partial, lastCode;
         Clock::time_point opened{};
@@ -1779,6 +1836,7 @@ static void workerLoop() {
                     typedText = std::move(g.jobs.front().text);
                     testJob = g.jobs.front().test;
                     liveResult = g.jobs.front().live;
+                    midCut = g.jobs.front().midCut;
                     if (g.jobs.front().ended != Clock::time_point{}) ended = g.jobs.front().ended;
                     g.jobs.pop_front();
                     haveJob = true;
@@ -1966,6 +2024,15 @@ static void workerLoop() {
                 if (!heardLive) ok = api.transcribe(pcm, s.spokenLang, piece, detected, err, emotion ? &pieceTokens : nullptr);
             }
             if (ok && !typed && !flushHeld) piece = applyWordFixes(piece, s.fx.words);
+            // Ended in mid-speech: whatever closes its last words isn't a real sentence end (the speech
+            // service likes to add a full stop to anything it's handed). Taken off, so those words
+            // wait for the rest of their sentence.
+            if (ok && midCut) {
+                while (!piece.empty() && (piece.back() == ' ' || piece.back() == '.' || piece.back() == '!' || piece.back() == '?'))
+                    piece.pop_back();
+                for (const char* mark : {"\xE3\x80\x82", "\xEF\xBC\x81", "\xEF\xBC\x9F"})
+                    if (piece.size() >= 3 && piece.compare(piece.size() - 3, 3, mark) == 0) piece.resize(piece.size() - 3);
+            }
             std::string langCode;
             if (!typed) {
                 if (!ok && joining && err != "cancelled") {
@@ -2008,9 +2075,9 @@ static void workerLoop() {
                 const int pieces = was.pieces + 1;
                 // Never held forever: after several pieces, or 40 seconds, it's said as it is.
                 const bool enough = pieces >= 6 || Clock::now() - lineStarted > std::chrono::seconds(40);
-                if ((waitMs > 0 || talking) && !enough && sentenceUnfinished(heard, langCode)) {
+                if ((waitMs > 0 || talking || midCut) && !enough && (midCut || sentenceUnfinished(heard, langCode))) {
                     size_t cut = lastSentenceEnd(heard);
-                    if (cut != std::string::npos && roughWords(heard.substr(0, cut)) < 8) cut = std::string::npos;  // keep short bits together
+                    if (cut != std::string::npos && roughWords(heard.substr(0, cut)) < (midCut ? 5 : 8)) cut = std::string::npos;  // keep short bits together
                     Held h;
                     h.on = true;
                     h.engine = s.engine;
@@ -2890,6 +2957,8 @@ int main() {
     Updater updater(CIMA_FULL_VERSION);
     // Models on this PC live next to the other app data (never in the settings folder: they're big).
     LocalAi localAi(appDataDir() / "local-models", [](const std::string& line) { logLine(line); });
+    VoiceId voiceId(appDataDir() / "voice-id", [](const std::string& line) { logLine(line); });
+    setVoiceIdEngine(&voiceId);
     ui.pc = readPcSpecs();
     if (ui.pc.known)
         logLine("This PC: " + (ui.pc.gpu.empty() ? std::string("no separate graphics card") : ui.pc.gpu + " (" + std::to_string(ui.pc.gpuBytes >> 20) + " MB)") +
@@ -3583,6 +3652,10 @@ int main() {
                 if (ui.cfg.localModel == act.localRemove) ui.cfg.localModel.clear();
             }
             ui.local = localAi.state();
+            if (act.voicePack == 1) voiceId.download();
+            if (act.voicePack == 2) voiceId.cancel();
+            if (act.voicePack == 3) voiceId.remove();
+            ui.voicePack = voiceId.state();
             // Nothing chosen (or the chosen one was deleted): the first one that's downloaded.
             auto has = [&](const std::string& id) {
                 for (const LocalModelState& ms : ui.local.models)
@@ -4066,7 +4139,9 @@ int main() {
             lc.soundLabels = ui.cfg.fx.soundLabels;
             lc.ignoreNoise = ui.cfg.fx.ignoreNoise;
             lc.liveCaptions = ui.cfg.fx.liveCaptions;
+            lc.liveTranslate = ui.cfg.fx.liveTranslate;
             lc.voiceIds = ui.cfg.fx.voiceIds;
+            lc.voiceModel = ui.voicePack.stage == kVoiceIdInstalled;
             lc.keepVoices = ui.mutedVoices;
             lc.maskSwears = ui.cfg.fx.maskCaptions;
             gListen.configure(lc);

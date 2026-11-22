@@ -23,6 +23,7 @@ struct LocalModel {
     double sizeGb;        // download and disk size
     int memoryGb;         // free memory it needs to run (graphics memory, or RAM without a graphics card)
     const char* blurb;    // one line: who it's for (translated)
+    bool uncensored;      // answers anything (refusals removed): offered, never picked for anyone by itself
 };
 const std::vector<LocalModel>& localCatalog();
 const LocalModel* findLocalModel(const std::string& id);

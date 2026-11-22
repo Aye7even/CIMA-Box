@@ -335,11 +335,22 @@ const std::vector<LocalModel>& localCatalog() {
     // Files: Unsloth's 4-bit builds, the ones most people run.
     static const std::vector<LocalModel> k = {
         {"gemma4-e2b", "Gemma 4 E2B", "Light", "unsloth/gemma-4-E2B-it-qat-GGUF", "UD-Q4_K_XL", 2.6, 4,
-         "For most PCs, and while a game is using the graphics card. Fine for everyday lines; weakest with slang."},
+         "For most PCs, and while a game is using the graphics card. Fine for everyday lines; weakest with slang.", false},
         {"gemma4-e4b", "Gemma 4 E4B", "Balanced", "unsloth/gemma-4-E4B-it-qat-GGUF", "UD-Q4_K_XL", 4.2, 6,
-         "The one to try first on a graphics card with 8 GB or more. Clearly better wording than Light."},
+         "The one to try first on a graphics card with 8 GB or more. Clearly better wording than Light.", false},
         {"gemma4-12b", "Gemma 4 12B", "Best", "unsloth/gemma-4-12B-it-qat-GGUF", "UD-Q4_K_XL", 6.7, 10,
-         "The closest to the online AIs. Wants a graphics card with 12 GB or more, or it's slow."},
+         "The closest to the online AIs. Wants a graphics card with 12 GB or more, or it's slow.", false},
+        // Alibaba's Qwen3.8-27B (Apache 2.0 licence) with its refusals removed ("abliterated"), for big
+        // graphics cards: it translates swearing and crude lines as they were said, where Gemma and the
+        // online AIs soften or decline them. One model in three sizes of the same file (3, 4 and 5 bits
+        // per weight); the edit is applied to Unsloth's builds, so mainline llama.cpp runs them. Its
+        // think-through is switched off per request, like every local model's (translate.cpp).
+        {"qwen38-27b-q3", "Qwen 3.8 27B Uncensored", "Light", "mrfakename/Qwen3.8-27B-abliterated-GGUF", "UD-Q3_K_XL", 13.1, 15,
+         "Uncensored: translates swearing and crude lines as they were said. Wants a graphics card with 16 GB, and it's tight next to a game.", true},
+        {"qwen38-27b-q4", "Qwen 3.8 27B Uncensored", "Balanced", "mrfakename/Qwen3.8-27B-abliterated-GGUF", "UD-Q4_K_XL", 17.7, 20,
+         "Uncensored, with more natural wording than its Light size. Wants a graphics card with 24 GB.", true},
+        {"qwen38-27b-q5", "Qwen 3.8 27B Uncensored", "Best", "mrfakename/Qwen3.8-27B-abliterated-GGUF", "UD-Q5_K_XL", 21.0, 24,
+         "Uncensored, and the closest to the full model. Wants a graphics card with 32 GB; for one-line translations it's hardly better than Balanced.", true},
     };
     return k;
 }

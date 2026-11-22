@@ -546,12 +546,136 @@ size_t changingPartStart(const std::string& instructions) {
     return cut;
 }
 
+// ---------------------------------------------------------------- answers read as they arrive
+//
+// Asked to "stream", a service sends its answer piece by piece (server-sent events) instead of all
+// at once at the end. The words are the same; what's gained is knowing whether the answer has begun.
+// The time limit then means "it must have begun by now": a service that is stuck is dropped as
+// early as ever, and an answer already coming in gets a moment more to finish (kFinishMs) instead of
+// being thrown away for DeepL's textbook version, dialect and speech level lost.
+//
+// Nothing is used before it is whole. The pieces are put back together into the very answer the
+// service would have sent without streaming, and that goes through the same checks as always
+// (extractAnswer, the gender note, the token count). A stream that ends without its closing event is
+// never trusted: the line is asked again the old way, and a model whose streams keep coming back
+// unusable is asked the old way for the rest of the session.
+const int kFinishMs = 1200;
+
+struct LiveAnswer {
+    std::string raw, line, data;
+    std::atomic<bool> started{false};
+    std::function<void(const json&)> onEvent;
+    int events = 0;
+    bool done = false;  // "[DONE]", the end marker some services send
+
+    void feed(const char* p, size_t n) {
+        if (raw.size() < (1u << 20)) raw.append(p, n);
+        for (size_t i = 0; i < n; ++i) {
+            if (p[i] != '\n') {
+                if (line.size() < (4u << 20)) line += p[i];
+                continue;
+            }
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            takeLine();
+        }
+    }
+    void end() {  // the last event may come without the empty line after it
+        if (!line.empty()) takeLine();
+        flush();
+    }
+
+private:
+    void takeLine() {
+        if (line.empty()) {
+            flush();
+        } else if (line.compare(0, 5, "data:") == 0) {
+            size_t a = 5;
+            if (a < line.size() && line[a] == ' ') ++a;
+            if (!data.empty()) data += '\n';
+            data.append(line, a, std::string::npos);
+        }  // "event:", "id:" and ":" comment lines carry nothing this needs
+        line.clear();
+    }
+    void flush() {
+        if (data.empty()) return;
+        if (data == "[DONE]") {
+            done = true;
+        } else {
+            const json j = json::parse(data, nullptr, false);
+            if (!j.is_discarded()) {
+                ++events;
+                if (onEvent) onEvent(j);
+            }
+        }
+        data.clear();
+    }
+};
+
+std::mutex gLiveMx;
+std::map<std::string, int> gLiveBroken;   // per service and model: streams that came back unusable
+std::map<std::string, bool> gNoTier;      // per service and model: the faster tier was refused
+std::string liveKey(const TranslateSetup& st) {
+    return st.service == kClaude   ? "claude:" + st.claudeModel
+           : st.service == kGemini ? "gemini:" + st.geminiModel
+           : st.service == kLocal  ? "local:" + st.localModel
+                                   : "openai:" + st.openaiModel;
+}
+bool liveWanted(const TranslateSetup& st) {
+    if (!st.stream) return false;
+    std::lock_guard<std::mutex> lk(gLiveMx);
+    const auto it = gLiveBroken.find(liveKey(st));
+    return it == gLiveBroken.end() || it->second < 2;
+}
+void liveResult(const TranslateSetup& st, bool usable) {
+    std::lock_guard<std::mutex> lk(gLiveMx);
+    int& n = gLiveBroken[liveKey(st)];
+    n = usable ? 0 : n + 1;
+}
+bool tierWanted(const TranslateSetup& st) {
+    if (!st.priority) return false;
+    std::lock_guard<std::mutex> lk(gLiveMx);
+    return gNoTier.find(liveKey(st)) == gNoTier.end();
+}
+void tierRefused(const TranslateSetup& st) {
+    std::lock_guard<std::mutex> lk(gLiveMx);
+    gNoTier[liveKey(st)] = true;
+}
+
+// Sends `r` and reads its answer as it arrives. Like Http::perform, except that a 200 answer is in
+// `live` (its events went to live.onEvent) and `body` is empty.
+bool performLive(Http& http, HttpRequest& r, int timeoutMs, LiveAnswer& live, long& status, std::string& body, std::string& err) {
+    const ByteSink sink = [&](const char* p, size_t n) { live.feed(p, n); };
+    r.sink = &sink;
+    r.started = &live.started;
+    r.startByMs = timeoutMs;
+    r.timeoutMs = timeoutMs + kFinishMs;
+    const bool ok = http.perform(r, status, body, err);
+    r.sink = nullptr;
+    r.started = nullptr;
+    if (ok && status == 200) live.end();
+    return ok;
+}
+// A service that answered a streaming request the plain way (a proxy in between, an older engine):
+// its whole answer is in live.raw, as good as ever.
+bool plainAnswer(const LiveAnswer& live, std::string& body) {
+    if (live.events > 0 || live.done) return false;
+    const json j = json::parse(live.raw, nullptr, false);
+    if (!j.is_object()) return false;
+    body = live.raw;
+    return true;
+}
+int msFrom(std::chrono::steady_clock::time_point t) {
+    return int(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t).count());
+}
+
 // `source`: what was said (to tell an explanation from a translation); `text`: what is sent.
 bool claude(Http& http, const TranslateSetup& st, const std::string& instructions, const std::string& source,
             const std::string& text, int timeoutMs, std::string& out, std::string& err, int& why, bool& noEffort) {
     why = kFailOther;
     if (st.claudeKey.empty()) { err = "Add your Claude (Anthropic) API key"; return false; }
-    for (int attempt = 0; attempt < 2; ++attempt) {
+    const auto began = std::chrono::steady_clock::now();
+    bool liveNow = liveWanted(st);
+    for (int attempt = 0; attempt < 4; ++attempt) {
         // The instructions are the same from line to line except for the recent conversation at the
         // end. Marked for Anthropic's prompt cache, the fixed part is read once and reused for the
         // next five minutes (each line renews it): answers start sooner and that part is billed at a
@@ -565,18 +689,74 @@ bool claude(Http& http, const TranslateSetup& st, const std::string& instruction
                     {"system", system},
                     {"messages", json::array({{{"role", "user"}, {"content", text}}})}};
         if (!noEffort) req["output_config"] = {{"effort", "low"}};  // fastest: skips thinking on simple requests
+        if (liveNow) req["stream"] = true;
         const std::string payload = req.dump();
         HttpRequest r;
         r.url = "https://api.anthropic.com/v1/messages";
         r.headers = {"x-api-key: " + st.claudeKey, "anthropic-version: 2023-06-01", "content-type: application/json"};
         r.body = &payload;
-        r.timeoutMs = timeoutMs;
+        const int time = attempt == 0 ? timeoutMs : std::max(300, timeoutMs - msFrom(began));  // what's left of it
+        r.timeoutMs = time;
         long status = 0;
         std::string body;
-        if (!http.perform(r, status, body, err)) return false;
+        if (liveNow) {
+            // The pieces, put back into the answer as it comes without streaming: the text, and the
+            // token counts (the first event has what was read, the last what was written).
+            LiveAnswer live;
+            std::string textSoFar;
+            json usage = json::object(), problem;
+            bool ended = false;
+            live.onEvent = [&](const json& e) {
+                if (!e.is_object()) return;
+                const std::string type = e.value("type", "");
+                if (type == "message_start" && e.contains("message") && e["message"].is_object() && e["message"].contains("usage") &&
+                    e["message"]["usage"].is_object()) {
+                    usage = e["message"]["usage"];
+                } else if (type == "content_block_delta" && e.contains("delta") && e["delta"].is_object()) {
+                    const json& d = e["delta"];
+                    if (d.value("type", "") == "text_delta" && d.contains("text") && d["text"].is_string()) {
+                        textSoFar += d["text"].get<std::string>();
+                        if (!textSoFar.empty()) live.started = true;
+                    }
+                } else if (type == "message_delta" && e.contains("usage") && e["usage"].is_object()) {
+                    for (auto it = e["usage"].begin(); it != e["usage"].end(); ++it)
+                        if (!it.value().is_null()) usage[it.key()] = it.value();
+                } else if (type == "message_stop") {
+                    ended = true;
+                } else if (type == "error") {
+                    problem = e;
+                }
+            };
+            if (!performLive(http, r, time, live, status, body, err)) return false;
+            if (status == 200) {
+                if (!problem.is_null()) {  // it gave up part-way: the same as if it had said so at once
+                    const std::string kind = problem.contains("error") && problem["error"].is_object() ? problem["error"].value("type", "") : "";
+                    status = kind == "overloaded_error" ? 529 : kind == "rate_limit_error" ? 429 : 500;
+                    body = problem.dump();
+                } else if (ended) {
+                    liveResult(st, true);
+                    body = json({{"content", json::array({{{"type", "text"}, {"text", textSoFar}}})}, {"usage", usage}}).dump();
+                } else if (!plainAnswer(live, body)) {
+                    liveResult(st, false);  // cut off before its end: not trusted. Asked again the plain way.
+                    liveNow = false;
+                    if (msFrom(began) * 2 < timeoutMs) continue;
+                    err = "Claude's answer was cut off (timeout)";
+                    return false;
+                }
+            }
+        } else if (!http.perform(r, status, body, err)) {
+            return false;
+        }
         json j = json::parse(body, nullptr, false);
         if (status != 200) {
             const std::string msg = errorMessage(j);
+            // A model or a proxy that won't stream: ask the plain way, now and from here on.
+            if (status == 400 && liveNow && lowerCopy(msg).find("stream") != std::string::npos) {
+                liveResult(st, false);
+                liveResult(st, false);
+                liveNow = false;
+                continue;
+            }
             // An older model that doesn't know the effort setting: ask again without it.
             if (status == 400 && !noEffort && (lowerCopy(msg).find("effort") != std::string::npos ||
                                                lowerCopy(msg).find("output_config") != std::string::npos)) {
@@ -621,7 +801,9 @@ bool gemini(Http& http, const TranslateSetup& st, const std::string& instruction
     // Thinking takes time, and a one-line translation doesn't need it: "minimal" (Flash models) is
     // the fastest; a model that refuses it gets "low", and one with no levels at all gets nothing.
     static const char* const kLevels[] = {"minimal", "low"};
-    for (int attempt = 0; attempt < 3; ++attempt) {
+    const auto began = std::chrono::steady_clock::now();
+    bool liveNow = liveWanted(st), tier = tierWanted(st);
+    for (int attempt = 0; attempt < 6; ++attempt) {
         json gen = {{"maxOutputTokens", 1024}};
         if (thinking < 2) gen["thinkingConfig"] = {{"thinkingLevel", kLevels[thinking]}};
         // Swearing, insults between friends and rough talk are part of real speech, and the person
@@ -634,19 +816,88 @@ bool gemini(Http& http, const TranslateSetup& st, const std::string& instruction
                     {"contents", json::array({{{"role", "user"}, {"parts", json::array({{{"text", text}}})}}})},
                     {"generationConfig", gen},
                     {"safetySettings", safety}};
+        // Google's faster queue, for paid projects that have it (it costs more per token). A project
+        // without it is answered at the standard tier or refused; refused, it's asked without.
+        if (tier) req["service_tier"] = "priority";
         const std::string payload = req.dump();
         HttpRequest r;
         r.url = "https://generativelanguage.googleapis.com/v1beta/models/" +
-                (st.geminiModel.empty() ? std::string("gemini-3.5-flash-lite") : st.geminiModel) + ":generateContent";
+                (st.geminiModel.empty() ? std::string("gemini-3.5-flash-lite") : st.geminiModel) +
+                (liveNow ? ":streamGenerateContent?alt=sse" : ":generateContent");
         r.headers = {"x-goog-api-key: " + st.geminiKey, "Content-Type: application/json"};
         r.body = &payload;
-        r.timeoutMs = timeoutMs;
+        const int time = attempt == 0 ? timeoutMs : std::max(300, timeoutMs - msFrom(began));  // what's left of it
+        r.timeoutMs = time;
         long status = 0;
         std::string body;
-        if (!http.perform(r, status, body, err)) return false;
+        if (liveNow) {
+            // Each piece has the shape of a whole answer with only its own new words: the words are
+            // joined, and the last token count and the reason it stopped are kept.
+            LiveAnswer live;
+            std::string textSoFar, finish;
+            json usage, feedback, problem;
+            bool ended = false;
+            live.onEvent = [&](const json& e) {
+                if (!e.is_object()) return;
+                if (e.contains("error")) { problem = e; return; }
+                if (e.contains("usageMetadata") && e["usageMetadata"].is_object()) usage = e["usageMetadata"];
+                if (e.contains("promptFeedback") && e["promptFeedback"].is_object()) {
+                    feedback = e["promptFeedback"];
+                    if (feedback.contains("blockReason")) ended = true;  // blocked: there will be no words
+                }
+                if (!e.contains("candidates") || !e["candidates"].is_array() || e["candidates"].empty()) return;
+                const json& c = e["candidates"][0];
+                if (!c.is_object()) return;
+                if (c.contains("content") && c["content"].is_object() && c["content"].contains("parts") && c["content"]["parts"].is_array())
+                    for (const json& part : c["content"]["parts"])
+                        if (part.is_object() && !part.value("thought", false) && part.contains("text") && part["text"].is_string()) {
+                            textSoFar += part["text"].get<std::string>();
+                            if (!textSoFar.empty()) live.started = true;
+                        }
+                if (c.contains("finishReason") && c["finishReason"].is_string() && !c["finishReason"].get<std::string>().empty()) {
+                    finish = c["finishReason"].get<std::string>();
+                    ended = true;
+                }
+            };
+            if (!performLive(http, r, time, live, status, body, err)) return false;
+            if (status == 200) {
+                if (!problem.is_null()) {
+                    const json& pe = problem["error"];
+                    const int code = pe.is_object() && pe.contains("code") && pe["code"].is_number_integer() ? pe["code"].get<int>() : 0;
+                    status = code >= 400 && code <= 599 ? code : 500;
+                    body = problem.dump();
+                } else if (ended) {
+                    liveResult(st, true);
+                    json whole = {{"candidates", json::array({{{"content", {{"parts", json::array({{{"text", textSoFar}}})}}}, {"finishReason", finish}}})}};
+                    if (!usage.is_null()) whole["usageMetadata"] = usage;
+                    if (!feedback.is_null()) whole["promptFeedback"] = feedback;
+                    body = whole.dump();
+                } else if (!plainAnswer(live, body)) {
+                    liveResult(st, false);  // cut off before its end: not trusted. Asked again the plain way.
+                    liveNow = false;
+                    if (msFrom(began) * 2 < timeoutMs) continue;
+                    err = "Gemini's answer was cut off (timeout)";
+                    return false;
+                }
+            }
+        } else if (!http.perform(r, status, body, err)) {
+            return false;
+        }
         json j = json::parse(body, nullptr, false);
         if (status != 200) {
             const std::string msg = errorMessage(j);
+            // This project (or model) doesn't have the faster tier: without it, now and from here on.
+            if (tier && (status == 400 || status == 403 || status == 404)) {
+                tierRefused(st);
+                tier = false;
+                continue;
+            }
+            if (status == 400 && liveNow && lowerCopy(msg).find("stream") != std::string::npos) {
+                liveResult(st, false);
+                liveResult(st, false);
+                liveNow = false;
+                continue;
+            }
             if (status == 400 && thinking < 2 && lowerCopy(msg).find("thinking") != std::string::npos) {
                 ++thinking;  // that level isn't offered by this model: one step up, or none at all
                 continue;
@@ -689,22 +940,72 @@ bool openai(Http& http, const TranslateSetup& st, const std::string& instruction
             const std::string& text, int timeoutMs, std::string& out, std::string& err, int& why, int& reasoning) {
     why = kFailOther;
     if (st.openaiKey.empty()) { err = "Add your OpenAI API key"; return false; }
-    for (int attempt = 0; attempt < 3; ++attempt) {
+    const auto began = std::chrono::steady_clock::now();
+    bool liveNow = liveWanted(st), tier = tierWanted(st);
+    for (int attempt = 0; attempt < 6; ++attempt) {
         json req = {{"model", st.openaiModel.empty() ? "gpt-6-luna" : st.openaiModel},
                     {"instructions", instructions},
                     {"input", text},
                     {"max_output_tokens", 1024},
                     {"store", false}};  // nothing kept on OpenAI's side for later
         if (reasoning < 2) req["reasoning"] = {{"effort", reasoning == 0 ? "none" : "low"}};
+        // OpenAI's faster tier (it costs more per token). A model without it refuses the setting, and
+        // is then asked without.
+        if (tier) req["service_tier"] = "priority";
+        if (liveNow) req["stream"] = true;
         const std::string payload = req.dump();
         HttpRequest r;
         r.url = "https://api.openai.com/v1/responses";
         r.headers = {"Authorization: Bearer " + st.openaiKey, "Content-Type: application/json"};
         r.body = &payload;
-        r.timeoutMs = timeoutMs;
+        const int time = attempt == 0 ? timeoutMs : std::max(300, timeoutMs - msFrom(began));  // what's left of it
+        r.timeoutMs = time;
         long status = 0;
         std::string body;
-        if (!http.perform(r, status, body, err)) return false;
+        if (liveNow) {
+            // The last event carries the whole answer in the same shape as without streaming, so
+            // nothing is put together here: the pieces only say that the answer has begun.
+            LiveAnswer live;
+            json whole, problem;
+            live.onEvent = [&](const json& e) {
+                if (!e.is_object()) return;
+                const std::string type = e.value("type", "");
+                if (type == "response.output_text.delta" || type == "response.refusal.delta") {
+                    if (e.contains("delta") && e["delta"].is_string() && !e["delta"].get<std::string>().empty()) live.started = true;
+                } else if ((type == "response.completed" || type == "response.incomplete") && e.contains("response") && e["response"].is_object()) {
+                    whole = e["response"];
+                } else if (type == "response.failed") {
+                    json pe = e.contains("response") && e["response"].is_object() && e["response"].contains("error") ? e["response"]["error"] : json();
+                    if (!pe.is_object()) pe = {{"message", "the request failed"}};
+                    problem = {{"error", pe}};
+                } else if (type == "error") {
+                    json pe = e.contains("error") && e["error"].is_object() ? e["error"] : json::object();
+                    if (!pe.contains("message") && e.contains("message")) pe["message"] = e["message"];
+                    if (!pe.contains("code") && e.contains("code")) pe["code"] = e["code"];
+                    problem = {{"error", pe}};
+                }
+            };
+            if (!performLive(http, r, time, live, status, body, err)) return false;
+            if (status == 200) {
+                if (!problem.is_null()) {
+                    const json& pe = problem["error"];
+                    const std::string c = pe.contains("code") && pe["code"].is_string() ? pe["code"].get<std::string>() : "";
+                    status = c.find("rate_limit") != std::string::npos ? 429 : 500;
+                    body = problem.dump();
+                } else if (whole.is_object()) {
+                    liveResult(st, true);
+                    body = whole.dump();
+                } else if (!plainAnswer(live, body)) {
+                    liveResult(st, false);  // cut off before its end: not trusted. Asked again the plain way.
+                    liveNow = false;
+                    if (msFrom(began) * 2 < timeoutMs) continue;
+                    err = "OpenAI's answer was cut off (timeout)";
+                    return false;
+                }
+            }
+        } else if (!http.perform(r, status, body, err)) {
+            return false;
+        }
         json j = json::parse(body, nullptr, false);
         if (status != 200) {
             const std::string msg = errorMessage(j), low = lowerCopy(msg);
@@ -712,6 +1013,19 @@ bool openai(Http& http, const TranslateSetup& st, const std::string& instruction
             if (j.is_object() && j.contains("error") && j["error"].is_object() && j["error"].contains("code") &&
                 j["error"]["code"].is_string())
                 code = j["error"]["code"].get<std::string>();
+            // This model doesn't have the faster tier: without it, now and from here on.
+            if (tier && status == 400 && (low.find("service_tier") != std::string::npos || low.find("tier") != std::string::npos ||
+                                          low.find("priority") != std::string::npos)) {
+                tierRefused(st);
+                tier = false;
+                continue;
+            }
+            if (status == 400 && liveNow && low.find("stream") != std::string::npos) {
+                liveResult(st, false);
+                liveResult(st, false);
+                liveNow = false;
+                continue;
+            }
             if (status == 400 && reasoning < 2 && (low.find("reasoning") != std::string::npos || low.find("effort") != std::string::npos)) {
                 ++reasoning;  // this model doesn't take that reasoning setting: try the next one
                 continue;
@@ -1187,20 +1501,61 @@ bool localModel(Http& http, const TranslateSetup& st, const std::string& instruc
         err = st.localNote.empty() ? "The local model isn't running" : st.localNote;
         return false;
     }
-    for (int attempt = 0; attempt < 2; ++attempt) {
+    const auto began = std::chrono::steady_clock::now();
+    bool liveNow = liveWanted(st), thinkOff = true;
+    for (int attempt = 0; attempt < 4; ++attempt) {
         json req = {{"messages", json::array({{{"role", "system"}, {"content", instructions}}, {{"role", "user"}, {"content", text}}})},
-                    {"max_tokens", 1024}, {"temperature", 0.25}, {"top_p", 0.9}, {"top_k", 40}, {"stream", false},
+                    {"max_tokens", 1024}, {"temperature", 0.25}, {"top_p", 0.9}, {"top_k", 40}, {"stream", liveNow},
                     {"cache_prompt", true}};  // the instructions are the same from line to line: read once, then reused
-        if (attempt == 0) req["chat_template_kwargs"] = {{"enable_thinking", false}};  // the line, not a think-through first
+        if (thinkOff) req["chat_template_kwargs"] = {{"enable_thinking", false}};  // the line, not a think-through first
         const std::string payload = req.dump();
         HttpRequest r;
         r.url = st.localUrl + "/v1/chat/completions";
         r.headers = {"Authorization: Bearer " + st.localKey, "Content-Type: application/json"};
         r.body = &payload;
-        r.timeoutMs = timeoutMs;
+        const int time = attempt == 0 ? timeoutMs : std::max(300, timeoutMs - msFrom(began));  // what's left of it
+        r.timeoutMs = time;
         long status = 0;
         std::string body;
-        if (!http.perform(r, status, body, err)) {
+        bool sent;
+        if (liveNow) {
+            // A model on this PC writes its line word by word, and on a modest graphics card that takes
+            // a while: read as it comes, a line that is being written is waited for.
+            LiveAnswer live;
+            std::string textSoFar;
+            json problem;
+            bool ended = false;
+            live.onEvent = [&](const json& e) {
+                if (!e.is_object()) return;
+                if (e.contains("error")) { problem = e; return; }
+                if (!e.contains("choices") || !e["choices"].is_array() || e["choices"].empty() || !e["choices"][0].is_object()) return;
+                const json& c = e["choices"][0];
+                if (c.contains("delta") && c["delta"].is_object() && c["delta"].contains("content") && c["delta"]["content"].is_string()) {
+                    textSoFar += c["delta"]["content"].get<std::string>();
+                    if (!textSoFar.empty()) live.started = true;
+                }
+                if (c.contains("finish_reason") && c["finish_reason"].is_string()) ended = true;
+            };
+            sent = performLive(http, r, time, live, status, body, err);
+            if (sent && status == 200) {
+                if (!problem.is_null()) {
+                    status = 500;
+                    body = problem.dump();
+                } else if (ended || (live.done && live.events > 0)) {
+                    liveResult(st, true);
+                    body = json({{"choices", json::array({{{"message", {{"content", textSoFar}}}}})}}).dump();
+                } else if (!plainAnswer(live, body)) {
+                    liveResult(st, false);  // cut off before its end: not trusted. Asked again the plain way.
+                    liveNow = false;
+                    if (msFrom(began) * 2 < timeoutMs) continue;
+                    err = "The local model's answer was cut off (timeout)";
+                    return false;
+                }
+            }
+        } else {
+            sent = http.perform(r, status, body, err);
+        }
+        if (!sent) {
             if (err != "cancelled" && err != "timed out") {
                 why = kFailBusy;
                 err = "The local model isn't answering";
@@ -1208,7 +1563,16 @@ bool localModel(Http& http, const TranslateSetup& st, const std::string& instruc
             return false;
         }
         const json j = json::parse(body, nullptr, false);
-        if (status == 400 && attempt == 0) continue;  // an engine that doesn't know that setting: without it
+        if (status == 400 && liveNow && lowerCopy(errorMessage(j)).find("stream") != std::string::npos) {
+            liveResult(st, false);  // an engine that won't stream: the plain way, now and from here on
+            liveResult(st, false);
+            liveNow = false;
+            continue;
+        }
+        if (status == 400 && thinkOff) {  // an engine that doesn't know that setting: without it
+            thinkOff = false;
+            continue;
+        }
         if (status != 200) {
             if (status == 503) why = kFailBusy;
             err = status == 503 ? "The local model is still loading" : "The local model answered " + std::to_string(status);
@@ -1322,6 +1686,41 @@ std::string healthKey(const TranslateSetup& st) {
 
 int msSince(std::chrono::steady_clock::time_point t) {
     return int(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t).count());
+}
+
+// A line of at most `maxWords` words (a few characters, in languages written without spaces).
+bool fewWords(const std::string& text, int maxWords) {
+    int words = 0, letters = 0;
+    bool inWord = false, packed = false;  // packed: Chinese, Japanese, Korean, Thai... (no spaces to count)
+    for (size_t i = 0; i < text.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        if ((c & 0xC0) == 0x80) continue;  // inside a letter
+        const bool space = c == ' ' || c == '\t' || c == '\n' || c == '\r';
+        if (!space) {
+            ++letters;
+            if (c >= 0xE0) packed = packed || c >= 0xE3 || (c == 0xE0 && i + 1 < text.size() && static_cast<unsigned char>(text[i + 1]) >= 0xB8);
+        }
+        if (!space && !inWord) ++words;
+        inWord = !space;
+    }
+    return words >= 1 && words <= maxWords && letters <= maxWords * (packed ? 3 : 9);
+}
+
+// Everything that shapes how an AI says a line, and the line itself (trimmed, single spaces, small
+// letters): two lines with the same key get the same answer. The conversation around a line is left
+// out on purpose (that's what remembering trades away).
+std::string rememberKey(const TranslateSetup& st, const Language* from, const Language& to, const std::string& text) {
+    std::string line;
+    for (char c : text) {
+        const bool space = c == ' ' || c == '\t' || c == '\n' || c == '\r';
+        if (space) { if (!line.empty() && line.back() != ' ') line += ' '; }
+        else line += (c >= 'A' && c <= 'Z') ? char(c - 'A' + 'a') : c;
+    }
+    while (!line.empty() && line.back() == ' ') line.pop_back();
+    const char sep = '\x1f';
+    return modelKey(st) + sep + (from ? from->code : "auto") + sep + to.code + sep + st.variety + sep + std::to_string(st.level) + sep +
+           st.customStyle + sep + st.persona + sep + (st.faithful ? "f" : "s") + (st.readGender ? "g" : "") + sep +
+           std::to_string(st.speaker) + sep + std::to_string(st.listener) + sep + std::to_string(st.swear) + sep + st.wordNote + sep + line;
 }
 
 }  // namespace
@@ -1529,6 +1928,33 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                 return true;
             }
             return false;
+        }
+        // Remembered lines (the person's choice, off unless asked for): a short line this AI already
+        // put into this language, dialect and speech level is answered at once, from what it said then.
+        // Only whole lines on their own: not a line that goes on from the one before, and never the
+        // lines with marked words.
+        const std::string memoKey = st.rememberLines && !multi && st.before.empty() && st.deeplWords.empty() && fewWords(text, 6)
+                                        ? rememberKey(st, from, to, text) : std::string();
+        if (!memoKey.empty()) {
+            const auto hit = remembered_.find(memoKey);
+            if (hit != remembered_.end()) {
+                out = hit->second.out;
+                wordsGender = hit->second.gender;
+                via = std::string(name) + " (remembered)";
+                return true;
+            }
+        }
+        // Short lines straight to DeepL or Microsoft (also the person's choice, off unless asked for):
+        // "yeah", "wait what" come back in a fraction of the time, but in the standard language, so
+        // it's never done behind their back. If neither answers, the AI does the line as always.
+        if (st.shortToPlain && !multi && st.deeplWords.empty() && (!st.deeplKey.empty() || !st.msKey.empty()) && fewWords(text, 3)) {
+            if (deeplOrFree(true, false)) {
+                wordsGender = 0;
+                via += " (short line)";
+                return true;
+            }
+            if (err == "cancelled") return false;
+            err.clear();
         }
         // Another AI with a key (the person's own choice of a second one): it covers the lines this AI
         // fails on (declined, refused, out of credit, too many requests, an error), never just slow ones,
@@ -1842,6 +2268,14 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
             if (st.readGender) {  // the speaker's own words showed their gender
                 if (tlRaw.find("<g>f</g>") != std::string::npos) wordsGender = kGenderWoman;
                 else if (tlRaw.find("<g>m</g>") != std::string::npos) wordsGender = kGenderMan;
+            }
+            if (!memoKey.empty()) {  // the AI's own answer, checked like any other: kept for next time
+                if (remembered_.find(memoKey) == remembered_.end()) rememberedOrder_.push_back(memoKey);
+                remembered_[memoKey] = {out, wordsGender};
+                if (rememberedOrder_.size() > 500) {  // the oldest hundred make room
+                    for (size_t i = 0; i < 100; ++i) remembered_.erase(rememberedOrder_[i]);
+                    rememberedOrder_.erase(rememberedOrder_.begin(), rememberedOrder_.begin() + 100);
+                }
             }
             return true;
         }

@@ -6,6 +6,49 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 3.1.2
+- Faster captions while they talk: their voice is now streamed to ElevenLabs as they speak (the way your own voice already is), so their words show within a moment instead of every second and a half, and nothing is uploaded over and over.
+- New: each sentence is translated as soon as it's finished, while they're still talking, so you read the first sentence while they say the next. When they stop, the whole caption is translated at once from the words that are already there; the regular pass (who said what, voices, sounds) then replaces it. Needs "Captions while they talk" and an AI translation service on the Listen page. The switch is "Translate each sentence right away" (Features).
+- New, for crowded worlds: "In a crowd, caption" on the Listen page.
+  - Nearby: only the loudest voices, which in VRChat are the people closest to you. The level a caption opens at follows the loudest voice of the last few seconds, so chatter further away gets no captions.
+  - In front: only the voice you're facing. Sound from the sides is turned down before it's written down, and when nobody in front is talking, nothing opens a caption. It can't tell in front from behind, and needs stereo sound (an application or your speakers).
+  - Everyone: as before.
+- New (optional, off by default): "Say each sentence as soon as it's finished". When you say several sentences without a pause, the first one is translated and spoken while you're still on the next, instead of everything waiting for you to stop. The words after it wait for the rest of their own sentence, so nothing is spoken half finished. Needs Live transcription; short sentences ("Yeah.") stay with what follows.
+- If the live connection isn't available, captions while they talk work the way they did before.
+- Faster and cheaper captions when speakers aren't told apart: with "Captions while they talk" on and "Tell speakers apart" and sound labels off, the words that came over the live connection are the caption, and the audio isn't sent a second time.
+- New, for busy rooms: voice fingerprints. "Same voice, same color" (Extra features, Caption options) has a Download button (about 45 MB, one click, nothing to install by hand). With it, voices are recognized by a speaker-recognition model that runs on your PC, instead of by pitch and tone alone, so up to 12 people keep their own number and color (6 before), and voices that sound alike are no longer mixed up as easily. It adds no delay: the fingerprint is worked out while the translation is on its way. Nothing extra is sent anywhere and it costs nothing per caption. Without the download everything works as before; you can delete it again from the same place. A line too short for a fingerprint (under about a second) is only named when it clearly continues whoever just spoke; otherwise it stays unnamed. When you change worlds and every number is taken, new people take over the numbers of whoever has been quiet the longest (at least a minute), so newcomers are never left without one.
+- Faster, steadier AI translation. Four switches under the translation service (My voice and Listen), above Time limit:
+  - New, on by default: "Read the AI's answer as it arrives". An answer that has begun by the time limit gets a moment more (about a second) to finish, instead of being thrown away for DeepL's plain version. More lines keep your dialect and speech level, and fewer are paid for twice. A service that is stuck is still dropped at the limit. The words are the same as before: nothing is used until the whole answer is in and checked, half an answer is never used, and a model whose answers keep arriving broken is asked the old way for the rest of the session. Works with Claude, Gemini, OpenAI and local models.
+  - New, off by default: "Faster service tier (costs more)", for Gemini and OpenAI. Their priority tier answers sooner at a higher price per token (up to double; Gemini only for paid projects). If your account or model doesn't have it, CIMA Box carries on without it. Claude has no such option for its fast model.
+  - New, off by default: "Remember repeated lines". A short line this AI already translated with the same language, dialect, speech level and speaker is answered at once and costs nothing. It comes out the same way every time, whatever the conversation around it, which is why it's your choice. Forgotten when CIMA Box closes.
+  - New, off by default: "Short lines skip the AI" (needs a DeepL or Microsoft key). Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.
+- Better: the AI's instructions hold your settings more firmly where they meet each other. Nothing was removed from them.
+  - Polite now names your language's own polite forms (usted, vous, Sie, 해요체, です/ます...), says that a casual original doesn't make the line casual, and checks the speech level once more before answering, the way Casual already did.
+  - "Sound like" only shapes word choice. It can no longer quietly override the dialect, the speech level or the gender you set ("from Madrid" with the dialect set to Argentina: Argentina wins).
+  - With your gender not set, the AI avoids gendered words about you where it can, and otherwise uses the same form in every line instead of switching.
+  - When settings pull in different directions, the order is spelled out: what you mean first, then the dialect and the speech level together, then everything else.
+  - "Match how they talk to me" can make a line looser, never add swearing or anything you didn't say.
+  - Local models with "My own" style now get the same closing rules as the other styles (language or dialect, nothing added, one answer, punctuation kept).
+- Better, voice fingerprints: two people no longer end up sharing a number.
+  - A match has to stand clear of the next most similar voice. When a line could be either of two people, it's left unnamed instead of guessed.
+  - A voice only learns from lines that are clearly its own, so a similar-sounding stranger can't blend into it.
+  - Two voices are only merged into one number when they are very alike (this is where a second person used to be folded into Voice 1).
+  - When two people talk over each other and are written down as one line, CIMA Box notices (the two halves of the line have different fingerprints) and leaves it unnamed.
+  - Where a voice comes from no longer makes a match easier: in VR your own head turns all the time. It only settles a tie.
+  - In a crowd, expect more short lines without a number and far fewer with the wrong one. The log says why each line got its answer.
+- New, local models: Qwen 3.8 27B Uncensored, for big graphics cards. It translates swearing and crude lines as they were said, where Gemma and the online AIs soften or decline them.
+  - Three sizes of the same model: Light (13.1 GB download, a 16 GB graphics card), Balanced (17.7 GB, a 24 GB card) and Best (21 GB, a 32 GB card).
+  - Gemma 4 stays the model CIMA Box suggests. The uncensored one is never picked for you: it's only used when you choose it yourself.
+  - It's much bigger and slower than Gemma, so the PC check matters more: it says "Tight" or "Not for this PC" before you download anything.
+  - With "Send lines this AI declines or is too slow for to my local model" on, it's the model that takes the lines an online AI won't translate.
+- Easier to find things:
+  - The Features page is now "Extra features", and its "Captions" card is "Caption options".
+  - My voice, Text, Listen and VR each end with "Extras for this page": the extras that change that page, as links. One click takes you to the card, and the ones that are switched on say "On".
+  - No more cut-off text: a switch's name that is too long for its column now goes onto a second line, and choices that don't fit side by side (in a narrow column or a wordy language) are stacked in rows. The color names in Settings no longer overlap.
+- Fixed: the conversation on the Text page labelled voices differently from the Listen page. It showed the speech service's own speaker numbers, which start again with every caption, so two different people could both be "Voice 1". It now follows the same rule as Listen: a number only when the voice was recognized.
+- "Find a setting" now knows every setting (it knew about half), under everyday words too: try "slow", "crowd", "volume", "cost".
+- The Listen page says where a caption's time went: "Last caption took 2.1 s (words 1.2 s, translation 0.8 s)". Slow captions are written to the log with the same breakdown.
+
 ## 3.1.1
 - Fixed: Casual and Very casual add nothing you didn't say. The AI was allowed a filler word per line and its own examples started with "wait" and "ugh", so it copied that. Both are gone, and its last check goes through the line word by word: an opener, a reaction, a filler, a swear word or a detail you didn't say is deleted. What you really said, an "um" included, may stay.
 - Fixed: a dialect now outranks the language's general slang hint, typed dialects too (Indonesian with a dialect came out as Jakarta slang).

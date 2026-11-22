@@ -14,6 +14,7 @@
 #include "vroverlay.h"
 #include "translate.h"
 #include "localai.h"
+#include "voiceid.h"
 #include "pcspecs.h"
 #include "updater.h"
 
@@ -97,6 +98,11 @@ struct Settings {
     std::string lastSeenVersion;       // "What's new" shows what changed since this one
     std::string localModel;            // translation service Local: the model to use (LocalModel::id)
     bool localOnDecline = false;       // a line the online AI declines or is too slow for goes to the local model first (keeps it loaded)
+    bool aiStream = true;              // read the AI's answer as it arrives: one that has begun by the time limit may finish
+    bool aiPriority = false;           // Gemini and OpenAI: their faster service tier (costs more per token)
+    bool shortToPlain = false;         // lines of one to three words go straight to DeepL or Microsoft (no dialect, no speech level)
+    bool rememberLines = false;        // a short line the AI already translated the same way is answered from memory
+    bool speakSentences = false;       // several sentences without a pause: each is said as soon as it's finished
     bool earlyTranslate = false;       // translate during the pause that ends a phrase; used only if it really was the end
     bool showMeaning = false;          // under "They heard": what the translated line says, back in your language
     bool localGpu = true;              // ...on the graphics card (off: the processor only)
@@ -245,6 +251,8 @@ struct UiModel {
     bool updatesConfigured = false;          // this build knows where updates come from
     bool olderOpen = false;                  // Settings: the list of earlier versions is showing
     PcSpecs pc;                              // this PC's graphics card and memory, to rate the local models
+    VoiceIdState voicePack;                  // the voice fingerprint pack: downloaded? downloading?
+    bool voicePackAsk = false;               // "Delete it?" is showing
     LocalState local;                        // models on this PC: what's downloaded, downloading, loaded
     std::string localDeletePick;             // the model picked to delete, waiting for the second press
     std::string localView;                   // the local model showing in the Model dropdown
@@ -324,6 +332,7 @@ struct UiActions {
     int setMini = -1;          // 0 / 1 when the user switches the mini window
     bool checkUpdates = false, installUpdate = false, openSettingsFolder = false;
     bool listOlder = false;                  // look up the earlier versions
+    int voicePack = 0;  // the voice fingerprint pack: 1 download, 2 stop, 3 delete
     std::string localDownload, localCancel, localRemove;  // a local model to download, stop downloading, delete
     std::string installOlder;                // go back to this version and restart
     bool pickPicture = false, clearPicture = false;  // Settings > Look

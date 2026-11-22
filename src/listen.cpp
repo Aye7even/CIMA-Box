@@ -7,8 +7,10 @@
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
+#include <cstring>
 #include <ctime>
 #include <deque>
+#include <map>
 #include <mutex>
 #include <thread>
 
@@ -16,8 +18,12 @@
 #include "audio.h"
 #include "core.h"
 #include "eleven.h"
+#include "extras.h"
+#include "focus.h"
+#include "livestt.h"
 #include "osc.h"
 #include "translate.h"
+#include "voiceid.h"
 
 namespace {
 
@@ -34,6 +40,7 @@ struct Job {
     std::vector<int16_t> pcm;
     std::vector<int16_t> pan;  // per 10 ms: where the sound came from, -32767 left .. 32767 right
     Clock::time_point heard;
+    std::shared_future<LiveText> live;  // its words from the live connection, when it was streamed
 };
 
 // The ring holds pairs: the sound (left and right together) and half their difference. Kept in one
@@ -114,6 +121,26 @@ struct Listener::Impl {
     uint64_t liveId = 0;              // guarded by mtx; 0 = none
     std::thread liveThread;           // one transcription of the unfinished phrase at a time
     std::atomic<bool> liveBusy{false};
+    // The same, streamed (LiveStt): their voice goes to the speech service while they talk, so the
+    // words arrive within a moment and nothing is uploaded twice. Each sentence is translated as soon
+    // as it's finished, while they go on talking; when the phrase ends, its own words come straight
+    // back and the whole caption is translated at once. The regular pass (who said what, voices,
+    // sounds) then replaces it. If streaming isn't available, the looks every 1.5 s are used.
+    std::string liveHost;                       // tests only
+    std::unique_ptr<LiveStt> liveStt;           // made by start()
+    bool liveThis = false;                      // capThread: this phrase is being streamed
+    size_t liveSent = 0;                        // capThread: how much of it has gone
+    std::atomic<bool> liveAccept{false};        // words arriving now belong to the phrase being spoken
+    std::atomic<long long> liveBeganMs{0};
+    std::string liveText;                       // mtx: the words so far (or the finished phrase's)
+    bool liveDone = false;                      // mtx: ...and the phrase has ended
+    uint64_t liveFor = 0, liveSeq = 0;          // mtx: the caption they belong to; counts changes
+    std::map<std::string, std::string> liveSaid;  // mtx: sentence -> its translation, for liveFor
+    struct LiveEnd { uint64_t id; std::shared_future<LiveText> text; };
+    std::deque<LiveEnd> liveEnds;               // mtx: finished phrases whose own words are on their way
+    std::condition_variable liveCv;
+    std::thread liveTrThread;
+    std::atomic<int> lastSttMs{0}, lastTrMs{0};
 
     std::atomic<uint64_t> version{1};
     std::atomic<bool> running{false}, cancel{false}, hearing{false};
@@ -231,7 +258,7 @@ struct Listener::Impl {
             if (feed[i].id == id) { feed.erase(feed.begin() + long(i)); ++version; return; }
     }
 
-    void enqueue(std::vector<int16_t>&& pcm, std::vector<int16_t>&& pan) {
+    uint64_t enqueue(std::vector<int16_t>&& pcm, std::vector<int16_t>&& pan, std::shared_future<LiveText> words = {}) {
         std::lock_guard<std::mutex> lk(mtx);
         while (jobs.size() >= kMaxWaiting) {  // stay live rather than fall further behind
             eraseCaption(jobs.front().id);
@@ -241,13 +268,15 @@ struct Listener::Impl {
         j.pcm = std::move(pcm);
         j.pan = std::move(pan);
         j.heard = Clock::now();
+        j.live = words;
         if (liveId != 0) {  // the words shown while they talked become this caption
             j.id = liveId;
             liveId = 0;
+            const uint64_t id = j.id;
             jobs.push_back(std::move(j));
             ++version;
             cv.notify_one();
-            return;
+            return id;
         }
         j.id = nextId++;
         Caption c;
@@ -255,15 +284,22 @@ struct Listener::Impl {
         c.time = clockNow();
         feed.push_back(std::move(c));
         while (feed.size() > kMaxCaptions) feed.pop_front();
+        const uint64_t id = j.id;
         jobs.push_back(std::move(j));
         ++version;
         cv.notify_one();
+        return id;
     }
 
     void captureLoop() {
         Segmenter seg;
         OscOut osc;
         float block[Segmenter::kBlock], side[Segmenter::kBlock], pairs[Segmenter::kBlock * 2];
+        float ahead[Segmenter::kBlock];  // the block with everything off to the sides turned down (focus: in front)
+        FrontFilter frontFilter;
+        NearGate nearGate;  // ("near" and "far" are taken by the Windows headers)
+        int focusWas = kFocusAll;
+        double rawEnergy = 0, aheadEnergy = 0;  // smoothed over about 100 ms
         const float silence[Segmenter::kBlock] = {};
         int kind = -1;             // what is open right now (-1 = nothing)
         std::string name;
@@ -382,9 +418,37 @@ struct Listener::Impl {
                 continue;
             }
 
+            // In a crowd: only the voice in front, or only the loudest (closest) voices.
+            if (s.focus != focusWas) {
+                frontFilter.reset();
+                nearGate.reset();
+                rawEnergy = aheadEnergy = 0;
+                focusWas = s.focus;
+            }
+            if (s.focus == kFocusFront) {
+                const float* raw = in;
+                frontFilter.process(in == silence ? silence : block, in == silence ? silence : side, ahead, Segmenter::kBlock);
+                in = ahead;
+                // When what's left is under a tenth of what came in, nobody in front is talking: it's
+                // someone at the side, turned down. That counts as silence, so it opens no caption.
+                // (A voice in front under a louder one from the side keeps well over a tenth.)
+                double er = 0, ea = 0;
+                for (int i = 0; i < Segmenter::kBlock; ++i) {
+                    er += double(raw[i]) * raw[i];
+                    ea += double(ahead[i]) * ahead[i];
+                }
+                rawEnergy = 0.9 * rawEnergy + 0.1 * er;
+                aheadEnergy = 0.9 * aheadEnergy + 0.1 * ea;
+                if (aheadEnergy < 0.1 * rawEnergy) in = silence;
+            }
             GateParams g;
             const Pace pace = paceOf(s.pace);
             g.thresholdDb = s.thresholdDb;
+            if (s.focus != kFocusAll) {
+                double sum = 0;
+                for (int i = 0; i < Segmenter::kBlock; ++i) sum += double(in[i]) * in[i];
+                g.thresholdDb = nearGate.threshold(s.thresholdDb, float(10.0 * std::log10(sum / Segmenter::kBlock + 1e-10)));
+            }
             g.holdMs = pace.holdMs;
             g.maxSeconds = pace.maxSeconds;
             std::vector<int16_t> phrase, phrasePan;
@@ -392,10 +456,59 @@ struct Listener::Impl {
             levelDb = seg.levelDb();
             const bool open = seg.open();
             hearing = open;
-            if (open && !done) showLiveWords(seg.current());
+            // Captions while they talk, streamed: begin when a phrase opens (also right after a long
+            // one was cut), send what's new every block, hand it in when it ends.
+            if (open && !liveThis && !done) {
+                bool want;
+                LiveStt::Options o;
+                {
+                    std::lock_guard<std::mutex> lk(mtx);
+                    want = cfg.liveCaptions && !cfg.apiKey.empty();
+                    o.apiKey = cfg.apiKey;
+                    o.language = cfg.s.fromLang;
+                }
+                if (want && liveStt && liveStt->available()) {
+                    liveStt->begin(o);
+                    liveThis = true;
+                    liveSent = 0;
+                    liveBeganMs = std::chrono::duration_cast<milliseconds>(Clock::now().time_since_epoch()).count();
+                    liveAccept = true;
+                }
+            }
+            if (liveThis && open && !done) {
+                const std::vector<int16_t>& sofar = seg.current();
+                if (sofar.size() < liveSent) liveSent = 0;
+                if (sofar.size() > liveSent) {
+                    liveStt->audio(sofar.data() + liveSent, sofar.size() - liveSent);
+                    liveSent = sofar.size();
+                }
+            }
+            if (open && !done && !liveThis) showLiveWords(seg.current());
             if (done) {
-                enqueue(std::move(phrase), std::move(phrasePan));
-            } else if (open && !wasOpen) {
+                std::shared_future<LiveText> words;
+                if (liveThis) {
+                    if (phrase.size() > liveSent) liveStt->audio(phrase.data() + liveSent, phrase.size() - liveSent);
+                    liveAccept = false;
+                    words = liveStt->commit();
+                    liveThis = false;
+                }
+                const uint64_t id = enqueue(std::move(phrase), std::move(phrasePan), words);
+                if (words.valid()) {
+                    std::lock_guard<std::mutex> lk(mtx);
+                    liveEnds.push_back({id, words});
+                    liveCv.notify_one();
+                }
+            } else if (liveThis && !open) {
+                liveAccept = false;
+                liveStt->discard();  // too short to be a phrase (a click, a cough)
+                liveThis = false;
+                std::lock_guard<std::mutex> lk(mtx);
+                if (liveId != 0) {  // its first words were already showing
+                    eraseCaption(liveId);
+                    liveId = 0;
+                }
+            }
+            if (!done && open && !wasOpen) {
                 std::lock_guard<std::mutex> lk(mtx);
                 warm = kWorkers;  // someone started talking: connect while they are still speaking
                 cv.notify_all();
@@ -454,6 +567,136 @@ struct Listener::Impl {
         });
     }
 
+    // ---- streamed live words (see the members above)
+
+    // The words so far with every finished sentence that has been translated in its translation. mtx held.
+    std::string liveLine() const {
+        bool open = false;
+        const std::vector<std::string> parts = sentencesOf(liveText, open);
+        std::string out;
+        for (size_t i = 0; i < parts.size(); ++i) {
+            const bool finished = liveDone || i + 1 < parts.size() || !open;
+            const auto it = finished ? liveSaid.find(parts[i]) : liveSaid.end();
+            if (!out.empty()) out += ' ';
+            out += it != liveSaid.end() && !it->second.empty() ? it->second : parts[i];
+        }
+        return out;
+    }
+    void showLive() {  // mtx held
+        for (Caption& cap : feed)
+            if (cap.id == liveFor && cap.pending) {  // still being spoken, or waiting for the regular pass
+                cap.live = true;
+                cap.lines.assign(1, CaptionLine());
+                cap.lines[0].text = cfg.maskSwears ? maskSwears(liveLine()) : liveLine();
+                ++version;
+            }
+    }
+    // Words from the speech service while they talk (its thread).
+    void onLiveWords(const std::string& words) {
+        const long long nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+        if (!liveAccept || nowMs - liveBeganMs < 250 || words.empty()) return;  // not the last phrase's stragglers
+        std::lock_guard<std::mutex> lk(mtx);
+        if (liveId == 0) {
+            Caption cap;
+            cap.id = liveId = nextId++;
+            cap.time = clockNow();
+            cap.live = true;
+            feed.push_back(std::move(cap));
+        }
+        if (liveFor != liveId) {
+            liveFor = liveId;
+            liveSaid.clear();
+        }
+        liveText = applyWordFixes(words, cfg.words);
+        liveDone = false;
+        ++liveSeq;
+        showLive();
+        liveCv.notify_one();
+    }
+    // Translates the finished sentences that haven't been yet, in one request, and shows them.
+    void translateLive(uint64_t id, const std::string& text, bool done, const ListenConfig& c, Translator& tr) {
+        const Language* to = findLanguage(c.s.toLang);
+        // Only with an AI service: the others count every character, and this says each sentence twice.
+        if (!to || !c.liveTranslate || !isAiService(c.translate.service)) return;
+        bool open = false;
+        const std::vector<std::string> parts = sentencesOf(text, open);
+        std::vector<std::string> todo;
+        std::vector<const Language*> froms;
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            if (liveFor != id) return;
+            for (size_t i = 0; i < parts.size(); ++i) {
+                const bool finished = done || i + 1 < parts.size() || !open;
+                if (!finished || liveSaid.count(parts[i])) continue;
+                bool sure = false;
+                const Language* from = findLanguage(c.s.fromLang.empty() ? guessLanguage(parts[i], &sure) : c.s.fromLang);
+                if (from == to) {
+                    liveSaid[parts[i]] = parts[i];  // already in the reader's language
+                    continue;
+                }
+                todo.push_back(parts[i]);
+                froms.push_back(from);
+            }
+        }
+        if (todo.empty()) return;
+        TranslateSetup setup = c.translate;
+        setup.faithful = true;
+        std::vector<std::string> outs;
+        std::vector<int> genders;
+        std::string why;
+        const std::vector<int> voices(todo.size(), 0);
+        const bool ok = tr.translateLines(setup, todo, froms, voices, *to, outs, genders, why);
+        std::lock_guard<std::mutex> lk(mtx);
+        if (liveFor != id) return;
+        for (size_t k = 0; k < todo.size(); ++k)
+            liveSaid[todo[k]] = ok && k < outs.size() ? outs[k] : std::string();  // empty: shown as said, not asked again
+        showLive();
+    }
+    void liveTranslateLoop() {
+        Translator tr;
+        tr.http.cancel = &cancel;
+        uint64_t seen = 0;
+        for (;;) {
+            uint64_t id = 0;
+            std::string text;
+            bool done = false;
+            ListenConfig c;
+            std::shared_future<LiveText> ending;
+            {
+                std::unique_lock<std::mutex> lk(mtx);
+                liveCv.wait(lk, [&] { return !running || liveSeq != seen || !liveEnds.empty(); });
+                if (!running) return;
+                c = cfg;
+                if (!liveEnds.empty()) {  // a phrase ended: its own words first
+                    id = liveEnds.front().id;
+                    ending = liveEnds.front().text;
+                    liveEnds.pop_front();
+                } else {
+                    seen = liveSeq;
+                    id = liveFor;
+                    text = liveText;
+                    done = liveDone;
+                }
+            }
+            if (ending.valid()) {
+                if (ending.wait_for(std::chrono::milliseconds(1500)) != std::future_status::ready) continue;
+                const LiveText t = ending.get();
+                if (!t.ok || t.text.empty()) continue;
+                std::lock_guard<std::mutex> lk(mtx);
+                if (liveFor != id) {
+                    liveFor = id;
+                    liveSaid.clear();
+                }
+                liveText = text = applyWordFixes(t.text, c.words);
+                liveDone = done = true;
+                seen = ++liveSeq;
+                showLive();
+            }
+            if (cancel) continue;
+            translateLive(id, text, done, c, tr);
+        }
+    }
+
     // Which voice this is, among the ones heard this session (a best guess; see VoiceBook). mtx held.
     // Lines already in the feed follow when a voice gets its number or two turn out to be one.
     int voiceIdOf(const VoicePrint& p) {
@@ -480,7 +723,26 @@ struct Listener::Impl {
         Transcript t;
         std::string err;
         const bool events = c.soundLabels || c.ignoreNoise;
-        if (!api.transcribeTurns(job.pcm, c.s.fromLang, c.s.tellApart, t, err, events, c.soundLabels)) { fail(job.id, err); return; }
+        const Clock::time_point tStart = Clock::now();
+        // Streamed while they talked, and nothing is wanted that only the regular pass gives (who said
+        // what, sounds): its words are here already, so the audio isn't sent a second time.
+        bool fromLive = false;
+        // ("Ignore noise" needs nothing more: words came, so it wasn't only noise.)
+        if (job.live.valid() && !c.s.tellApart && !c.soundLabels &&
+            job.live.wait_for(std::chrono::milliseconds(1500)) == std::future_status::ready) {
+            const LiveText lt = job.live.get();
+            if (lt.ok && !lt.text.empty()) {
+                SpeakerTurn turn;
+                turn.text = t.text = lt.text;
+                t.language = lt.language;  // languageSure stays 0: each line's language is checked below
+                t.words = roughWords(lt.text);
+                t.turns.push_back(turn);
+                fromLive = true;
+            }
+        }
+        if (!fromLive && !api.transcribeTurns(job.pcm, c.s.fromLang, c.s.tellApart, t, err, events, c.soundLabels)) { fail(job.id, err); return; }
+        const int sttMs = msSince(tStart);
+        int trMs = 0;
 
         const Language* to = findLanguage(c.s.toLang);
         const Language* from = findLanguage(c.s.fromLang.empty() ? t.language : c.s.fromLang);
@@ -611,6 +873,10 @@ struct Listener::Impl {
             return v;
         };
         std::vector<size_t> turnOf;  // which turn each line came from
+        // Lines whose voice is to be named. With the recognition model, each one's fingerprint is
+        // worked out while the translation is on its way, so naming them comes after it.
+        struct ToName { size_t line; VoicePrint vp; std::vector<std::pair<float, float>> spans; };
+        std::vector<ToName> toName;
         for (size_t ti = 0; ti < t.turns.size(); ++ti) {
             const SpeakerTurn& turn = t.turns[ti];
             if (c.s.onlyOtherLanguages && lineSame(ti)) continue;  // only the other languages are wanted
@@ -622,6 +888,7 @@ struct Listener::Impl {
             if (c.voiceIds) {
                 VoicePrint vp;
                 bool printed = false;
+                std::vector<std::pair<float, float>> solo;  // this person's own moments
                 const std::vector<std::pair<float, float>> mine = spansOf(turn);
                 if (several && !mine.empty()) {
                     // Only this person's own moments: not while anyone else talked, and (with stereo)
@@ -632,10 +899,12 @@ struct Listener::Impl {
                             for (const auto& sp : spansOf(t.turns[k])) others.push_back(sp);
                     float dir = 0;
                     const bool hasDir = stereo && panOver(job.pcm, job.pan, turn.start, turn.end, dir);
-                    printed = voicePrintSpans(job.pcm, soloSpans(mine, others, job.pan, dir, hasDir), vp);
+                    solo = soloSpans(mine, others, job.pan, dir, hasDir);
+                    printed = voicePrintSpans(job.pcm, solo, vp);
                     vp.pan = dir;
                     vp.hasPan = hasDir;
                 } else {
+                    solo.push_back({several ? turn.start : 0.f, several ? turn.end : float(job.pcm.size()) / 16000.f});
                     printed = voicePrint(job.pcm, several ? turn.start : -1.f, several ? turn.end : -1.f, vp);
                     float dir = 0;
                     if (printed && stereo && panOver(job.pcm, job.pan, several ? turn.start : 0.f,
@@ -644,14 +913,40 @@ struct Listener::Impl {
                         vp.hasPan = true;
                     }
                 }
-                if (printed) {
-                    std::lock_guard<std::mutex> lk(mtx);
-                    line.voiceId = voiceIdOf(vp);
-                }
+                if (printed) toName.push_back({lines.size(), vp, solo});
             }
             lines.push_back(std::move(line));
             turnOf.push_back(ti);
         }
+
+        // Fingerprints, off to the side: started now, collected after the translation.
+        std::future<void> printing;
+        VoiceId* engine = c.voiceModel ? voiceIdEngine() : nullptr;
+        if (engine && !toName.empty() && engine->installed())
+            printing = std::async(std::launch::async, [&toName, &job, engine] {
+                std::vector<float> sound;
+                for (ToName& n : toName) {
+                    sound.clear();
+                    for (const auto& sp : n.spans) {
+                        const size_t a = size_t(std::max(0.f, sp.first) * 16000.f), b = std::min(job.pcm.size(), size_t(std::max(0.f, sp.second) * 16000.f));
+                        for (size_t i = a; i < b; ++i) sound.push_back(float(job.pcm[i]) / 32768.f);
+                    }
+                    engine->fingerprint(sound.data(), sound.size(), n.vp.fp);  // empty when there's too little
+                    // Is it one voice? The speech service sometimes writes two people down as one
+                    // (talking over each other, or one right after the other). With three seconds or
+                    // more, the two halves are fingerprinted too: one person's halves are alike, two
+                    // people's are not, and a blend of two voices must never be learned as a person.
+                    if (!n.vp.fp.empty() && sound.size() >= 16000 * 3) {
+                        const size_t half = sound.size() / 2;
+                        std::vector<float> a, b;
+                        if (engine->fingerprint(sound.data(), half, a) && engine->fingerprint(sound.data() + half, sound.size() - half, b) &&
+                            likeness(a, b) < 0.25f) {
+                            n.vp.mixed = true;
+                            n.vp.fp.clear();
+                        }
+                    }
+                }
+            });
 
         // Translate the lines that need it, all of a caption in one request where possible.
         if (to) {
@@ -670,10 +965,12 @@ struct Listener::Impl {
                 std::vector<std::string> outs;
                 std::vector<int> genders;
                 std::string why;
+                const Clock::time_point tTr = Clock::now();
                 if (!translator.translateLines(setup, texts, froms, voices, *to, outs, genders, why)) {
                     fail(job.id, why);  // cancelled
                     return;
                 }
+                trMs = msSince(tTr);
                 static std::string lastVia;  // say when another service had to step in, and when that ends
                 if (translator.via != lastVia && (translator.via.find('(') != std::string::npos || lastVia.find('(') != std::string::npos))
                     logLine("Listen translated with " + translator.via);
@@ -687,6 +984,32 @@ struct Listener::Impl {
                     if (genders[k]) line.voice = genders[k];  // their words beat a guess from the voice
                     line.original = line.text;
                     line.text = outs[k];
+                }
+            }
+        }
+
+        if (printing.valid()) printing.get();
+        if (!toName.empty()) {
+            std::lock_guard<std::mutex> lk(mtx);
+            bool any = false;
+            for (const ToName& n : toName) any = any || !n.vp.fp.empty() || n.vp.mixed;
+            if (any) voices.setMax(12);  // fingerprints keep a dozen voices apart; the built-in way stays at six
+            for (const ToName& n : toName) {
+                lines[n.line].voiceId = voiceIdOf(n.vp);
+                // Now and then, how sure it was, so the log can show whether voices are being told apart.
+                static std::atomic<int> count{0};
+                // (Every fifth line, and every line that wasn't a plain match: those are the ones to look at.)
+                const std::string why = voices.lastWhy();
+                const bool plain = why == "matched";
+                if ((!n.vp.fp.empty() && voices.lastNearest() >= 0 && (!plain || ++count % 5 == 1)) || n.vp.mixed) {
+                    char b[240];
+                    if (n.vp.mixed)
+                        std::snprintf(b, sizeof(b), "Voice fingerprints: %s.", why.c_str());
+                    else
+                        std::snprintf(b, sizeof(b), "Voice fingerprints: this line is %.2f like the nearest known voice, %.2f like the next (1 = the same): %s%s.",
+                                      voices.lastNearest(), std::max(0.f, voices.lastNext()), why.empty() ? "no answer" : why.c_str(),
+                                      lines[n.line].voiceId >= 0 && lines[n.line].voiceId < 100 ? (", Voice " + std::to_string(lines[n.line].voiceId + 1)).c_str() : "");
+                    logLine(b);
                 }
             }
         }
@@ -714,6 +1037,19 @@ struct Listener::Impl {
             cap.sure = sure && from;
             cap.lines = std::move(lines);
             lastMs = msSince(job.heard);
+            lastSttMs = sttMs;
+            lastTrMs = trMs;
+            {   // where the time went, when a caption was slow (and now and then anyway)
+                static std::atomic<int> count{0};
+                const int total = msSince(job.heard), n = ++count;
+                if (total > 2500 || n % 25 == 1) {
+                    char b[200];
+                    std::snprintf(b, sizeof(b), "Listen: caption %.1f s after they stopped (%.1f s of speech: words %.1f s, translation %.1f s, waiting %.1f s).",
+                                  total / 1000.0, job.pcm.size() / 16000.0, sttMs / 1000.0, trMs / 1000.0,
+                                  std::max(0, total - sttMs - trMs) / 1000.0);
+                    logLine(b);
+                }
+            }
             if (c.s.chatbox) chatText = chat;  // only the newest caption is worth sending
             ++version;
             break;
@@ -768,6 +1104,10 @@ void Listener::start() {
     if (p_->running.exchange(true)) return;
     p_->cancel = false;
     p_->ctxOk = ma_context_init(nullptr, 0, nullptr, &p_->ctx) == MA_SUCCESS;
+    p_->liveStt = p_->liveHost.empty() ? std::make_unique<LiveStt>() : std::make_unique<LiveStt>(p_->liveHost);
+    p_->liveStt->onPartial = [this](const std::string& words) { p_->onLiveWords(words); };
+    p_->liveStt->onLog = [](const std::string& line) { logLine("Listen, live words: " + line); };
+    p_->liveTrThread = std::thread([this] { p_->liveTranslateLoop(); });
     p_->capThread = std::thread([this] { p_->captureLoop(); });
     for (int i = 0; i < kWorkers; ++i) p_->workers.emplace_back([this] { p_->workerLoop(); });
 }
@@ -778,14 +1118,25 @@ void Listener::stop() {
     {
         std::lock_guard<std::mutex> lk(p_->mtx);
         p_->cv.notify_all();
+        p_->liveCv.notify_all();
     }
     p_->capThread.join();
+    p_->liveAccept = false;
+    p_->liveThis = false;
     if (p_->liveThread.joinable()) p_->liveThread.join();
+    if (p_->liveTrThread.joinable()) p_->liveTrThread.join();
+    p_->liveStt.reset();
+    {
+        std::lock_guard<std::mutex> lk(p_->mtx);
+        p_->liveEnds.clear();
+    }
     for (std::thread& w : p_->workers) w.join();
     p_->workers.clear();
     if (p_->convOn) { ma_data_converter_uninit(&p_->conv, nullptr); p_->convOn = false; }
     if (p_->ctxOk) { ma_context_uninit(&p_->ctx); p_->ctxOk = false; }
 }
+
+void Listener::useLiveHost(const std::string& host) { p_->liveHost = host; }
 
 void Listener::configure(const ListenConfig& c) {
     std::lock_guard<std::mutex> lk(p_->mtx);
@@ -845,6 +1196,9 @@ ListenState Listener::state() const {
     s.busy = p_->busy > 0;
     s.levelDb = p_->levelDb;
     s.lastMs = p_->lastMs;
+    s.sttMs = p_->lastSttMs;
+    s.translateMs = p_->lastTrMs;
+    s.streaming = p_->liveAccept;
     return s;
 }
 

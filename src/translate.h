@@ -45,6 +45,14 @@ struct TranslateSetup {
     // A line the online AI declines goes to the model on this PC first (when one is loaded), before
     // DeepL, Microsoft or Free: it still words it like a person would.
     bool localOnDecline = false;
+    // Speed (all of them leave the instructions, the dialect and the speech level exactly as they are,
+    // except shortToPlain, which says so):
+    bool stream = true;         // read the AI's answer as it arrives: one that has begun by the time limit is
+                                // allowed to finish, instead of being thrown away for a textbook backup
+    bool priority = false;      // Gemini and OpenAI: ask for their faster service tier (costs more per token)
+    bool shortToPlain = false;  // a line of one to three words goes straight to DeepL or Microsoft (fast, but
+                                // in the standard language: no dialect, no speech level)
+    bool rememberLines = false; // a short line this AI already translated the same way is answered from memory
     std::string claudeModel = "claude-haiku-5-5";
     std::string geminiModel = "gemini-3.5-flash-lite";
     std::string openaiModel = "gpt-6-luna";
@@ -158,4 +166,10 @@ private:
     // little each time that language runs out of time and shrinks when it answers with room to
     // spare, never past double the limit.
     std::map<std::string, int> extraMs_;
+    // Remembered lines (TranslateSetup::rememberLines): what the AI answered for a short line, by
+    // everything that shapes the answer (model, languages, dialect, speech level, who is speaking).
+    // Only in memory, only this session, the oldest dropped first.
+    struct Remembered { std::string out; int gender = 0; };
+    std::map<std::string, Remembered> remembered_;
+    std::vector<std::string> rememberedOrder_;
 };

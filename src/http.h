@@ -20,6 +20,12 @@ struct HttpRequest {
     long timeoutMs = 0;  // when set, used instead of timeoutSec (whole request, in milliseconds)
     bool followRedirects = false;  // e.g. GitHub release downloads, which redirect to a file server
     long stallSec = 0;  // when set: give up if (almost) nothing arrives for this long (big downloads)
+    // An answer read as it arrives (with a sink): the sink sets `started` once the answer itself has
+    // begun. If it hasn't by startByMs, the request is given up as timed out; once it has, it may run
+    // on until timeoutMs. So a slow service is dropped as early as before, and an answer that is
+    // already coming in isn't thrown away a few words before its end.
+    const std::atomic<bool>* started = nullptr;
+    long startByMs = 0;
 };
 
 // Not thread-safe: use one Http per thread.

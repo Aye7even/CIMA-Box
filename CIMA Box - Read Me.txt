@@ -1,4 +1,4 @@
-CIMA Box 3.1.1
+CIMA Box 3.1.2
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -18,7 +18,8 @@ dot next to it means that part is on right now:
   Listen     Captions of what other people say, translated into your language.
   VR         Shows those captions (and your own words, if you like) on a small floating panel
              inside your headset, in any SteamVR game.
-  Features   Extras you can turn on one by one: screen translation, a voice reading captions
+  Extra features
+             Extras you can turn on one by one: screen translation, a voice reading captions
              in your ear, quick phrases, profiles and more.
 
 Settings (your keys, hotkeys, the app's language and the look) is at the bottom left, under the
@@ -100,6 +101,13 @@ You right now
   All voice settings ....... Opens My voice, which has everything else: dialect, how you talk,
                              the translation service, the model, gender, the mic, fine-tuning...
   You said / They heard .... The last line.
+  Say each sentence as soon
+  as it's finished ......... Optional, off at first (My voice > translation service). When
+                             you say several sentences without a pause, the first is
+                             translated and spoken while you're still on the next. The
+                             words after it wait for the rest of their own sentence. Needs
+                             Live transcription. If words go missing between sentences,
+                             turn it off.
   Start translating before
   I finish talking ......... Optional, off at first (My voice > translation service). During
                              the pause at the end of a sentence, the words so far are
@@ -238,6 +246,15 @@ Voice and language
                                Light (Gemma 4 E2B, 2.6 GB): most PCs, about 4 GB of free memory.
                                Balanced (Gemma 4 E4B, 4.2 GB): a graphics card with 8 GB or more.
                                Best (Gemma 4 12B, 6.7 GB): a graphics card with 12 GB or more.
+                             For big graphics cards there is also Qwen 3.8 27B Uncensored, a model
+                             with its refusals removed: it translates swearing and crude lines as
+                             they were said, where the others soften or decline them. Same model,
+                             three sizes:
+                               Light (13.1 GB): a graphics card with 16 GB; tight next to a game.
+                               Balanced (17.7 GB): a graphics card with 24 GB.
+                               Best (21 GB): a graphics card with 32 GB.
+                             It is much bigger and slower than Gemma, and CIMA Box never picks it
+                             for you: it is only used when you choose it yourself.
                              CIMA Box checks your graphics card and memory and says how each
                              model would do on your PC: Good fit, Tight (fits, but a game wants
                              that memory too), Slow here (processor only) or Not for this PC.
@@ -285,6 +302,29 @@ Voice and language
     Match how they talk to me  Also gives the AI the last few lines other people said (from the
                              Listen page), so it picks up their words. Your style stays; it only
                              leans a little toward theirs. Needs Listen on.
+    Read the AI's answer as it arrives
+                             On by default. The AI's answer is read piece by piece instead of
+                             all at once. An answer that has begun by the Time limit gets a
+                             moment more (about a second) to finish, instead of being dropped
+                             for DeepL's plain version, so more lines keep your dialect and
+                             speech level. A stuck service is still dropped at the limit.
+                             Nothing is used before it is whole, and half an answer is never
+                             used: the line is asked again the usual way.
+    Faster service tier (costs more)
+                             Off by default; shown for Gemini and OpenAI. Asks for their
+                             priority tier: sooner answers at a higher price per token (up to
+                             double). Gemini only has it for paid projects. If your account
+                             or model doesn't have it, CIMA Box carries on without it.
+    Remember repeated lines
+                             Off by default. A short line (up to six words) this AI already
+                             translated with the same language, dialect, speech level and
+                             speaker is answered at once and costs nothing. It comes out the
+                             same way every time, whatever the conversation around it.
+                             Kept in memory only; forgotten when CIMA Box closes.
+    Short lines skip the AI
+                             Off by default; needs a DeepL or Microsoft key. Lines of one to
+                             three words go straight to DeepL or Microsoft: much faster, but
+                             in the standard language, without your dialect or speech level.
     Time limit ............. If the AI hasn't answered by then (2 seconds by default), that phrase
                              uses DeepL (if you added a key) or Free instead. With a dialect it
                              waits a little longer, and a language that keeps running out of
@@ -399,7 +439,7 @@ For when you can't or don't want to talk. Type at the bottom and press Enter (or
 
 Typed messages work even when the My voice switch is off.
 
-With some Features turned on, the Text page also shows:
+With some Extra features turned on, the Text page also shows:
   Quick phrases ............ A row of buttons above the box: click one to say it.
   Will say ................. With "Cancel before it's spoken", a bar showing what the voice is
                              about to say, with a Cancel button.
@@ -421,6 +461,16 @@ Listen to
   Input .................... A recording device, such as a virtual cable or a second mic.
   Opens above .............. Put the marker above the game's background sound and below the
                              voices. Loud music above the marker gets transcribed too.
+  In a crowd, caption ...... Everyone: all it can hear. With many people talking at once,
+                             captions get mixed up, because CIMA Box only gets one mix of
+                             everybody.
+                             Nearby: only the loudest voices, which in VRChat are the
+                             people closest to you. Chatter further away gets no captions.
+                             In front: only the voice you're facing. Sound from the sides
+                             is turned down before it's written down. It can't tell in
+                             front from behind, and needs stereo sound (an application or
+                             your speakers).
+                             VRChat's own Earmuff Mode (its audio settings) helps too.
   Captions appear .......... Sooner: fastest, but half sentences translate worse.
                              Balanced: splits at natural pauses.
                              Fuller: waits for whole sentences, best wording.
@@ -556,8 +606,13 @@ Hearing and reading
   Hear them in my ear ...... A voice reads the translated captions in your headphones. Pick the
                              voice, where it plays and how loud. Needs Listen on, and uses
                              ElevenLabs credits for every caption.
-  Captions while they talk . Words show up while someone is still speaking, then the translation
-                             replaces them. Uses more ElevenLabs credits.
+  Captions while they talk . Their voice is streamed to ElevenLabs as they speak, so their words
+                             show up within a moment. With "Translate each sentence right
+                             away" (and an AI translation service on the Listen page), each
+                             sentence is translated as soon as it's finished: you read the
+                             first one while they say the next. When they stop, the finished
+                             caption replaces it. Uses more ElevenLabs credits, and more AI
+                             requests with the sentence translation on.
   Captions ................. Hide swearing (f***), sound labels ([laughs], [music]), skip music
                              and noise, big high-contrast captions, and guessing gender from
                              their words (for languages where it changes how you answer).
@@ -573,6 +628,20 @@ Hearing and reading
                              only from moments when that person talks alone. Similar voices in
                              the same spot (or a mono game like Discord) can still be mixed up.
                              Right-click a line to mute that voice.
+                             Voice fingerprints (optional, for busy rooms): "Get voice
+                             fingerprints" under this switch downloads a small speaker-
+                             recognition model (about 45 MB; sherpa-onnx with ONNX Runtime,
+                             both open source). Voices are then recognized by the model, on
+                             your PC, instead of by pitch and tone alone: up to twelve people
+                             keep their number, and similar voices are mixed up far less. It
+                             adds no delay (it runs while the translation is on its way),
+                             sends nothing anywhere new and costs nothing per caption. It
+                             would rather leave a line without a number than guess: a line
+                             under about a second is only named when it clearly continues
+                             whoever just spoke, a line that could be either of two people
+                             stays unnamed, and two people talking over each other are not
+                             learned as one voice. Delete it from the same place; without
+                             it everything works as before.
   Caption window over the game
                              A small see-through window of captions on top of your game. Games
                              must run in borderless windowed mode, not fullscreen. "Clicks go

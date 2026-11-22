@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CIMABox VERSION 3.1.1 LANGUAGES C CXX)
+project(CIMABox VERSION 3.1.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -93,6 +93,8 @@ add_executable(cimabox
   src/localai.cpp
   src/pcspecs.cpp
   src/early.cpp
+  src/focus.cpp
+  src/voiceid.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${IMGUI_DRAW_RTL}
   ${imgui_SOURCE_DIR}/imgui_tables.cpp

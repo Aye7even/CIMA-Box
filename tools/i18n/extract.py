@@ -107,11 +107,12 @@ def keep(s):
     if s.endswith('.exe') or s.endswith('.dll'): return False
     return True
 drop={'Google Gemini','meaning','mic','out','check','share','stop','sound','CABLE Input (VB-Audio ...)','CABLE Output (VB-Audio ...)','chatbox','emotion','listen','vr','#','Ctrl F','CIMA Box','CABLE Input','CABLE Output','ElevenLabs','textvoice','listensource','vrplace','vrlook','setapp','setkeys','setkeys2','input','output','fxtalk','fxhear','fxmore','langs','try','keys','captions','overlay','phrases','words','learn','history','profiles','cancel','answer','swear','best','screen','ear','live','mine','around','deeplwords','lookpreset','SteamVR: ','Waiting for ',' to start.',
-      'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s'}
+      'Listening to ','Listening to everything playing on ','settings-folder','documents','program','%.1f s','%.2f m','%+.2f m','%.0f%%','%d s','%.0f MB'}
 # the translation service dropdown: what each service is (the names are brands, apart from these)
 _i=_ui.index('static const Choice kChoices[] = {'); _blk=_ui[_i:_ui.index('};', _i)]
 for _row in re.findall(r'\{k\w+, "[^"]*", "[^"]*"\}', _blk): found.append(literals(_row)[1])
-found += ['Free','Local','Gemini','Good fit','Tight','Slow here','Not for this PC']
+found += ["Voice fingerprints couldn't be loaded on this PC. Voices are matched the built-in way.","Couldn't save the download.","This version of CIMA Box has no voice fingerprint pack yet.","The download failed. Check your connection and try again.","The download couldn't be unpacked.","The download was incomplete."]
+found += ['Free','Local','Gemini','Good fit','Tight','Push to talk key','Voice style','Voice speed','Volume others hear','Volume in my headphones','Match my microphone: amount','VR captions: distance','VR captions: height','VR captions: sideways','VR captions: size','VR captions: lines','VR captions: panel','Hear them in my ear: volume','Slow here','Not for this PC']
 # models on this PC: the catalog's words and LocalAi's messages (shown through T())
 _lc=open(src+'localai.cpp').read()
 _i=_lc.index('static const std::vector<LocalModel> k = {'); _cat=_lc[_i:_lc.index('};', _i)]

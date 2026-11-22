@@ -78,11 +78,39 @@ jobs:
           # is a permanent link to the newest version.
           Compress-Archive -Path dist/* -DestinationPath "CIMABox-windows.zip"
 
+      # The optional download behind "Download voice fingerprints" in the app: the speaker-recognition
+      # model and the open-source library that runs it (sherpa-onnx with ONNX Runtime, Apache 2.0),
+      # fetched from that project's own releases and attached to ours, so the app only ever asks
+      # this repository. If this step fails the release still goes out; only that button won't work.
+      - name: Voice fingerprint pack
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHERPA_VERSION: v2.0.3
+        run: |
+          set -euo pipefail
+          mkdir -p vp/in vp/out
+          gh release download "$SHERPA_VERSION" --repo k2-fsa/sherpa-onnx --dir vp/in \
+            --pattern 'sherpa-onnx-v*-win-x64-shared-MT-Release-lib.tar.bz2'
+          # (the tag's spelling is theirs)
+          gh release download speaker-recongition-models --repo k2-fsa/sherpa-onnx --dir vp/in \
+            --pattern 'wespeaker_en_voxceleb_CAM++.onnx'
+          tar -xjf vp/in/*.tar.bz2 -C vp/in
+          find vp/in -name '*.dll' -exec cp {} vp/out/ \;
+          cp 'vp/in/wespeaker_en_voxceleb_CAM++.onnx' vp/out/voice.onnx
+          test -f vp/out/sherpa-onnx-c-api.dll
+          test -f vp/out/onnxruntime.dll
+          ls -la vp/out
+          (cd vp/out && 7z a -tzip ../../cimabox-voiceid-win-x64.zip ./* > /dev/null)
+
       - name: Publish the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          extra=""
+          if [ -f cimabox-voiceid-win-x64.zip ]; then extra="cimabox-voiceid-win-x64.zip"; fi
           gh release create "$GITHUB_REF_NAME" \
-            build/Release/CIMABox.exe build/Release/CIMABox.exe.sig CIMABox-windows.zip \
+            build/Release/CIMABox.exe build/Release/CIMABox.exe.sig CIMABox-windows.zip $extra \
             --title "CIMA Box ${GITHUB_REF_NAME#v}" --notes-file release-notes.md

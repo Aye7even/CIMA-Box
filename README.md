@@ -53,7 +53,7 @@ ever stops updating, it fixes itself (or press Reset VR captions).
 
 ![The VR page, with a preview of the caption panel](docs/vr.png)
 
-**Features**: extras you turn on one at a time, so the app stays simple if you don't need them.
+**Extra features**: extras you turn on one at a time, so the app stays simple if you don't need them.
 - **Screen translation**: pick a window, take a snapshot, drag over the text and press Translate.
   Or let it watch a chat box and translate new lines by itself. Reads on your PC for free, or with
   AI for any language.
@@ -65,7 +65,7 @@ ever stops updating, it fixes itself (or press Reset VR captions).
 - **Quick phrases**, **your own word list**, **learning mode** (how to read a line, replay, save),
   a searchable **history**, and **profiles** you can share with friends as a code (never with keys).
 
-![The Features page: screen translation, extras for talking, and handy tools](docs/features.png)
+![The Extra features page: screen translation, extras for talking, and handy tools](docs/features.png)
 
 **Mini window**: shrink CIMA Box to a small window that stays on top of your game, with the last
 line, the mode, Stop and the switch.
@@ -88,8 +88,11 @@ and Hebrew are shown right to left with joined letters, in the app and in VR.
 - Optional, for natural translation: a [Claude](https://console.anthropic.com),
   [Gemini](https://aistudio.google.com) or [OpenAI](https://platform.openai.com) API key (a
   fraction of a cent per sentence), or [DeepL](https://www.deepl.com/pro-api).
+  [Microsoft Translator](https://azure.microsoft.com/products/ai-services/ai-translator) works too,
+  with a free Azure key.
   Or no key at all: **Local** runs a translation model on your own PC (free, private, works offline;
-  2.6 to 6.7 GB to download, best with a graphics card).
+  Gemma 4 at 2.6 to 6.7 GB, best with a graphics card, or the uncensored Qwen 3.8 at 13 to 21 GB
+  for big graphics cards).
 - For VR captions: SteamVR.
 
 ## Getting started
@@ -147,6 +150,23 @@ Every button and setting is explained in **[`CIMA Box - Read Me.txt`](CIMA%20Box
   log file shows what went wrong (it never contains your keys), so you can send it to whoever helps
   you.
 - What changed in each version: [CHANGELOG.md](CHANGELOG.md).
+
+## Powered by
+
+CIMA Box is the glue. The voices, the words and the translations come from these, on your own keys
+or your own PC:
+
+| | What it does in CIMA Box |
+|---|---|
+| **[ElevenLabs](https://elevenlabs.io)** | Every voice you speak with, and writing down what you and others say |
+| **[Claude](https://www.anthropic.com/claude)** (Anthropic), **[Gemini](https://ai.google.dev)** (Google), **[OpenAI](https://platform.openai.com)** | Translations that sound like a person: slang, dialects, tone |
+| **[DeepL](https://www.deepl.com)**, **[Microsoft Azure Translator](https://azure.microsoft.com/products/ai-services/ai-translator)**, **[MyMemory](https://mymemory.translated.net)** | Fast, accurate wording, and the backup when an AI is slow (MyMemory needs no key) |
+| **[Gemma 4](https://ai.google.dev/gemma)** (Google), **[Qwen 3.8](https://huggingface.co/Qwen)** (Alibaba) | The Local models that translate on your own PC, run by **[llama.cpp](https://github.com/ggml-org/llama.cpp)** |
+| **[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)** with a WeSpeaker model | Voice fingerprints: telling who is who in a busy room |
+| **[SteamVR](https://store.steampowered.com/app/250820/SteamVR/)** (OpenVR), **[Dear ImGui](https://github.com/ocornut/imgui)**, **[miniaudio](https://miniaud.io)**, **[curl](https://curl.se)** | Captions in your headset, the window, sound in and out, and talking to the internet |
+
+CIMA Box is an independent, free project. It isn't made, sponsored or endorsed by any of these
+companies; their names belong to them.
 
 ## Credits
 

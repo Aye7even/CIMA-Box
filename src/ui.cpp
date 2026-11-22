@@ -54,7 +54,8 @@ const ImVec4 kBusy = rgb(0x8FB2F2);
 const ImVec4 kDanger = rgb(0xF08484);
 ImVec4 kVoices[] = {kSignal, kBusy, rgb(0x7FD6A4), rgb(0xE59AD0)};  // speakers inside one caption
 // The same person keeps the same colour across captions (Features > Same voice, same color).
-const ImVec4 kPeople[] = {rgb(0x7FD6A4), rgb(0xE59AD0), rgb(0x8EC5FF), kBusy, rgb(0xB9A3FF), rgb(0xFF9E8A), rgb(0xD7E37A), rgb(0x6FD3D0)};
+const ImVec4 kPeople[] = {rgb(0x7FD6A4), rgb(0xE59AD0), rgb(0x8EC5FF), kBusy, rgb(0xB9A3FF), rgb(0xFF9E8A), rgb(0xD7E37A), rgb(0x6FD3D0),
+                           rgb(0xF2C078), rgb(0xA8E6FF), rgb(0xFFB3C7), rgb(0xC3F0B0)};  // twelve, for voice fingerprints
 float gPanelAlpha = 1.f;             // below 1 when a background picture shows through the panels
 
 ImFont* gSemibold = nullptr;
@@ -226,6 +227,8 @@ void fieldLabel(const char* text) {
                                                      ImGui::GetItemRectMax().y + ImGui::GetFrameHeight()));
 }
 
+void voicePackRows(UiModel& m, UiActions& act);
+
 // Small muted help text. Translated when the whole text is a known one.
 void note(const std::string& text, const ImVec4& color = kMuted) {
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.9f);
@@ -283,16 +286,18 @@ void drawSwitch(ImVec2 pos, float h, bool on, bool hovered, ImGuiID animId) {
 bool toggleRow(const char* label, bool* v) {
     const bool glow = jumpAnchor(label);
     ImGui::PushID(label);
-    const float h = ImGui::GetFrameHeight(), w = ImGui::GetContentRegionAvail().x;
+    const float w = ImGui::GetContentRegionAvail().x;
     const float sh = std::floor(em() * 1.2f);
+    // A label too long for the row goes onto a second line (never cut off): the row grows with it.
+    const std::string text = shown(label);
+    const float room = std::max(em() * 4.f, w - sh * 2.4f);
+    const ImVec2 ts = ImGui::CalcTextSize(text.c_str(), nullptr, false, room);
+    const float h = std::max(ImGui::GetFrameHeight(), ts.y + ImGui::GetStyle().FramePadding.y * 2.f);
     const ImVec2 p = ImGui::GetCursorScreenPos();
     if (glow) jumpGlow(p, ImVec2(p.x + w, p.y + h));
     const bool pressed = ImGui::InvisibleButton("##row", ImVec2(w, h));
     if (pressed) *v = !*v;
-    const std::string text = shown(label);
-    ImGui::GetWindowDrawList()->PushClipRect(p, ImVec2(p.x + w - sh * 2.2f, p.y + h), true);
-    ImGui::GetWindowDrawList()->AddText(ImVec2(p.x, p.y + (h - em()) * 0.5f), col(kText), text.c_str());
-    ImGui::GetWindowDrawList()->PopClipRect();
+    ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(p.x, p.y + (h - ts.y) * 0.5f), col(kText), text.c_str(), nullptr, room);
     drawSwitch(ImVec2(p.x + w - sh * 1.8f, p.y + (h - sh) * 0.5f), sh, *v, ImGui::IsItemHovered(), ImGui::GetID("##anim"));
     ImGui::PopID();
     return pressed;
@@ -301,15 +306,24 @@ bool toggleRow(const char* label, bool* v) {
 // One choice out of a few, shown side by side.
 bool segmented(const char* id, const char* const* labels, int count, int* value, float width = 0.f) {
     ImGui::PushID(id);
-    const float h = ImGui::GetFrameHeight(), w = width > 0.f ? width : ImGui::GetContentRegionAvail().x;
-    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float rowH = ImGui::GetFrameHeight(), w = width > 0.f ? width : ImGui::GetContentRegionAvail().x;
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
     const float r = ImGui::GetStyle().FrameRounding;
-    const float pad = std::floor(h * 0.1f), segW = (w - pad * 2) / count;
+    const float pad = std::floor(rowH * 0.1f);
+    // Side by side when every word fits (a little smaller is fine); otherwise on two or more rows,
+    // so nothing is cut off in a narrow column or a wordy language.
+    float widest = 0.f;
+    for (int i = 0; i < count; ++i) widest = std::max(widest, ImGui::CalcTextSize(shown(labels[i]).c_str()).x);
+    int perRow = count;
+    while (perRow > 1 && widest * 0.88f > (w - pad * 2) / perRow - pad * 2) perRow = (perRow + 1) / 2;
+    const int rows = (count + perRow - 1) / perRow;
+    const float segW = (w - pad * 2) / perRow, h = rowH;
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col(kField), r);
+    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + rowH * rows), col(kField), r);
     bool changed = false;
     for (int i = 0; i < count; ++i) {
-        const ImVec2 a(p.x + pad + segW * i, p.y + pad), b(a.x + segW, p.y + h - pad);
+        const ImVec2 p(p0.x, p0.y + rowH * float(i / perRow));
+        const ImVec2 a(p.x + pad + segW * float(i % perRow), p.y + pad), b(a.x + segW, p.y + h - pad);
         ImGui::SetCursorScreenPos(ImVec2(a.x, p.y));
         if (ImGui::InvisibleButton(labels[i], ImVec2(segW, h)) && *value != i) {
             *value = i;
@@ -333,6 +347,8 @@ bool segmented(const char* id, const char* const* labels, int count, int* value,
         if (hovered && ts.x > segW - 2) ImGui::SetTooltip("%s", text.c_str());  // still cut off: show it whole
         dl->PopClipRect();
     }
+    ImGui::SetCursorScreenPos(p0);
+    ImGui::Dummy(ImVec2(w, rowH * rows));
     ImGui::PopID();
     return changed;
 }
@@ -677,6 +693,11 @@ void translationService(Settings& c, bool forCaptions) {
         }
     }
     if (!forCaptions) {
+        toggleRow("Say each sentence as soon as it's finished", &c.speakSentences);
+        note(!c.speakSentences ? "Off: several sentences said without a pause are translated and spoken together."
+             : c.liveStt       ? "When you say several sentences in a row, the first is translated and spoken while you're still on the next. "
+                                 "New: if words go missing between sentences, turn it off."
+                               : "Needs Live transcription (Microphone).");
         toggleRow("Start translating before I finish talking", &c.earlyTranslate);
         note(!c.earlyTranslate ? "Off: a line is translated once you've finished it."
              : c.liveStt       ? "During the pause at the end of a sentence, the words so far are translated ahead of time. They're "
@@ -707,6 +728,25 @@ void translationService(Settings& c, bool forCaptions) {
         note(c.mirror ? "Uses the last few lines from the Listen captions to pick up their words. Your style above "
                         "stays; it only leans a little toward theirs. Needs Listen on."
                       : "Translates each phrase on its own.");
+    }
+    // Speed. None of these change the instructions the AI gets: the dialect and the speech level stay
+    // as they are, except where the note says otherwise.
+    toggleRow("Read the AI's answer as it arrives", &c.aiStream);
+    note(c.aiStream ? "An answer that has begun by the time limit gets a moment more to finish, instead of being dropped for a "
+                      "plain translation. Same words, same dialect, same speech level. Nothing is used before it's whole."
+                    : "Off: an answer that isn't finished at the time limit is dropped.");
+    if (c.translateService == kGemini || c.translateService == kOpenAI) {
+        toggleRow("Faster service tier (costs more)", &c.aiPriority);
+        note("Gemini and OpenAI answer sooner on their priority tier, at a higher price per token (up to double). Gemini only "
+             "has it for paid projects. If your account or model doesn't have it, CIMA Box carries on without it.");
+    }
+    toggleRow("Remember repeated lines", &c.rememberLines);
+    note("A short line this AI already translated, with the same settings, is answered at once and costs nothing. It comes out "
+         "the same way every time, whatever the conversation around it. Forgotten when CIMA Box closes.");
+    if (!c.deeplKey.empty() || !c.msKey.empty()) {
+        toggleRow("Short lines skip the AI", &c.shortToPlain);
+        note("Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without "
+             "your dialect or speech level.");
     }
     float seconds = c.aiTimeoutMs / 1000.f;
     if (sliderF("Time limit", &seconds, 0.8f, 4.f, "%.1f s")) c.aiTimeoutMs = int(seconds * 1000.f + 0.5f);
@@ -1247,6 +1287,7 @@ struct Findable {
     const char* section;   // the panel or card it's in (a label that is translated already)
     const char* words;     // more ways to say it, English, lower case
     bool* (*toggle)(Settings&);
+    const char* shown = nullptr;  // what to call it in the list, when the label alone says too little ("Volume")
 };
 #define TOGGLE(expr) [](Settings& c) -> bool* { return &c.expr; }
 const Findable kFindables[] = {
@@ -1254,15 +1295,15 @@ const Findable kFindables[] = {
     {"Quick toggles", kPageHome, "Home", "shortcuts tiles quick home toggles edit", nullptr},
     // My voice
     {"Microphone", kPageVoice, "Microphone", "mic input device", nullptr},
-    {"Local models", kPageVoice, "Voice and language", "local offline on this pc private free no key download model gemma llama graphics card", nullptr},
+    {"Local models", kPageVoice, "Voice and language", "local offline on this pc private free no key download model gemma qwen uncensored swearing llama graphics card", nullptr},
     {"Start talking by", kPageVoice, "Microphone", "push to talk voice activation ptt", nullptr},
     {"Hold or tap", kPageVoice, "Microphone", "push to talk tap toggle hold press once start stop", nullptr},
     {"While not holding the key", kPageVoice, "Microphone", "push to talk real voice between presses passthrough", nullptr},
     {"A VR controller button too", kPageVoice, "Microphone", "vr controller button steamvr index quest touch push to talk ptt vibration buzz", TOGGLE(vr.pttButton)},
-    {"Pause that ends a phrase", kPageVoice, "Microphone", "silence pause hold phrase end split", nullptr},
-    {"Wait for the rest of a sentence", kPageVoice, "Microphone", "sentence pause split broken grammar story wait join", nullptr},
+    {"Pause that ends a phrase", kPageVoice, "Microphone", "slow faster speed silence pause hold phrase end split", nullptr},
+    {"Wait for the rest of a sentence", kPageVoice, "Microphone", "slow faster speed sentence pause split broken grammar story wait join", nullptr},
     {"Longest phrase", kPageVoice, "Microphone", "long phrase max seconds split story", nullptr},
-    {"Live transcription", kPageVoice, "Microphone", "realtime real time streaming speech to text faster delay latency scribe", TOGGLE(liveStt)},
+    {"Live transcription", kPageVoice, "Microphone", "slow faster speed realtime real time streaming speech to text faster delay latency scribe", TOGGLE(liveStt)},
     {"Voice", kPageVoice, "Voice and language", "voice pick choose elevenlabs", nullptr},
     {"A voice for each language", kPageVoice, "Voice and language", "remember voice per language", TOGGLE(voicePerLanguage)},
     {"Model", kPageVoice, "Voice and language", "eleven model v3 v4 flash", nullptr},
@@ -1271,7 +1312,8 @@ const Findable kFindables[] = {
     {"Translation service", kPageVoice, "Voice and language", "claude gemini openai deepl free ai", nullptr},
     {"How you talk", kPageVoice, "Voice and language", "style polite casual very casual formal slang my own", nullptr},
     {"Match how they talk to me", kPageVoice, "Voice and language", "mirror match style", TOGGLE(mirror)},
-    {"Start translating before I finish talking", kPageVoice, "Voice and language", "early faster speed latency delay ahead head start pause", TOGGLE(earlyTranslate)},
+    {"Say each sentence as soon as it's finished", kPageVoice, "Voice and language", "sentence by sentence faster speed latency delay waits", TOGGLE(speakSentences)},
+    {"Start translating before I finish talking", kPageVoice, "Voice and language", "slow faster speed early faster speed latency delay ahead head start pause", TOGGLE(earlyTranslate)},
     {"Dialect", kPageVoice, "Voice and language", "accent region variety kansai gulf egyptian mexican", nullptr},
     {"I am", kPageVoice, "Voice and language", "gender man woman me", nullptr},
     {"Talking to", kPageVoice, "Voice and language", "gender listener who", nullptr},
@@ -1312,12 +1354,14 @@ const Findable kFindables[] = {
     {"Screen translation", kPageFeatures, "Hearing and reading", "screen ocr screenshot snapshot chat box read picture", nullptr},
     {"Hear them in my ear", kPageFeatures, "Hearing and reading", "ear read aloud tts headphones", TOGGLE(fx.hearThem)},
     {"Captions while they talk", kPageFeatures, "Hearing and reading", "live captions words", TOGGLE(fx.liveCaptions)},
-    {"Hide swearing (f***)", kPageFeatures, "Captions", "mask swear captions censor", TOGGLE(fx.maskCaptions)},
-    {"Sound labels ([laughs], [music])", kPageFeatures, "Captions", "laughs music sounds", TOGGLE(fx.soundLabels)},
-    {"Skip music and noise", kPageFeatures, "Captions", "music noise ignore", TOGGLE(fx.ignoreNoise)},
-    {"Big, high-contrast captions", kPageFeatures, "Captions", "big contrast readable large", TOGGLE(fx.highContrast)},
-    {"Same voice, same color", kPageFeatures, "Captions", "voice colors numbers mute person", TOGGLE(fx.voiceIds)},
-    {"Guess gender from their words", kPageFeatures, "Captions", "gender", TOGGLE(fx.genderFromWords)},
+    {"Hide swearing (f***)", kPageFeatures, "Caption options", "mask swear captions censor", TOGGLE(fx.maskCaptions)},
+    {"Sound labels ([laughs], [music])", kPageFeatures, "Caption options", "laughs music sounds", TOGGLE(fx.soundLabels)},
+    {"Skip music and noise", kPageFeatures, "Caption options", "music noise ignore", TOGGLE(fx.ignoreNoise)},
+    {"Big, high-contrast captions", kPageFeatures, "Caption options", "big contrast readable large", TOGGLE(fx.highContrast)},
+    {"Caption options", kPageFeatures, "Hearing and reading", "captions swearing sound labels noise contrast voices gender", nullptr},
+    {"Same voice, same color", kPageFeatures, "Caption options", "voice colors numbers mute person", TOGGLE(fx.voiceIds)},
+    {"Download", kPageFeatures, "Caption options", "voice fingerprint speaker recognition model who is talking crowd people tell apart", nullptr, nullptr},
+    {"Guess gender from their words", kPageFeatures, "Caption options", "gender", TOGGLE(fx.genderFromWords)},
     {"Caption window over the game", kPageFeatures, "Hearing and reading", "overlay window click through see-through", nullptr},
     {"Quick phrases", kPageFeatures, "Handy", "phrases buttons shortcuts", nullptr},
     {"My word list", kPageFeatures, "Handy", "names words spelling wrong", nullptr},
@@ -1337,6 +1381,90 @@ const Findable kFindables[] = {
     {"Updates", kPageSettings, "Hotkeys", "update version new", nullptr},
     {"Check when CIMA Box starts", kPageSettings, "Hotkeys", "update automatically", TOGGLE(checkUpdates)},
     {"Service status", kPageSettings, "Hotkeys", "status outage down working", nullptr},
+    // ---- everything else with a label, so nothing is out of reach of the search
+    // My voice: translation
+    {"Show what my translated line means", kPageVoice, "Voice and language", "which means check back translate meaning verify they heard what did it say wrong line", TOGGLE(showMeaning)},
+    {"Say each sentence as soon as it's finished", kPageVoice, "Voice and language", "sentence by sentence faster speed latency delay waits slow", TOGGLE(speakSentences)},
+    {"Use my AI key as a backup", kPageVoice, "Voice and language", "backup fallback second ai key local declines fails", TOGGLE(aiBackup)},
+    {"Use my other AI key as a backup", kPageVoice, "Voice and language", "backup fallback second ai key declines fails", TOGGLE(aiBackup)},
+    {"Send lines this AI declines or is too slow for to my local model", kPageVoice, "Voice and language", "local model backup fallback declined refused slow gemma qwen uncensored", TOGGLE(localOnDecline)},
+    {"Read the AI's answer as it arrives", kPageVoice, "Voice and language", "stream streaming speed fast slow latency delay time limit answer", TOGGLE(aiStream)},
+    {"Faster service tier (costs more)", kPageVoice, "Voice and language", "priority fast mode tier speed slow latency delay gemini openai cost", TOGGLE(aiPriority)},
+    {"Remember repeated lines", kPageVoice, "Voice and language", "cache memory repeat same line speed fast slow latency cost tokens", TOGGLE(rememberLines)},
+    {"Short lines skip the AI", kPageVoice, "Voice and language", "short words deepl microsoft speed fast slow latency skip", TOGGLE(shortToPlain)},
+    {"Time limit", kPageVoice, "Voice and language", "ai time limit timeout too slow seconds wait backup", nullptr},
+    {"Use the graphics card", kPageVoice, "Voice and language", "local model gpu graphics card processor cpu vram slow", TOGGLE(localGpu)},
+    // My voice: microphone
+    {"Opens above", kPageVoice, "Microphone", "threshold sensitivity gate level loud quiet background noise db", nullptr},
+    {"Key", kPageVoice, "Microphone", "push to talk key hotkey bind", nullptr, "Push to talk key"},
+    {"Buzz when recording starts and stops", kPageVoice, "Microphone", "vr controller vibration haptic buzz", TOGGLE(vr.buzz)},
+    // My voice: the voice
+    {"Gender", kPageVoice, "Voice and language", "gender man woman male female speaker listener talking to grammar", nullptr},
+    {"Stability", kPageVoice, "Voice and language", "voice settings stability expressive monotone", nullptr},
+    {"Similarity", kPageVoice, "Voice and language", "voice settings similarity clone closeness", nullptr},
+    {"Style", kPageVoice, "Voice and language", "voice settings style exaggeration", nullptr, "Voice style"},
+    {"Speed", kPageVoice, "Voice and language", "voice speed faster slower talking speed rate", nullptr, "Voice speed"},
+    {"Speaker boost", kPageVoice, "Voice and language", "voice settings speaker boost clarity", TOGGLE(vs.speakerBoost)},
+    {"Set clone strength", kPageVoice, "Voice and language", "clone strength professional voice clone v4", TOGGLE(vs.setCloneStrength)},
+    {"Clone strength", kPageVoice, "Voice and language", "clone strength professional voice clone v4", nullptr},
+    {"Voice ID", kPageVoice, "Voice and language", "voice id paste custom voice", nullptr},
+    {"Model ID", kPageVoice, "Voice and language", "model id custom elevenlabs model", nullptr},
+    // My voice: output
+    {"Volume##outvol", kPageVoice, "Where it goes", "volume louder quieter output others hear level", nullptr, "Volume others hear"},
+    {"Volume##monvol", kPageVoice, "Where it goes", "volume monitor hear myself headphones level", nullptr, "Volume in my headphones"},
+    {"Audio quality", kPageVoice, "Where it goes", "audio quality bitrate sample rate format", nullptr},
+    {"Amount", kPageVoice, "Where it goes", "match my microphone amount blend room tone", nullptr, "Match my microphone: amount"},
+    // Listen
+    {"In a crowd, caption", kPageListen, "Source", "crowd many people several talking at once nearby in front facing focus loudest closest everyone busy world", nullptr},
+    {"Captions appear", kPageListen, "Source", "pace sooner balanced fuller speed slow fast split sentences delay", nullptr},
+    {"Caption size", kPageListen, "Source", "caption text size bigger smaller font", nullptr},
+    // VR
+    {"Distance", kPageVR, "Placement", "vr captions distance far near", nullptr, "VR captions: distance"},
+    {"Height", kPageVR, "Placement", "vr captions height up down", nullptr, "VR captions: height"},
+    {"Sideways", kPageVR, "Placement", "vr captions left right sideways", nullptr, "VR captions: sideways"},
+    {"Size", kPageVR, "Placement", "vr captions size width bigger smaller", nullptr, "VR captions: size"},
+    {"Original words under translations", kPageVR, "Placement", "vr original words under translation", TOGGLE(vr.showOriginal)},
+    {"Hide after", kPageVR, "Placement", "vr captions hide after seconds fade disappear", nullptr},
+    {"Show who I'm talking to", kPageVR, "Placement", "vr talking to listener gender show", TOGGLE(vr.showTalkingTo)},
+    {"In VR", kPageVR, "Placement", "vr steamvr dashboard menu", nullptr},
+    {"Lines", kPageVR, "Look", "vr captions how many lines", nullptr, "VR captions: lines"},
+    {"Panel", kPageVR, "Look", "vr captions panel background opacity floating text", nullptr, "VR captions: panel"},
+    {"Overall opacity", kPageVR, "Look", "vr captions opacity see through transparent", nullptr},
+    // Settings
+    {"Picture strength", kPageSettings, "Look", "background picture image wallpaper strength", nullptr},
+    {"Save settings in", kPageSettings, "Look", "settings file location folder portable appdata", nullptr},
+    {"Show keys", kPageSettings, "Accounts", "show api keys reveal hide", nullptr},
+    {"Warn me about spending", kPageSettings, "Accounts", "spending limit warn money cost credits budget", TOGGLE(spendWarn)},
+    {"ElevenLabs credits per session", kPageSettings, "Accounts", "spending limit elevenlabs credits session cost", nullptr},
+    {"AI translation per session (US$)", kPageSettings, "Accounts", "spending limit ai tokens dollars cost session", nullptr},
+    {"Stop talking and listening at the limit", kPageSettings, "Accounts", "spending limit stop cut off", TOGGLE(spendStop)},
+    {"Next \"Talking to\"", kPageSettings, "Hotkeys", "hotkey talking to listener gender switch key", nullptr},
+    {"You", kPageSettings, "Hotkeys", "your gender speaker me", nullptr},
+    {"Go back to an earlier version", kPageSettings, "Hotkeys", "older version downgrade revert previous roll back update broke", nullptr},
+    // Text
+    {"I type in", kPageText, "Voice", "typing language text page i type in", nullptr},
+    // Features
+    {"Wait before speaking", kPageFeatures, "Talking", "cancel before spoken preview delay wait slow latency", nullptr},
+    {"Cancel key", kPageFeatures, "Talking", "cancel key hotkey stop line", nullptr},
+    {"Languages I speak", kPageFeatures, "Talking", "my languages misheard wrong language detect", nullptr},
+    {"Languages around me", kPageFeatures, "Talking", "their languages misheard wrong language detect listen", nullptr},
+    {"Hold for my real voice", kPageFeatures, "Talking", "hotkey real voice bypass hold key", nullptr},
+    {"Stop speaking", kPageFeatures, "Talking", "hotkey stop speaking cancel voice key", nullptr},
+    {"Watch a chat box", kPageFeatures, "Hearing and reading", "screen translation chat box watch automatic", nullptr},
+    {"Watch for new lines", kPageFeatures, "Hearing and reading", "screen translation watch chat new lines automatic", TOGGLE(screen.watch)},
+    {"Look every", kPageFeatures, "Hearing and reading", "screen translation how often seconds interval", nullptr},
+    {"Snapshot key", kPageFeatures, "Hearing and reading", "screen translation hotkey snapshot key", nullptr},
+    {"Translate without the preview", kPageFeatures, "Hearing and reading", "screen translation skip preview straight away", TOGGLE(screen.skipPreview)},
+    {"Also show on the VR panel", kPageFeatures, "Hearing and reading", "screen translation vr panel show", TOGGLE(screen.toVr)},
+    {"Play it on", kPageFeatures, "Hearing and reading", "hear them in my ear device headphones output", nullptr},
+    {"Volume", kPageFeatures, "Hearing and reading", "hear them in my ear volume louder quieter", nullptr, "Hear them in my ear: volume"},
+    {"Translate each sentence right away", kPageFeatures, "Hearing and reading", "captions while they talk sentence live translate faster speed slow delay listen", TOGGLE(fx.liveTranslate)},
+    {"Clicks go through it", kPageFeatures, "Hearing and reading", "caption window overlay click through", TOGGLE(fx.clickThrough)},
+    {"See-through", kPageFeatures, "Hearing and reading", "caption window overlay transparent opacity see through", nullptr},
+    {"Key to switch click-through", kPageFeatures, "Hearing and reading", "caption window overlay hotkey click through key", nullptr},
+    {"You type these a lot", kPageFeatures, "Handy", "quick phrases buttons text page", nullptr},
+    {"Saved lines", kPageFeatures, "Handy", "learning mode saved lines study", nullptr},
+    {"Share a setup", kPageFeatures, "Handy", "profiles share export import setup code", nullptr},
 };
 #undef TOGGLE
 
@@ -1350,6 +1478,43 @@ void findJumpTo(UiModel& m, const char* label) {
             gJump.hits = 0;
             return;
         }
+}
+
+void chevron(ImDrawList* dl, ImVec2 c, float s, ImU32 color);
+
+// "Extras for this page": the cards on the Extra features page that belong to the page you're on,
+// as a list of links. One click goes to the card (it lights up for a moment). Which ones are
+// switched on shows here too, so nothing that changes this page is hidden on another one.
+void extrasFor(UiModel& m, std::initializer_list<const char*> labels, bool titled = true) {
+    if (titled) subheading("Extras for this page");
+    const float w = ImGui::GetContentRegionAvail().x, h = ImGui::GetFrameHeight();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    for (const char* label : labels) {
+        const Findable* f = nullptr;
+        for (const Findable& k : kFindables)
+            if (k.page == kPageFeatures && std::strcmp(k.label, label) == 0) f = &k;
+        if (!f) continue;
+        const bool* on = f->toggle ? f->toggle(m.cfg) : nullptr;
+        const std::string text = shown(label);
+        const char* state = on && *on ? T("On") : nullptr;
+        const float stateW = (state ? ImGui::CalcTextSize(state).x + em() * 0.6f : 0.f) + em() * 1.1f;
+        const float room = std::max(em() * 4.f, w - stateW - em() * 0.6f);
+        const ImVec2 ts = ImGui::CalcTextSize(text.c_str(), nullptr, false, room);
+        const float rowH = std::max(h, ts.y + ImGui::GetStyle().FramePadding.y * 2.f);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::PushID(label);
+        const bool pressed = ImGui::InvisibleButton("##extra", ImVec2(w, rowH));
+        const bool hovered = ImGui::IsItemHovered();
+        ImGui::PopID();
+        if (hovered) {
+            dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), col(kFieldHover), ImGui::GetStyle().FrameRounding);
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        }
+        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(p.x + em() * 0.5f, p.y + (rowH - ts.y) * 0.5f), col(hovered ? kText : kLabel), text.c_str(), nullptr, room);
+        if (state) dl->AddText(ImVec2(p.x + w - stateW, p.y + (rowH - em()) * 0.5f), col(kSignal), state);
+        chevron(dl, ImVec2(p.x + w - em() * 0.6f, p.y + rowH * 0.5f), em() * 0.3f, col(hovered ? kText : kMuted));
+        if (pressed) findJumpTo(m, label);
+    }
 }
 
 std::string lowerFind(std::string s) {
@@ -1387,7 +1552,8 @@ void findWindow(UiModel& m) {
         int score = 0;
         if (q.empty()) score = 1;
         else {
-            const std::string shownLow = lowerFind(T(f.label)), en = lowerFind(f.label), words = lowerFind(f.words);
+            const char* name = f.shown ? f.shown : f.label;
+            const std::string shownLow = lowerFind(T(name)), en = lowerFind(name), words = lowerFind(f.words);
             if (shownLow.rfind(q, 0) == 0 || en.rfind(q, 0) == 0) score = 100;
             else if (shownLow.find(q) != std::string::npos || en.find(q) != std::string::npos) score = 60;
             else if (words.find(q) != std::string::npos) score = 30;
@@ -1396,12 +1562,12 @@ void findWindow(UiModel& m) {
         if (score > 0) hits.push_back({&f, score});
     }
     std::stable_sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) { return a.score > b.score; });
-    if (hits.size() > 9) hits.resize(9);
+    if (hits.size() > 12) hits.resize(12);
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) selected = std::min(int(hits.size()) - 1, selected + 1);
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) selected = std::max(0, selected - 1);
     selected = std::max(0, std::min(selected, int(hits.size()) - 1));
     const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
-    static const char* const kPageNames[] = {"My voice", "Listen", "VR", "Settings", "Text", "Features", "Home"};
+    static const char* const kPageNames[] = {"My voice", "Listen", "VR", "Settings", "Text", "Extra features", "Home"};
     gap(0.3f);
     if (hits.empty()) note("Nothing by that name. Try another word, like \"swear\", \"key\" or \"chatbox\".");
     for (size_t i = 0; i < hits.size(); ++i) {
@@ -1416,7 +1582,7 @@ void findWindow(UiModel& m) {
         if (hot) selected = int(i);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         if (int(i) == selected) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), col(kFieldHover), em() * 0.35f);
-        dl->AddText(ImVec2(p.x + em() * 0.5f, p.y + em() * 0.2f), col(kText), T(f.label));
+        dl->AddText(ImVec2(p.x + em() * 0.5f, p.y + em() * 0.2f), col(kText), T(f.shown ? f.shown : f.label));
         const std::string where = std::string(T(kPageNames[f.page])) + "  ›  " + T(f.section);
         ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.88f);
         dl->AddText(ImVec2(p.x + em() * 0.5f, p.y + em() * 1.3f), col(kMuted), where.c_str());
@@ -1499,6 +1665,41 @@ static std::string gigabytes(uint64_t bytes) {
     return b;
 }
 
+// The voice fingerprint pack, under "Same voice, same color": download, progress, delete.
+void voicePackRows(UiModel& m, UiActions& act) {
+    const VoiceIdState& v = m.voicePack;
+    const float full = ImGui::GetContentRegionAvail().x, gapX = ImGui::GetStyle().ItemSpacing.x;
+    const float half = (full - gapX) * 0.5f;
+    if (v.stage == kVoiceIdDownloading) {
+        char label[64];
+        std::snprintf(label, sizeof(label), "%.0f MB", double(v.gotBytes) / 1e6);
+        const float bw = ImGui::CalcTextSize(T("Stop")).x + ImGui::GetStyle().FramePadding.x * 2.f + em();
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(kSignal.x, kSignal.y, kSignal.z, 0.55f));
+        ImGui::ProgressBar(std::min(1.f, float(double(v.gotBytes) / 45e6)), ImVec2(full - bw - gapX, 0), label);
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        if (button("Stop", false, bw)) act.voicePack = 2;
+    } else if (v.stage == kVoiceIdInstalled) {
+        if (!v.error.empty()) note(T(v.error.c_str()), kDanger);
+        else note("Voice fingerprints are on: voices are recognized by a model on this PC. Nothing extra is sent or paid.", kSignal);
+        if (m.voicePackAsk) {
+            note("Delete the voice fingerprint pack? Voices go back to the built-in guess.", kSignal);
+            if (button("Delete", true, half)) {
+                act.voicePack = 3;
+                m.voicePackAsk = false;
+            }
+            ImGui::SameLine();
+            if (button("Keep", false, half)) m.voicePackAsk = false;
+        } else if (button(v.error.empty() ? "Delete voice fingerprints" : "Delete and try again later", false, full)) {
+            m.voicePackAsk = true;
+        }
+    } else {
+        note("Busy rooms: download voice fingerprints (45 MB) to tell up to 12 voices apart much more reliably. Runs on this PC, adds no delay.");
+        if (!v.error.empty()) note(T(v.error.c_str()), kDanger);
+        if (button("Download", true, full)) act.voicePack = 1;
+    }
+}
+
 void localModels(Settings& c) {
     if (!gUi || !gAct) return;
     UiModel& m = *gUi;
@@ -1534,11 +1735,11 @@ void localModels(Settings& c) {
     };
     // The one showing: the one in use, or the first on the list until something is picked.
     // Until something is picked: the one in use, else the biggest one that's a good fit for this PC
-    // (the lightest when none is).
+    // (the lightest when none is). An uncensored one is only ever someone's own choice.
     if (!findLocalModel(m.localView)) {
         m.localView = all[0].id;
         for (const LocalModel& lm : all)
-            if (fitOf(lm) == kFitGood) m.localView = lm.id;
+            if (!lm.uncensored && fitOf(lm) == kFitGood) m.localView = lm.id;
         if (findLocalModel(c.localModel)) m.localView = c.localModel;
     }
     auto statusOf = [&](const LocalModel& lm) -> std::string {
@@ -1743,6 +1944,14 @@ void listenSourcePanel(UiModel& m, UiActions& act) {
     sliderF("Opens above", &l.thresholdDb, -70.f, 0.f, "%.0f dB");
     note("Set the marker above the game's background sound and below the voices.");
 
+    fieldLabel("In a crowd, caption");
+    static const char* const kFocus[] = {"Everyone", "Nearby", "In front"};
+    segmented("##focus", kFocus, 3, &l.focus);
+    note(l.focus == kFocusNear    ? "Only the loudest voices, which in VRChat are the people closest to you. The chatter further away gets no captions."
+         : l.focus == kFocusFront ? "Only the voice you're facing: sound from the sides is turned down before it's written down. It can't tell in "
+                                    "front from behind, and needs stereo sound (an application or your speakers)."
+                                  : "Everyone it can hear. With many people talking at once, captions get mixed up: try Nearby or In front.");
+
     fieldLabel("Captions appear");
     static const char* const kPaces[] = {"Sooner", "Balanced", "Fuller"};
     segmented("##pace", kPaces, 3, &l.pace);
@@ -1791,7 +2000,7 @@ void captionLine(UiModel& m, const CaptionLine& line, float fontSize, bool showO
     // two voices, or only one person talking) rather than a number that would be a guess.
     const bool tagged = true;
     const bool unnamed = people ? !person : line.speaker < 0;
-    const ImVec4 color = person ? kPeople[line.voiceId % 8] : unnamed ? kLine : kVoices[line.speaker % 4];
+    const ImVec4 color = person ? kPeople[line.voiceId % 12] : unnamed ? kLine : kVoices[line.speaker % 4];
     const bool contrast = m.cfg.fx.highContrast;
     if (contrast) fontSize *= 1.2f;
     const float indent = em() * 0.9f;
@@ -1890,7 +2099,11 @@ void listenStatus(const UiModel& m) {
     std::string s = listenStatusText(m.listen.status);
     if (m.cfg.listen.on && m.listen.lastMs > 0) {
         char b[320];
-        std::snprintf(b, sizeof(b), TF(" Last caption took %.1f s."), m.listen.lastMs / 1000.0);
+        if (m.listen.sttMs > 0)
+            std::snprintf(b, sizeof(b), TF(" Last caption took %.1f s (words %.1f s, translation %.1f s)."), m.listen.lastMs / 1000.0,
+                          m.listen.sttMs / 1000.0, m.listen.translateMs / 1000.0);
+        else
+            std::snprintf(b, sizeof(b), TF(" Last caption took %.1f s."), m.listen.lastMs / 1000.0);
         s += b;
     }
     note(s);
@@ -1928,6 +2141,7 @@ void listenPage(UiModel& m, UiActions& act) {
 
     beginPanel("listensource", ImVec2(colW, avail.y), "Source");
     listenSourcePanel(m, act);
+    extrasFor(m, {"Captions while they talk", "Caption options", "Hear them in my ear", "Caption window over the game", "Screen translation", "Languages", "Keep a history"});
     ImGui::EndChild();
 
     ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));
@@ -2071,6 +2285,7 @@ void vrPage(UiModel& m, UiActions& act) {
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     beginPanel("vrplace", ImVec2(leftW, avail.y), "Placement");
     vrPlacementPanel(m, act);
+    extrasFor(m, {"Caption options", "Captions while they talk"});
     ImGui::EndChild();
     ImGui::SetCursorScreenPos(ImVec2(origin.x + leftW + gapW, origin.y));
     beginPanel("vrlook", ImVec2(avail.x - leftW - gapW, avail.y), "Look");
@@ -2188,11 +2403,16 @@ void settingsPage(UiModel& m, UiActions& act) {
     if (segmented("##lookpreset", kPresetNames, kLookCount, &preset)) lookPreset(look, preset);
     gap(0.2f);
     bool changed = false;
+    // Two to a row where the names fit, one under the other where they don't.
+    const float halfW = ImGui::GetContentRegionAvail().x * 0.5f;
+    float longest = 0.f;
+    for (const char* name : {"Accent", "Text", "Background", "Panels"}) longest = std::max(longest, ImGui::CalcTextSize(T(name)).x);
+    const bool pairs = longest + ImGui::GetFrameHeight() + em() * 1.5f < halfW;
     changed |= colorRow("Accent", &look.accent);
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
+    if (pairs) ImGui::SameLine(halfW);
     changed |= colorRow("Text", &look.text);
     changed |= colorRow("Background", &look.background);
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
+    if (pairs) ImGui::SameLine(halfW);
     changed |= colorRow("Panels", &look.panel);
     if (changed) look.preset = -1;  // picked by hand: no preset is selected
     fieldLabel("Background picture");
@@ -2471,8 +2691,13 @@ void textVoicePanel(UiModel& m, UiActions& act) {
 
 // One line of the conversation. Yours get an amber bar, other people's the color of their voice.
 void chatLine(UiModel& m, UiActions& act, const ChatLine& l, float fontSize, bool showOriginal) {
-    const bool person = !l.me && l.voiceId >= 0 && m.cfg.fx.voiceIds;
-    const ImVec4 color = l.me ? kSignal : person ? kPeople[l.voiceId % 8] : l.speaker >= 0 ? kVoices[l.speaker % 4] : kLine;
+    // The same rule as the captions on the Listen page: with voices followed across captions, a line
+    // gets a number only when the voice was recognized. The speech service's own numbers start again
+    // with every caption, so showing those here would call two different people "Voice 1".
+    const bool people = m.cfg.fx.voiceIds;
+    const bool person = !l.me && l.voiceId >= 0 && people;
+    const bool unnamed = people ? !person : l.speaker < 0;
+    const ImVec4 color = l.me ? kSignal : person ? kPeople[l.voiceId % 12] : unnamed ? kLine : kVoices[l.speaker % 4];
     const bool contrast = m.cfg.fx.highContrast && !l.me;
     if (contrast) fontSize *= 1.2f;
     const float indent = em() * 0.9f;
@@ -2484,7 +2709,7 @@ void chatLine(UiModel& m, UiActions& act, const ChatLine& l, float fontSize, boo
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
     if (l.me) ImGui::TextColored(kSignal, "%s", T(l.typed ? "You (typed)" : "You"));
     else if (l.screen) ImGui::TextColored(kMuted, "%s", T("On screen"));
-    else if (person || l.speaker >= 0) ImGui::TextColored(color, TF("Voice %d"), (person ? l.voiceId : l.speaker) + 1);
+    else if (!unnamed) ImGui::TextColored(color, TF("Voice %d"), (person ? l.voiceId : l.speaker) + 1);
     else ImGui::TextColored(kMuted, "%s", l.language.empty() ? T("Them") : l.language.c_str());
     ImGui::PopFont();
     ImGui::PushFont(contrast ? gSemibold : nullptr, fontSize);
@@ -2663,6 +2888,7 @@ void textPage(UiModel& m, UiActions& act) {
 
     beginPanel("textvoice", ImVec2(colW, avail.y), "Voice");
     textVoicePanel(m, act);
+    extrasFor(m, {"Quick phrases", "Learning mode", "My word list", "Keep a history"});
     ImGui::EndChild();
 
     ImGui::SetCursorScreenPos(ImVec2(origin.x + colW + gapW, origin.y));
@@ -3756,18 +3982,25 @@ void featuresHearing(UiModel& m, UiActions& act) {
     }
     featureCardEnd();
 
-    if (featureCard("live", "Captions while they talk", "Words appear while someone is still speaking, then the translation replaces them.", &f.liveCaptions)) {
-        note("Transcribes the unfinished sentence every second or two, so it uses more ElevenLabs credits.");
+    if (featureCard("live", "Captions while they talk", "Their words appear while they're still speaking, and each sentence is translated as soon as it's finished.", &f.liveCaptions)) {
+        toggleRow("Translate each sentence right away", &f.liveTranslate);
+        note(f.liveTranslate ? "You read the first sentence while they say the next. Needs an AI translation service on the Listen page, "
+                               "and each sentence is translated a second time when the caption is finished, so it uses more AI requests."
+                             : "Off: their words show as spoken, and the translation comes when they stop.");
+        note("Their voice is streamed to ElevenLabs while they talk, on top of the regular transcription, so it uses more ElevenLabs credits.");
     }
     featureCardEnd();
 
-    if (featureCard("captions", "Captions", nullptr, nullptr)) {
+    if (featureCard("captions", "Caption options", nullptr, nullptr)) {
         toggleRow("Hide swearing (f***)", &f.maskCaptions);
         toggleRow("Sound labels ([laughs], [music])", &f.soundLabels);
         toggleRow("Skip music and noise", &f.ignoreNoise);
         toggleRow("Big, high-contrast captions", &f.highContrast);
         toggleRow("Same voice, same color", &f.voiceIds);
-        if (f.voiceIds) note("Recognizes voices across captions (a best guess). Right-click a line to mute that voice.");
+        if (f.voiceIds) {
+            note("Recognizes voices across captions (a best guess). Right-click a line to mute that voice.");
+            voicePackRows(m, act);
+        }
         toggleRow("Guess gender from their words", &f.genderFromWords);
         if (f.genderFromWords) note("\"Estoy cansada\" says more than a voice, which a voice changer can fake.");
         if (!m.mutedVoices.empty()) {

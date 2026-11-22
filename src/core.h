@@ -54,6 +54,7 @@ struct GateParams {
     float thresholdDb = -40.f; // voice activation opens above this level
     int holdMs = 350;          // silence needed before a phrase is considered finished
     int maxSeconds = 12;       // long phrases are split after this
+    bool cutSoon = false;      // end the phrase at the next dip in level: a sentence is finished and they go on talking
 };
 
 // Cuts the microphone stream (16 kHz mono) into phrases, fed in 10 ms blocks.
@@ -107,6 +108,7 @@ public:
             curFull_.assign(preFull_.begin(), preFull_.end());
             preFull_.clear();
             silentBlocks_ = voicedBlocks_ = heldBlocks_ = releasedBlocks_ = 0;
+            cutFrom_ = 0;
         }
 
         cur_.insert(cur_.end(), s, s + kBlock);
@@ -118,7 +120,13 @@ public:
         // Too long: split at the next dip in level so a word isn't cut in half.
         const size_t soft = size_t(p.maxSeconds) * kRate, hard = soft + size_t(kSplitGraceS) * kRate;
         const bool tooLong = cur_.size() >= soft && (!loud || cur_.size() >= hard);
-        if (!ended && !tooLong) return false;
+        // Asked to end here (cutSoon): at the next dip between words, or after a second and a half
+        // without one. Never before there's a quarter of a second of speech to hand over.
+        if (p.cutSoon && cutFrom_ == 0) cutFrom_ = cur_.size();
+        if (!p.cutSoon) cutFrom_ = 0;
+        const bool cutNow = p.cutSoon && !p.pushToTalk && voicedBlocks_ * 10 >= 250 &&
+                            (!loud || cur_.size() - cutFrom_ >= size_t(kRate) * 3 / 2);
+        if (!ended && !tooLong && !cutNow) return false;
 
         open_ = false;
         bool ok;
@@ -153,6 +161,7 @@ private:
     std::deque<int16_t> pre_, preFull_;
     bool open_ = false, haveNoise_ = false;
     int silentBlocks_ = 0, voicedBlocks_ = 0, heldBlocks_ = 0, releasedBlocks_ = 0;
+    size_t cutFrom_ = 0;  // phrase length when a cut was first asked for (0 = not asked)
     float db_ = -100.f, noiseDb_ = -100.f;
 };
 

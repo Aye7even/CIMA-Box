@@ -654,3 +654,50 @@ std::string joinHeard(const std::string& first, const std::string& rest, const s
     }
     return noSpace ? a + b : a + " " + b;
 }
+
+// A caption's words cut into sentences: at . ! ? … and their Chinese, Japanese, Arabic and Hindi
+// forms, when a space, the end or (for the wide ones) anything follows. "3.5" and "e.g." inside a
+// sentence don't end it. `open` says the last piece has no end mark yet.
+std::vector<std::string> sentencesOf(const std::string& text, bool& open) {
+    static const char* const kWide[] = {"\xE3\x80\x82", "\xEF\xBC\x81", "\xEF\xBC\x9F", "\xE2\x80\xA6", "\xD8\x9F", "\xE0\xA5\xA4"};
+    std::vector<std::string> out;
+    std::string cur;
+    auto push = [&] {
+        size_t a = cur.find_first_not_of(" \t\r\n");
+        if (a != std::string::npos) out.push_back(cur.substr(a, cur.find_last_not_of(" \t\r\n") - a + 1));
+        cur.clear();
+    };
+    open = false;
+    for (size_t i = 0; i < text.size();) {
+        bool wide = false;
+        for (const char* w : kWide) {
+            const size_t n = std::strlen(w);
+            if (text.compare(i, n, w) == 0) {
+                cur.append(text, i, n);
+                i += n;
+                wide = true;
+                break;
+            }
+        }
+        if (wide) {
+            const bool dots = i >= 3 && text.compare(i - 3, 3, "\xE2\x80\xA6") == 0;  // "…" can sit inside a word
+            if (!dots || i >= text.size() || text[i] == ' ') push();
+            continue;
+        }
+        const char ch = text[i++];
+        cur += ch;
+        if ((ch == '.' || ch == '!' || ch == '?') && (i >= text.size() || text[i] == ' ' || text[i] == '\n')) {
+            // not after a single letter or a digit ("e.g. this", "no. 5", "3. then")
+            const size_t n = cur.size();
+            const bool shortWord = ch == '.' && n >= 2 &&
+                                   (std::isdigit((unsigned char)cur[n - 2]) ||
+                                    (n >= 3 && (cur[n - 3] == ' ' || cur[n - 3] == '.') && std::isalpha((unsigned char)cur[n - 2])) ||
+                                    (n == 2 && std::isalpha((unsigned char)cur[0])));
+            if (!shortWord) push();
+        }
+    }
+    const size_t before = out.size();
+    push();
+    open = out.size() > before;
+    return out;
+}

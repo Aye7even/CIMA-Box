@@ -127,7 +127,8 @@ bool Http::perform(const HttpRequest& r, long& status, std::string& body, std::s
     if (!m) {
         rc = curl_easy_perform(h);
     } else {
-        bool stopped = false, failed = false;
+        bool stopped = false, failed = false, late = false;
+        const long long began = nowMs();
         curl_multi_add_handle(m, h);
         for (;;) {
             int running = 0;
@@ -140,9 +141,12 @@ bool Http::perform(const HttpRequest& r, long& status, std::string& body, std::s
             }
             if (!running) break;
             if ((cancel && cancel->load()) || (stop && stop->load())) { stopped = true; break; }
+            // The answer hasn't begun by the time it had to (see HttpRequest::started): too slow.
+            if (r.startByMs > 0 && r.started && !r.started->load() && nowMs() - began > r.startByMs) { late = true; break; }
             curl_multi_poll(m, nullptr, 0, 10, nullptr);
         }
         if (stopped) rc = CURLE_ABORTED_BY_CALLBACK;
+        else if (late) rc = CURLE_OPERATION_TIMEDOUT;
         else if (failed) rc = CURLE_FAILED_INIT;
         else {
             int left = 0;

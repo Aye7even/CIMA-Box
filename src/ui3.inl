@@ -153,7 +153,7 @@ const NavItem kNav[] = {
     {kPageText, "Text", "Type, the voice says it", kIcText},
     {kPageListen, "Listen", "Captions of others", kIcHeadphones},
     {kPageVR, "VR", "Captions in your headset", kIcVR},
-    {kPageFeatures, "Features", "All the extras", kIcGrid},
+    {kPageFeatures, "Extra features", "Optional add-ons", kIcGrid},
 };
 
 // One sidebar row: icon, name, a line saying what's there, and a dot when that part is on.
@@ -302,7 +302,7 @@ const char* pageTitle(int page) {
     case kPageText: return "Text";
     case kPageListen: return "Listen";
     case kPageVR: return "VR";
-    case kPageFeatures: return "Features";
+    case kPageFeatures: return "Extra features";
     default: return "Settings";
     }
 }
@@ -963,7 +963,7 @@ void newToYou(UiModel& m, UiActions& act) {
     ImGui::TextColored(kSignal, "%s", T(pick ? "New to you" : "You've tried everything here"));
     ImGui::PopFont();
     if (!pick) {
-        note("Features has even more, and Settings has your keys and the look.");
+        note("Extra features has even more, and Settings has your keys and the look.");
         return;
     }
     heading(pick->name, 1.08f);
@@ -1001,7 +1001,7 @@ void aroundYou(UiModel& m) {
         if (it->pending || it->lines.empty()) continue;
         for (const CaptionLine& line : it->lines) {
             if (shownCount >= 3 || line.text.empty()) continue;
-            const ImVec4 who = line.voiceId >= 0 && m.cfg.fx.voiceIds ? kPeople[line.voiceId % 8] : kMuted;
+            const ImVec4 who = line.voiceId >= 0 && m.cfg.fx.voiceIds ? kPeople[line.voiceId % 12] : kMuted;
             const ImVec2 p = ImGui::GetCursorScreenPos();
             ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + em() * 0.3f, p.y + em() * 0.62f), em() * 0.22f, col(who), 12);
             ImGui::SetCursorScreenPos(ImVec2(p.x + em() * 0.9f, p.y));
@@ -1353,6 +1353,13 @@ void voicePage(UiModel& m, UiActions& act) {
     endCard();
     gap(0.7f);
     if (beginCard("trybox")) tryLineCard(m, act);
+    endCard();
+    gap(0.7f);
+    if (beginCard("voiceextras")) {
+        cardTitle("Extras for this page", 1.15f);
+        gap(0.3f);
+        extrasFor(m, {"Cancel before it's spoken", "Answer in their language", "Languages", "Clean up my swearing", "Best translations", "Words for DeepL", "My word list", "More hotkeys", "Profiles"}, false);
+    }
     endCard();
     ImGui::EndChild();
 }

@@ -48,6 +48,7 @@ struct FeatureSettings {
     std::string earDevice;         // where ("" = the "Hear it yourself" device)
     float earVolume = 0.9f;
     bool liveCaptions = false;     // show words while they're still talking (extra speech-to-text)
+    bool liveTranslate = true;     // ...with each finished sentence translated right away (AI services)
     bool answerTheirs = false;     // "Translate to" follows the language people speak to you
     std::vector<std::string> myLanguages;      // languages you speak: limits "Detect automatically" for you
     std::vector<std::string> aroundLanguages;  // languages around you: limits it for Listen
@@ -111,6 +112,11 @@ size_t lastSentenceEnd(const std::string& text);
 // `sure` (optional): the guess is clear (a non-Latin script, or several of one language's little
 // words and clearly more than any other's). Short or mixed text gives false.
 std::string guessLanguage(const std::string& text, bool* sure = nullptr);
+
+// Text cut into sentences: at . ! ? … and their Chinese, Japanese, Arabic and Hindi forms, when a
+// space or the end follows (the wide ones need nothing after them). "3.5" and "e.g." inside a
+// sentence don't end it. `open` says the last piece has no end mark yet.
+std::vector<std::string> sentencesOf(const std::string& text, bool& open);
 // About how many words `text` is (Chinese and Japanese, written without spaces: 2 characters a word).
 int roughWords(const std::string& text);
 // Two pieces of one sentence, heard either side of a pause, as one: the closing "." the transcript
