@@ -194,6 +194,7 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.aiBackup = j.value("ai_backup", s.aiBackup);
         s.localModel = j.value("local_model", s.localModel);
         s.localGpu = j.value("local_gpu", s.localGpu);
+        s.localNvidia = j.value("local_nvidia", s.localNvidia);
         s.localOnDecline = j.value("local_on_decline", s.localOnDecline);
         s.aiStream = j.value("ai_stream", s.aiStream);
         s.aiPriority = j.value("ai_priority", s.aiPriority);
@@ -570,7 +571,7 @@ static std::string settingsJson(const Settings& s) {
         {"claude_key", s.claudeKey}, {"gemini_key", s.geminiKey}, {"claude_model", s.claudeModel},
         {"gemini_model", s.geminiModel}, {"openai_key", s.openaiKey}, {"openai_model", s.openaiModel},
         {"microsoft_key", s.msKey}, {"microsoft_region", s.msRegion}, {"ai_backup", s.aiBackup},
-        {"local_model", s.localModel}, {"local_gpu", s.localGpu}, {"local_on_decline", s.localOnDecline}, {"ai_stream", s.aiStream}, {"ai_priority", s.aiPriority},
+        {"local_model", s.localModel}, {"local_gpu", s.localGpu}, {"local_nvidia", s.localNvidia}, {"local_on_decline", s.localOnDecline}, {"ai_stream", s.aiStream}, {"ai_priority", s.aiPriority},
         {"short_to_plain", s.shortToPlain}, {"remember_lines", s.rememberLines}, {"show_meaning", s.showMeaning}, {"early_translate", s.earlyTranslate}, {"speak_sentences", s.speakSentences},
         {"speech_level", s.speechLevel}, {"custom_style", s.customStyle}, {"persona", s.persona},
         {"ai_timeout_ms", s.aiTimeoutMs}, {"mirror", s.mirror}, {"input_device", s.inDevice},
@@ -2976,6 +2977,7 @@ int main() {
     VoiceId voiceId(appDataDir() / "voice-id", [](const std::string& line) { logLine(line); });
     setVoiceIdEngine(&voiceId);
     ui.pc = readPcSpecs();
+    localAi.preferGpu(ui.pc.gpu);  // on a PC with two graphics devices, the local model runs on the real card
     if (ui.pc.known)
         logLine("This PC: " + (ui.pc.gpu.empty() ? std::string("no separate graphics card") : ui.pc.gpu + " (" + std::to_string(ui.pc.gpuBytes >> 20) + " MB)") +
                 ", " + std::to_string(ui.pc.ramBytes >> 20) + " MB of memory, " + std::to_string(ui.pc.threads) + " threads.");
@@ -3700,7 +3702,7 @@ int main() {
             // ...or while it stands by for lines an online AI declines (the person's choice).
             const bool standBy = ui.cfg.localOnDecline && isOnlineAi(ui.cfg.translateService);
             const bool wanted = (ui.cfg.translateService == kLocal || standBy) && has(ui.cfg.localModel);
-            localAi.want(wanted ? ui.cfg.localModel : std::string(), ui.cfg.localGpu);
+            localAi.want(wanted ? ui.cfg.localModel : std::string(), ui.cfg.localGpu, ui.cfg.localNvidia);
             LocalNow now;
             if (ui.local.engine == kEngineReady) {
                 now.url = ui.local.url;

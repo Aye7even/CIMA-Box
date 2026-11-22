@@ -1192,5 +1192,10 @@
  "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "Kalimat satu sampai tiga kata langsung ke DeepL atau Microsoft: jauh lebih cepat, tapi dalam bahasa baku, tanpa dialek dan gaya bicaramu.",
  "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "Model lama: model Uncensored di daftar menggantikannya. Kamu bisa tetap memakainya atau menghapusnya.",
  "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "Model lama masih ada di PC ini, memakai %s. Model Uncensored di bawah menggantikannya: unduh salah satu, lalu hapus yang lama di sini.",
- "Delete the older models": "Hapus model lama"
+ "Delete the older models": "Hapus model lama",
+ "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.": "Memori kartu grafis hampir penuh, jadi model ini lambat sekarang. Tutup aplikasi lain yang memakainya, atau pilih model yang lebih ringan.",
+ "Use NVIDIA's own engine": "Pakai mesin buatan NVIDIA",
+ "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "Dibuat NVIDIA untuk kartunya sendiri, dan biasanya lebih cepat di sana. Pertama kali, ada unduhan tambahan sekitar 0,6 GB. Kalau tidak bisa dipakai di PC ini, CIMA Box kembali sendiri ke mesin standar dan memberi tahu di sini.",
+ "Off: the standard engine, which works on every graphics card.": "Mati: mesin standar, yang jalan di semua kartu grafis.",
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "Mesin NVIDIA tidak bisa dipakai di PC ini, jadi mesin standar yang berjalan."
 }

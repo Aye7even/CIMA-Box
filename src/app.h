@@ -106,6 +106,7 @@ struct Settings {
     bool earlyTranslate = false;       // translate during the pause that ends a phrase; used only if it really was the end
     bool showMeaning = false;          // under "They heard": what the translated line says, back in your language
     bool localGpu = true;              // ...on the graphics card (off: the processor only)
+    bool localNvidia = false;          // ...with NVIDIA's own engine (an extra download; goes back to the standard one if it can't be used)
     std::string skipUpdate;            // went back from this version: don't offer it again (a newer one, yes)
     int usageNotice = 0;               // which "your keys, your costs" notice was read (kUsageNotice = the current one)
     std::string inDevice, outDevice, monDevice;  // empty = system default

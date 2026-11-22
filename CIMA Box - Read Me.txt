@@ -1,4 +1,4 @@
-CIMA Box 3.1.4
+CIMA Box 3.1.5
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -279,7 +279,11 @@ Voice and language
                              Picking a downloaded model uses it; Delete removes it, and deleting
                              them all removes the engine too, so nothing is left behind. It
                              works with NVIDIA, AMD and Intel graphics cards and shows which
-                             card it's on. The model is
+                             card it's on. On a PC with an NVIDIA card there is also "Use
+                             NVIDIA's own engine" (off by default): usually faster on those
+                             cards, about 0.6 GB more to download the first time. If it can't
+                             be used on your PC, CIMA Box goes back to the standard engine by
+                             itself and says so; switching it off deletes its files. The model is
                              loaded only while Local is the chosen service, and it shares the
                              graphics card with your game ("Use the graphics card" off runs it on
                              the processor instead: slower, but the game keeps its memory). It

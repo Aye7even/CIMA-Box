@@ -1192,5 +1192,10 @@
  "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "1〜3 語の言葉は DeepL か Microsoft に直接送られます。ずっと速くなりますが、標準語になり、方言や話し方は反映されません。",
  "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "以前のモデルです。一覧の Uncensored モデルがこれに代わります。このまま使い続けることも、削除することもできます。",
  "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "以前のモデルがまだこの PC に残っていて、%s を使っています。下の Uncensored モデルがこれに代わります。どれかをダウンロードしてから、ここで古いものを削除してください。",
- "Delete the older models": "以前のモデルを削除"
+ "Delete the older models": "以前のモデルを削除",
+ "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.": "グラフィックカードのメモリがほぼいっぱいなので、このモデルは今は遅くなっています。ほかにメモリを使っているものを閉じるか、軽いモデルを選んでください。",
+ "Use NVIDIA's own engine": "NVIDIA 専用エンジンを使う",
+ "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "NVIDIA が自社のカード向けに作ったエンジンで、たいていはより高速です。初回は約 0.6 GB を追加でダウンロードします。この PC で使えない場合、CIMA Box は自動で標準エンジンに戻り、ここに表示します。",
+ "Off: the standard engine, which works on every graphics card.": "オフ：どのグラフィックカードでも動く標準エンジンを使います。",
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "この PC では NVIDIA のエンジンを使えなかったため、標準エンジンで動いています。"
 }

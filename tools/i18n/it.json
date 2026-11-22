@@ -1192,5 +1192,10 @@
  "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "Le frasi da una a tre parole vanno direttamente a DeepL o Microsoft: molto più veloce, ma nella lingua standard, senza il tuo dialetto né il tuo modo di parlare.",
  "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "Un modello precedente: quelli Uncensored nell'elenco lo sostituiscono. Puoi continuare a usarlo o eliminarlo.",
  "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "Su questo PC ci sono ancora modelli precedenti, che occupano %s. Quelli Uncensored qui sotto li sostituiscono: scaricane uno, poi elimina qui i vecchi.",
- "Delete the older models": "Elimina i modelli precedenti"
+ "Delete the older models": "Elimina i modelli precedenti",
+ "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.": "La memoria della scheda grafica è quasi piena, quindi questo modello ora è lento. Chiudi ciò che la sta usando oppure scegli un modello più leggero.",
+ "Use NVIDIA's own engine": "Usa il motore di NVIDIA",
+ "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "Fatto da NVIDIA per le sue schede, e di solito più veloce su di esse. La prima volta scarica circa 0,6 GB in più. Se non può essere usato su questo PC, CIMA Box torna da solo al motore standard e lo dice qui.",
+ "Off: the standard engine, which works on every graphics card.": "Disattivato: il motore standard, che funziona con qualsiasi scheda grafica.",
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "Il motore di NVIDIA non è utilizzabile su questo PC, quindi è in funzione quello standard."
 }

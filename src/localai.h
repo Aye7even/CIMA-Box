@@ -62,8 +62,15 @@ public:
     void remove(const std::string& id);    // deletes it (stops it first if it's running)
 
     // The model that should be loaded and answering ("" = none: the engine is stopped and its
-    // memory freed). `gpu`: use the graphics card. Call as often as you like.
-    void want(const std::string& id, bool gpu);
+    // memory freed). `gpu`: use the graphics card. `nvidia`: with NVIDIA's own engine (a second,
+    // bigger download the first time; if it can't be used, the standard engine runs and says so).
+    // Call as often as you like.
+    void want(const std::string& id, bool gpu, bool nvidia = false);
+
+    // The graphics card Windows says is this PC's real one (pcspecs.h), e.g. "NVIDIA GeForce RTX 3090".
+    // On a PC with two (a card, and a small chip built into the processor) the engine is told to use
+    // this one, and only this one. "" = let the engine choose, as before.
+    void preferGpu(const std::string& name);
 
     LocalState state() const;
     bool installed(const std::string& id) const;
@@ -81,3 +88,11 @@ bool pickModelFile(const std::string& treeJson, const std::string& quant, std::s
 // From a GitHub release (JSON): the Windows engine to download. False when it has none; then
 // `nightlyUrl` is its "nightly-tag.txt", if it has one (that file names the release that does).
 bool pickEngineAsset(const std::string& releaseJson, std::string& url, uint64_t& size, std::string& sha256, std::string& nightlyUrl);
+// From a GitHub release (JSON): NVIDIA's own engine for Windows and the NVIDIA libraries it needs.
+bool pickNvidiaEngine(const std::string& releaseJson, std::string& url, uint64_t& size, std::string& sha256, std::string& runtimeUrl,
+                      uint64_t& runtimeSize, std::string& runtimeSha256, std::string& nightlyUrl);
+// From the engine's own list of graphics devices ("llama-server --list-devices"): the one to run on.
+// `preferred`: the card's name as Windows gives it ("" = none). `count`: how many devices it listed.
+// False when there's nothing to choose (no list, one device, or only chips built into a processor).
+bool pickGpuDevice(const std::string& listing, const std::string& preferred, std::string& id, std::string& name, long& totalMb,
+                   long& freeMb, int& count);

@@ -422,6 +422,110 @@ bool pickEngineAsset(const std::string& releaseJson, std::string& url, uint64_t&
     return false;
 }
 
+// NVIDIA's own build of the engine (CUDA), from a GitHub release (JSON): the engine itself and the
+// NVIDIA libraries it needs, which come as a second download ("cudart"). The 12.4 build when there is
+// one (it runs on the widest range of drivers), otherwise the oldest pair on offer. False when the
+// release has none; then `nightlyUrl` is its "nightly-tag.txt", as with pickEngineAsset.
+bool pickNvidiaEngine(const std::string& releaseJson, std::string& url, uint64_t& size, std::string& sha256, std::string& runtimeUrl,
+                      uint64_t& runtimeSize, std::string& runtimeSha256, std::string& nightlyUrl) {
+    const json j = json::parse(releaseJson, nullptr, false);
+    nightlyUrl.clear();
+    if (!j.is_object() || !j.contains("assets") || !j["assets"].is_array()) return false;
+    struct Asset { std::string url, sha; uint64_t size = 0; };
+    std::map<std::string, Asset> engines, runtimes;  // by version: "12.4", "13.5"
+    for (const json& a : j["assets"]) {
+        if (!a.is_object() || !a.contains("name") || !a["name"].is_string() || !a.contains("browser_download_url") ||
+            !a["browser_download_url"].is_string())
+            continue;
+        const std::string name = a["name"].get<std::string>();
+        if (name == "nightly-tag.txt") nightlyUrl = a["browser_download_url"].get<std::string>();
+        const std::string mark = "-bin-win-cuda-", tail = "-x64.zip";
+        const size_t at = name.find(mark);
+        if (at == std::string::npos || !endsWith(name, tail)) continue;
+        const std::string version = name.substr(at + mark.size(), name.size() - at - mark.size() - tail.size());
+        if (version.empty() || version.size() > 8) continue;
+        Asset x;
+        x.url = a["browser_download_url"].get<std::string>();
+        x.size = a.contains("size") && a["size"].is_number_unsigned() ? a["size"].get<uint64_t>() : 0;
+        if (a.contains("digest") && a["digest"].is_string()) {
+            const std::string d = lower(a["digest"].get<std::string>());
+            if (d.rfind("sha256:", 0) == 0) x.sha = d.substr(7);
+        }
+        if (name.rfind("cudart-llama", 0) == 0) runtimes[version] = x;
+        else if (name.rfind("llama-", 0) == 0) engines[version] = x;
+    }
+    std::string pick;
+    if (engines.count("12.4") && runtimes.count("12.4")) pick = "12.4";
+    else
+        for (const auto& e : engines)
+            if (runtimes.count(e.first)) { pick = e.first; break; }
+    if (pick.empty()) return false;
+    url = engines[pick].url; size = engines[pick].size; sha256 = engines[pick].sha;
+    runtimeUrl = runtimes[pick].url; runtimeSize = runtimes[pick].size; runtimeSha256 = runtimes[pick].sha;
+    nightlyUrl.clear();
+    return true;
+}
+
+// A line of the engine's device list looks like "  Vulkan0: NVIDIA GeForce RTX 3090 (24326 MiB, 23000 MiB free)".
+bool pickGpuDevice(const std::string& listing, const std::string& preferred, std::string& id, std::string& name, long& totalMb,
+                   long& freeMb, int& count) {
+    struct Dev { std::string id, name; long total = 0, free = 0; bool builtIn = false; };
+    std::vector<Dev> devs;
+    std::string line;
+    auto take = [&] {
+        size_t a = line.find_first_not_of(" \t");
+        const size_t colon = line.find(':');
+        const size_t open = line.rfind('(');
+        const size_t mib = line.find(" MiB", open == std::string::npos ? 0 : open);
+        if (a == std::string::npos || colon == std::string::npos || open == std::string::npos || mib == std::string::npos || colon > open || colon <= a) return;
+        Dev d;
+        d.id = line.substr(a, colon - a);
+        bool letters = false, digits = false, plain = !d.id.empty();
+        for (char c : d.id) {
+            if (std::isalpha(static_cast<unsigned char>(c)) && !digits) letters = true;
+            else if (std::isdigit(static_cast<unsigned char>(c))) digits = true;
+            else plain = false;
+        }
+        if (!plain || !letters || !digits) return;  // "Vulkan0", "CUDA1": a name and its number
+        d.name = line.substr(colon + 1, open - colon - 1);
+        while (!d.name.empty() && d.name.front() == ' ') d.name.erase(d.name.begin());
+        while (!d.name.empty() && d.name.back() == ' ') d.name.pop_back();
+        d.total = std::atol(line.c_str() + open + 1);
+        const size_t comma = line.find(',', open);
+        if (comma != std::string::npos) d.free = std::atol(line.c_str() + comma + 1);
+        if (d.total <= 0) return;
+        // The graphics chip built into a processor: it shares the PC's ordinary memory (so it can look
+        // bigger than a real card) and is many times slower.
+        const std::string low = lower(d.name);
+        for (const char* mark : {"uhd graphics", "hd graphics", "iris", "intel(r) graphics", "radeon(tm) graphics", "radeon graphics",
+                                 "radeon(tm) vega", "microsoft basic", "llvmpipe", "swiftshader"})
+            if (low.find(mark) != std::string::npos) d.builtIn = true;
+        devs.push_back(d);
+    };
+    for (char c : listing + "\n") {
+        if (c == '\n' || c == '\r') { take(); line.clear(); }
+        else line += c;
+    }
+    count = int(devs.size());
+    if (devs.size() < 2) return false;  // nothing to choose between: the engine is left alone, as before
+    const Dev* best = nullptr;
+    const std::string want = lower(preferred);
+    if (!want.empty())
+        for (const Dev& d : devs) {
+            const std::string low = lower(d.name);
+            if (!d.builtIn && (low.find(want) != std::string::npos || want.find(low) != std::string::npos)) { best = &d; break; }
+        }
+    if (!best)
+        for (const Dev& d : devs)
+            if (!d.builtIn && (!best || d.total > best->total)) best = &d;
+    if (!best) return false;
+    id = best->id;
+    name = best->name;
+    totalMb = best->total;
+    freeMb = best->free;
+    return true;
+}
+
 // ---------------------------------------------------------------- LocalAi
 
 struct LocalAi::Impl {
@@ -436,6 +540,8 @@ struct LocalAi::Impl {
     std::condition_variable wake;
     std::string wantId;
     bool wantGpu = true;
+    std::string gpuName;  // the PC's real graphics card, as Windows names it (preferGpu)
+    bool wantNvidia = false;  // NVIDIA's own engine, where the person asked for it
     std::vector<std::string> removing;  // being deleted: the engine lets go of them first
 
     std::mutex engineMx;  // one engine install at a time
@@ -444,12 +550,13 @@ struct LocalAi::Impl {
 
     fs::path modelFile(const std::string& id) const { return dir / "models" / (id + ".gguf"); }
     fs::path partFile(const std::string& id) const { return dir / "models" / (id + ".gguf.part"); }
-    fs::path engineDir() const { return dir / "engine"; }
+    // The standard engine (Vulkan: any graphics card), and NVIDIA's own (CUDA), each in its own folder.
+    fs::path engineDir(bool nvidia = false) const { return dir / (nvidia ? "engine-nvidia" : "engine"); }
 
-    fs::path engineExe() const {
+    fs::path engineExe(bool nvidia = false) const {
         std::error_code ec;
-        if (!fs::exists(engineDir() / "ok.txt", ec)) return {};
-        for (fs::recursive_directory_iterator it(engineDir(), ec), end; !ec && it != end; it.increment(ec))
+        if (!fs::exists(engineDir(nvidia) / "ok.txt", ec)) return {};
+        for (fs::recursive_directory_iterator it(engineDir(nvidia), ec), end; !ec && it != end; it.increment(ec))
             if (it->is_regular_file(ec) && it->path().filename() == kEngineExe) return it->path();
         return {};
     }
@@ -573,18 +680,23 @@ struct LocalAi::Impl {
     }
 
     // The engine, downloaded and unpacked. "" when it's there.
-    std::string ensureEngine(std::atomic<bool>& cancel) {
+    // The engine, downloaded and unpacked. "" when it's there. `nvidia`: NVIDIA's own engine, which
+    // is two downloads (the engine, and NVIDIA's libraries).
+    std::string ensureEngine(std::atomic<bool>& cancel, bool nvidia = false) {
         std::lock_guard<std::mutex> lk(engineMx);
-        if (!engineExe().empty()) return {};
+        if (!engineExe(nvidia).empty()) return {};
         setEngine(kEngineGetting, "Getting the engine");
-        std::string url, sha, nightly, body;
-        uint64_t size = 0;
+        std::string url, sha, nightly, body, rtUrl, rtSha;
+        uint64_t size = 0, rtSize = 0;
         bool found = false;
+        auto pick = [&] {
+            return nvidia ? pickNvidiaEngine(body, url, size, sha, rtUrl, rtSize, rtSha, nightly) : pickEngineAsset(body, url, size, sha, nightly);
+        };
         // The pinned release; the newest one only if that's gone. A release can name another one
         // that holds the files (nightly-tag.txt).
         for (const std::string& rel : {std::string("/releases/tags/") + kEngineTag, std::string("/releases/latest")}) {
             if (!getJson(gGh + "/repos/ggml-org/llama.cpp" + rel, cancel, body)) continue;
-            found = pickEngineAsset(body, url, size, sha, nightly);
+            found = pick();
             if (!found && !nightly.empty()) {
                 Http http;
                 http.cancel = &cancel;
@@ -599,7 +711,7 @@ struct LocalAi::Impl {
                     for (char c : tag)
                         if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_') clean += c;
                     if (!clean.empty() && clean.size() < 40 && getJson(gGh + "/repos/ggml-org/llama.cpp/releases/tags/" + clean, cancel, body))
-                        found = pickEngineAsset(body, url, size, sha, nightly);
+                        found = pick();
                 }
             }
             if (found) break;
@@ -607,37 +719,48 @@ struct LocalAi::Impl {
         if (cancel) return "cancelled";
         if (!found) return "Couldn't find the engine to download. Check your connection and try again.";
         std::error_code ec;
-        fs::remove_all(engineDir(), ec);
-        fs::create_directories(engineDir(), ec);
-        const fs::path zip = dir / "engine.zip";
-        fs::remove(zip, ec);
+        const fs::path into = engineDir(nvidia);
+        fs::remove_all(into, ec);
+        fs::create_directories(into, ec);
         {
             std::lock_guard<std::mutex> l2(mx);
-            st.engineTotal = size;
+            st.engineTotal = size + rtSize;
         }
-        const std::string why = fetchFile(url, zip, size, cancel, [&](uint64_t got) {
-            std::lock_guard<std::mutex> l2(mx);
-            st.engineDone = got;
-        });
-        if (!why.empty()) { fs::remove(zip, ec); return why; }
-        if (!sha.empty() && sha256Hex(zip, nullptr) != sha) {
+        // One archive: downloaded (progress counted on from `before`), checked, unpacked into the folder.
+        auto getZip = [&](const std::string& from, uint64_t bytes, const std::string& sum, uint64_t before) -> std::string {
+            const fs::path zip = dir / "engine.zip";
             fs::remove(zip, ec);
-            return "The engine didn't download correctly. Try again.";
+            const std::string why = fetchFile(from, zip, bytes, cancel, [&](uint64_t got) {
+                std::lock_guard<std::mutex> l2(mx);
+                st.engineDone = before + got;
+            });
+            if (!why.empty()) { fs::remove(zip, ec); return why; }
+            if (!sum.empty() && sha256Hex(zip, nullptr) != sum) {
+                fs::remove(zip, ec);
+                return "The engine didn't download correctly. Try again.";
+            }
+            Proc unzip;
+            int code = 1;
+            const bool ran = spawn(unzipTool(), unzipArgs(zip, into), dir, dir / "unzip.log", unzip);
+            const bool finished = ran && waitExit(unzip, 300000, code);
+            if (ran && !finished) endProc(unzip);
+            fs::remove(zip, ec);
+            fs::remove(dir / "unzip.log", ec);
+            if (!finished || code != 0) return "Couldn't unpack the engine.";
+            return {};
+        };
+        std::string why = getZip(url, size, sha, 0);
+        if (why.empty() && nvidia) why = getZip(rtUrl, rtSize, rtSha, size);
+        if (!why.empty()) {
+            fs::remove_all(into, ec);
+            return why;
         }
-        Proc unzip;
-        int code = 1;
-        const bool ran = spawn(unzipTool(), unzipArgs(zip, engineDir()), dir, dir / "unzip.log", unzip);
-        const bool finished = ran && waitExit(unzip, 180000, code);
-        if (ran && !finished) endProc(unzip);
-        fs::remove(zip, ec);
-        fs::remove(dir / "unzip.log", ec);
-        if (!finished || code != 0) return "Couldn't unpack the engine.";
-        { std::ofstream ok(engineDir() / "ok.txt"); ok << kEngineTag << "\n"; }
-        if (engineExe().empty()) {
-            fs::remove_all(engineDir(), ec);
+        { std::ofstream ok(into / "ok.txt"); ok << kEngineTag << "\n"; }
+        if (engineExe(nvidia).empty()) {
+            fs::remove_all(into, ec);
             return "The engine download didn't have what was expected in it.";
         }
-        log("Local models: the engine is installed.");
+        log(nvidia ? "Local models: NVIDIA's engine is installed." : "Local models: the engine is installed.");
         return {};
     }
 
@@ -737,6 +860,7 @@ struct LocalAi::Impl {
         if (!any) {  // nothing left to run: the engine goes too, so deleting everything frees everything
             std::lock_guard<std::mutex> lk(engineMx);
             fs::remove_all(engineDir(), ec);
+            fs::remove_all(engineDir(true), ec);
             fs::remove(dir / "engine.log", ec);
             setEngine(kEngineOff, "");
         }
@@ -765,6 +889,8 @@ struct LocalAi::Impl {
         Proc proc;
         std::string runId;
         bool runGpu = true;
+        bool runNvidia = false;     // the engine that is running is NVIDIA's
+        bool nvidiaBroken = false;  // NVIDIA's engine couldn't be used here: the standard one, until the switch is flipped again
         std::string failedId;
         bool failedGpu = true;
         Clock::time_point retryAt{};
@@ -777,11 +903,12 @@ struct LocalAi::Impl {
         while (!quit) {
             std::this_thread::sleep_for(std::chrono::milliseconds(150));
             std::string id;
-            bool gpu = true;
+            bool gpu = true, nvidia = false;
             {
                 std::lock_guard<std::mutex> lk(mx);
                 id = wantId;
                 gpu = wantGpu;
+                nvidia = wantNvidia;
                 if (std::find(removing.begin(), removing.end(), id) != removing.end()) id.clear();
                 const LocalModelState* s = id.empty() ? nullptr : model(id);
                 if (!s || s->stage != kModelInstalled) id.clear();
@@ -800,9 +927,20 @@ struct LocalAi::Impl {
                 failedId.clear();
                 continue;
             }
-            if (runId == id && runGpu == gpu && alive(proc)) continue;  // answering
+            if (!nvidia) {
+                nvidiaBroken = false;  // switched off: next time it's switched on, it gets a fresh try
+                // ...and its folder (about a gigabyte) goes, once nothing is running from it.
+                std::error_code ec;
+                if (!(runNvidia && alive(proc)) && fs::exists(engineDir(true), ec)) {
+                    std::lock_guard<std::mutex> lk(engineMx);
+                    fs::remove_all(engineDir(true), ec);
+                    refreshDisk();
+                }
+            }
+            const bool useNvidia = gpu && nvidia && !nvidiaBroken;
+            if (runId == id && runGpu == gpu && runNvidia == useNvidia && alive(proc)) continue;  // answering
             if (failedId == id && failedGpu == gpu && Clock::now() < retryAt) continue;  // it just failed: not in a loop
-            const bool died = runId == id && runGpu == gpu;
+            const bool died = runId == id && runGpu == gpu && runNvidia == useNvidia;
             stopEngine();
             if (died) log("Local models: the engine stopped by itself. Starting it again.");
             auto failed = [&](const std::string& why) {
@@ -812,15 +950,86 @@ struct LocalAi::Impl {
                 failedGpu = gpu;
                 retryAt = Clock::now() + std::chrono::seconds(60);
             };
-            const std::string why = ensureEngine(never);
-            if (!why.empty()) { failed(why); continue; }
-            const fs::path exe = engineExe();
             const LocalModel* m = findLocalModel(id);
             bool up = false, changed = false, onGpu = gpu;
+            int warmMs = 0;
             std::string note;
-            // On the graphics card first; if it can't load there (not enough graphics memory, usually),
-            // on the processor.
-            for (int layers : gpu ? std::vector<int>{999, 0} : std::vector<int>{0}) {
+            // Which graphics card, and how much room it has right now. On a PC with a card and a chip
+            // built into the processor, the engine can put part of the model on the chip (it looks
+            // roomy, since it borrows the PC's ordinary memory) and every line crawls: it's told to use
+            // the real card only. And when a game already fills the card, the model spills into ordinary
+            // memory and is slow too: nothing to fix from here, but it's said, in the app and in the log.
+            auto chooseDevice = [&](const fs::path& exe, std::string& deviceId, std::string& tight) {
+                Proc lister;
+                int code = 1;
+                const fs::path listFile = dir / "devices.log";
+                if (spawn(exe, {"--list-devices"}, exe.parent_path(), listFile, lister)) {
+                    waitExit(lister, 20000, code);
+                    endProc(lister);
+                }
+                std::string listing;
+                {
+                    std::ifstream f(listFile, std::ios::binary);
+                    char buf[4096];
+                    while (f && listing.size() < (64u << 10)) {
+                        f.read(buf, sizeof(buf));
+                        listing.append(buf, size_t(f.gcount()));
+                    }
+                }
+                std::string prefer, name;
+                {
+                    std::lock_guard<std::mutex> lk(mx);
+                    prefer = gpuName;
+                }
+                long totalMb = 0, freeMb = 0;
+                int count = 0;
+                const bool picked = pickGpuDevice(listing, prefer, deviceId, name, totalMb, freeMb, count);
+                if (!picked) {
+                    // One device (or none listed): still read its memory, for the note below.
+                    std::string id1;
+                    pickGpuDevice(listing + "\n  Other0: - (1 MiB, 1 MiB free)", prefer, id1, name, totalMb, freeMb, count);
+                    if (id1 == "Other0") { name.clear(); totalMb = freeMb = 0; }
+                }
+                if (!name.empty()) {
+                    const long needMb = long(fileSize(modelFile(id)) >> 20) + 1200;  // the file, and room to work in
+                    char line[400];
+                    std::snprintf(line, sizeof(line), "Local models: graphics card %s, %.1f GB with %.1f GB free; this model needs about %.1f GB.%s",
+                                  name.c_str(), totalMb / 1024.0, freeMb / 1024.0, needMb / 1024.0,
+                                  picked ? " The PC has more than one graphics device: using this one only." : "");
+                    log(line);
+                    if (freeMb > 0 && freeMb < needMb) {
+                        tight = "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.";
+                        log("Local models: not enough of the card's memory is free for this model (a game or another app is using it), so it will be slow.");
+                    }
+                }
+            };
+            // NVIDIA's own engine first, where it was asked for; then the standard engine on the graphics
+            // card; then, if it can't load there (not enough graphics memory, usually), on the processor.
+            // Whatever goes wrong with NVIDIA's engine (it can't be downloaded, it won't start with this
+            // driver, it can't load the model), the standard one takes over by itself, and says so.
+            struct Try { bool nvidia; int layers; };
+            std::vector<Try> tries;
+            if (useNvidia) tries.push_back({true, 999});
+            if (gpu) tries.push_back({false, 999});
+            tries.push_back({false, 0});
+            bool gaveUp = false, fellBack = false, viaNvidia = false;
+            for (const Try& t : tries) {
+                const int layers = t.layers;
+                const std::string why = ensureEngine(t.nvidia ? quit : never, t.nvidia);
+                if (!why.empty()) {
+                    if (quit) break;
+                    if (t.nvidia) {
+                        nvidiaBroken = fellBack = true;
+                        log("Local models: NVIDIA's engine couldn't be installed (" + why + "). Using the standard engine.");
+                        continue;
+                    }
+                    failed(why);
+                    gaveUp = true;
+                    break;
+                }
+                const fs::path exe = engineExe(t.nvidia);
+                std::string deviceId, tight;
+                if (layers > 0) chooseDevice(exe, deviceId, tight);
                 setEngine(kEngineStarting, "Loading the model");
                 const int port = 39000 + int(std::random_device{}() % 9000);
                 const std::string key = randomHex(32);
@@ -828,7 +1037,12 @@ struct LocalAi::Impl {
                 // network can use it. Two lines at once (My voice and Listen).
                 const std::vector<std::string> args = {"-m", modelFile(id).u8string(), "--host", "127.0.0.1", "--port", std::to_string(port),
                                                        "--api-key", key, "-ngl", std::to_string(layers), "-c", "8192", "-np", "2"};
-                if (!spawn(exe, args, exe.parent_path(), dir / "engine.log", proc)) { note = "The engine couldn't be started."; break; }
+                std::vector<std::string> all = args;
+                if (layers > 0 && !deviceId.empty()) {
+                    all.push_back("--device");
+                    all.push_back(deviceId);
+                }
+                if (!spawn(exe, all, exe.parent_path(), dir / "engine.log", proc)) { note = "The engine couldn't be started."; break; }
                 const std::string url = "http://127.0.0.1:" + std::to_string(port);
                 const Clock::time_point t0 = Clock::now();
                 Http http;
@@ -848,12 +1062,45 @@ struct LocalAi::Impl {
                     std::this_thread::sleep_for(std::chrono::milliseconds(250));
                 }
                 if (up) {
+                    // The first answer after loading is the slow one: the graphics card builds what it
+                    // needs on first use, and the engine sets up its memory for a full prompt. Left to
+                    // the first real line, that line ran out of time and went to a backup many seconds
+                    // late. So one throwaway request of about a real line's size is answered here, while
+                    // the app still says "Loading the model" (lines in that moment go straight to the
+                    // backup, without waiting). It can't fail the load: whatever happens, the model is ready after.
+                    const Clock::time_point w0 = Clock::now();
+                    {
+                        std::string filler;
+                        for (int i = 0; i < 70; ++i)
+                            filler += "You translate one spoken line at a time, keep its meaning and tone, and answer with only the line. ";
+                        for (int tryNo = 0; tryNo < 2 && !quit; ++tryNo) {
+                            json req = {{"messages", json::array({{{"role", "system"}, {"content", filler}}, {{"role", "user"}, {"content", "Hello."}}})},
+                                        {"max_tokens", 8}, {"temperature", 0}, {"stream", false}};
+                            if (tryNo == 0) req["chat_template_kwargs"] = {{"enable_thinking", false}};
+                            const std::string payload = req.dump();
+                            HttpRequest r;
+                            r.url = url + "/v1/chat/completions";
+                            r.headers = {"Authorization: Bearer " + key, "Content-Type: application/json"};
+                            r.body = &payload;
+                            r.timeoutMs = 60000;
+                            http.cancel = &quit;
+                            long status = 0;
+                            std::string body, err;
+                            const bool sent = http.perform(r, status, body, err);
+                            http.cancel = nullptr;
+                            if (!sent || status != 400) break;  // 400: an engine that doesn't know that setting, once more without it
+                        }
+                    }
+                    warmMs = int(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - w0).count());
                     runId = id;
                     runGpu = gpu;
+                    runNvidia = viaNvidia = t.nvidia;
                     onGpu = layers > 0;
                     std::lock_guard<std::mutex> lk(mx);
                     st.engine = kEngineReady;
                     st.engineMessage = layers == 0 && gpu ? "Running on the processor (the graphics card couldn't load it), so it's slower."
+                                       : fellBack         ? "NVIDIA's engine couldn't be used on this PC, so the standard one is running."
+                                       : layers > 0       ? tight
                                                           : std::string();
                     st.running = id;
                     st.device = layers > 0 ? deviceFromLog(dir / "engine.log") : std::string();
@@ -865,9 +1112,27 @@ struct LocalAi::Impl {
                 endProc(proc);
                 if (changed || quit) break;
                 note = "The model couldn't be loaded." + (last.empty() ? std::string() : " (" + last + ")");
+                if (t.nvidia) {
+                    nvidiaBroken = fellBack = true;
+                    log("Local models: NVIDIA's engine couldn't load the model" + (last.empty() ? std::string() : " (" + last + ")") +
+                        ". Using the standard engine.");
+                }
             }
-            if (up) log(std::string("Local models: ") + (m ? m->name : id.c_str()) + " is ready" + (onGpu ? "." : " (on the processor)."));
-            else if (!changed && !quit) failed(note.empty() ? "The model couldn't be loaded." : note);
+            if (up) {
+                // Where it runs and how long its first answer took, for anyone reading the log to see why
+                // a PC is slow: the wrong graphics chip, or a model too big for the card, shows here.
+                std::string where;
+                {
+                    std::lock_guard<std::mutex> lk(mx);
+                    where = st.device;
+                }
+                char warm[64];
+                std::snprintf(warm, sizeof(warm), "%.1f s", warmMs / 1000.0);
+                log(std::string("Local models: ") + (m ? m->name : id.c_str()) + " is ready" +
+                    (onGpu ? (where.empty() ? std::string() : " on " + where) : std::string(" (on the processor)")) +
+                    (viaNvidia ? ", with NVIDIA's engine" : "") + ". Its first answer took " + warm + ".");
+            }
+            else if (!changed && !quit && !gaveUp) failed(note.empty() ? "The model couldn't be loaded." : note);
         }
         endProc(proc);
     }
@@ -925,10 +1190,16 @@ void LocalAi::remove(const std::string& id) {
     p_->wake.notify_all();
 }
 
-void LocalAi::want(const std::string& id, bool gpu) {
+void LocalAi::preferGpu(const std::string& name) {
+    std::lock_guard<std::mutex> lk(p_->mx);
+    p_->gpuName = name;
+}
+
+void LocalAi::want(const std::string& id, bool gpu, bool nvidia) {
     std::lock_guard<std::mutex> lk(p_->mx);
     p_->wantId = id;
     p_->wantGpu = gpu;
+    p_->wantNvidia = nvidia;
 }
 
 LocalState LocalAi::state() const {

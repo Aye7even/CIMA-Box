@@ -1192,5 +1192,10 @@
  "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "Фразы из одного–трёх слов идут сразу в DeepL или Microsoft: намного быстрее, но на стандартном языке, без твоего диалекта и манеры речи.",
  "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "Старая модель: её заменяют модели Uncensored из списка. Можно пользоваться ею дальше или удалить.",
  "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "На этом ПК ещё остались старые модели, они занимают %s. Их заменяют модели Uncensored ниже: скачай одну, а потом удали старые здесь.",
- "Delete the older models": "Удалить старые модели"
+ "Delete the older models": "Удалить старые модели",
+ "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.": "Память видеокарты почти заполнена, поэтому эта модель сейчас работает медленно. Закрой то, что ещё её занимает, или выбери модель полегче.",
+ "Use NVIDIA's own engine": "Использовать собственный движок NVIDIA",
+ "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "Сделан NVIDIA для своих видеокарт и обычно работает на них быстрее. В первый раз скачивается ещё около 0,6 ГБ. Если на этом ПК его использовать нельзя, CIMA Box сам вернётся к стандартному движку и напишет об этом здесь.",
+ "Off: the standard engine, which works on every graphics card.": "Выключено: стандартный движок, который работает на любой видеокарте.",
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "Движок NVIDIA не удалось использовать на этом ПК, поэтому работает стандартный."
 }

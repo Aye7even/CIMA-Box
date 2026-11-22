@@ -1192,5 +1192,10 @@
  "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "Frases de uma a três palavras vão direto para o DeepL ou a Microsoft: muito mais rápido, mas no idioma padrão, sem o seu dialeto nem o seu jeito de falar.",
  "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "Um modelo antigo: os Uncensored da lista o substituem. Você pode continuar usando ou apagar.",
  "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "Ainda há modelos antigos neste PC, ocupando %s. Os Uncensored abaixo os substituem: baixe um e depois apague os antigos aqui.",
- "Delete the older models": "Apagar os modelos antigos"
+ "Delete the older models": "Apagar os modelos antigos",
+ "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.": "A memória da placa de vídeo está quase cheia, então este modelo está lento agora. Feche o que mais estiver usando a placa ou escolha um modelo mais leve.",
+ "Use NVIDIA's own engine": "Usar o motor próprio da NVIDIA",
+ "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "Feito pela NVIDIA para as placas dela, e normalmente mais rápido nelas. Na primeira vez, baixa cerca de 0,6 GB a mais. Se não puder ser usado neste PC, o CIMA Box volta sozinho para o motor padrão e avisa aqui.",
+ "Off: the standard engine, which works on every graphics card.": "Desligado: o motor padrão, que funciona em qualquer placa de vídeo.",
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "O motor da NVIDIA não pôde ser usado neste PC, então o padrão está rodando."
 }

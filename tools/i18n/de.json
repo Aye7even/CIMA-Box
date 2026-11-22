@@ -1192,5 +1192,10 @@
  "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "Sätze mit ein bis drei Wörtern gehen direkt an DeepL oder Microsoft: viel schneller, aber in der Standardsprache, ohne deinen Dialekt und deine Art zu sprechen.",
  "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "Ein älteres Modell: Die Uncensored-Modelle in der Liste ersetzen es. Du kannst es weiter benutzen oder löschen.",
  "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "Auf diesem PC liegen noch ältere Modelle, die %s belegen. Die Uncensored-Modelle unten ersetzen sie: Lade eines herunter und lösche dann hier die alten.",
- "Delete the older models": "Die älteren Modelle löschen"
+ "Delete the older models": "Die älteren Modelle löschen",
+ "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.": "Der Speicher der Grafikkarte ist fast voll, deshalb ist dieses Modell gerade langsam. Schließe, was ihn sonst noch belegt, oder wähle ein leichteres Modell.",
+ "Use NVIDIA's own engine": "NVIDIAs eigene Engine verwenden",
+ "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "Von NVIDIA für die eigenen Karten gemacht und dort meist schneller. Beim ersten Mal werden etwa 0,6 GB zusätzlich heruntergeladen. Lässt sie sich auf diesem PC nicht nutzen, wechselt CIMA Box von selbst zur Standard-Engine zurück und sagt es hier.",
+ "Off: the standard engine, which works on every graphics card.": "Aus: die Standard-Engine, die mit jeder Grafikkarte funktioniert.",
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "NVIDIAs Engine ließ sich auf diesem PC nicht nutzen, deshalb läuft die Standard-Engine."
 }

@@ -1192,5 +1192,10 @@
  "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "一到三个词的句子直接交给 DeepL 或 Microsoft：快得多，但用的是标准语，不带你的方言和说话方式。",
  "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "旧模型：列表里的 Uncensored 模型已取代它。你可以继续使用，也可以删除。",
  "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "这台电脑上还留着旧模型，占用 %s。下面的 Uncensored 模型已取代它们：先下载一个，再在这里删除旧的。",
- "Delete the older models": "删除旧模型"
+ "Delete the older models": "删除旧模型",
+ "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.": "显卡内存快满了，所以这个模型现在很慢。请关闭其他占用显存的程序，或者选一个更轻量的模型。",
+ "Use NVIDIA's own engine": "使用 NVIDIA 自家的引擎",
+ "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "由 NVIDIA 为自家显卡制作，通常在这些显卡上更快。第一次会多下载约 0.6 GB。如果这台电脑用不了，CIMA Box 会自动换回标准引擎，并在这里说明。",
+ "Off: the standard engine, which works on every graphics card.": "关闭：使用标准引擎，任何显卡都能用。",
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "这台电脑用不了 NVIDIA 的引擎，所以正在使用标准引擎。"
 }

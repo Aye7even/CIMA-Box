@@ -1192,5 +1192,10 @@
  "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "한 단어에서 세 단어짜리 말은 바로 DeepL이나 Microsoft로 가요. 훨씬 빠르지만 표준어로 나오고, 사투리와 말투는 반영되지 않아요.",
  "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "예전 모델이에요. 목록의 Uncensored 모델이 이를 대신해요. 계속 쓰거나 지울 수 있어요.",
  "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "예전 모델이 아직 이 PC에 남아 있고 %s를 차지하고 있어요. 아래 Uncensored 모델이 이를 대신해요. 하나를 내려받은 다음 여기서 예전 모델을 지우세요.",
- "Delete the older models": "예전 모델 지우기"
+ "Delete the older models": "예전 모델 지우기",
+ "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.": "그래픽 카드 메모리가 거의 가득 차서 지금은 이 모델이 느려요. 메모리를 쓰는 다른 것을 닫거나 더 가벼운 모델을 고르세요.",
+ "Use NVIDIA's own engine": "NVIDIA 전용 엔진 사용",
+ "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "NVIDIA가 자사 카드용으로 만든 엔진이라 보통 더 빨라요. 처음에는 약 0.6 GB를 더 내려받아요. 이 PC에서 쓸 수 없으면 CIMA Box가 알아서 표준 엔진으로 돌아가고 여기에 알려 줘요.",
+ "Off: the standard engine, which works on every graphics card.": "꺼짐: 모든 그래픽 카드에서 되는 표준 엔진을 써요.",
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "이 PC에서는 NVIDIA 엔진을 쓸 수 없어서 표준 엔진으로 돌아가고 있어요."
 }

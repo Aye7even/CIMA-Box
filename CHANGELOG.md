@@ -6,6 +6,13 @@ history, and the "What's new" window after an update) and becomes each GitHub re
 To release a version, add a section for it at the top: `## 2.7.0`, then one line per change
 starting with `- `. Write them for the people using the app.
 
+## 3.1.5
+- Fixed, local models: the first line after a model loaded could take 10 seconds or more and end up with a backup translator. The first answer after loading is always the slow one (the graphics card sets itself up on first use), and that used to be your first real line. The model now gives one throwaway answer while it still says "Loading the model", so your first line is as quick as the ones after it. A line said during that moment goes straight to the backup, without waiting.
+- New, for NVIDIA cards: "Use NVIDIA's own engine" (Local models, under "Use the graphics card"; off by default, and only shown on PCs with an NVIDIA card). Local models then run on the engine NVIDIA makes for its own cards, which is usually faster than the standard one. The first time, it downloads about 0.6 GB more. If it can't be downloaded, won't start with your driver or can't load the model, CIMA Box goes back to the standard engine by itself and says so under the model, so switching it on can't leave you without a local model. Switching it off deletes its files again. AMD and Intel cards keep the standard engine, which is the right one for them.
+- Faster local models on PCs with two graphics devices (NVIDIA or AMD card, plus the small chip built into the processor). The engine could put part of the model on the built-in chip, which made every line slow. CIMA Box now asks the engine what it sees and tells it to use the real card only. PCs with one card are unchanged.
+- New: when a game is already using most of the graphics card's memory, the model spills into ordinary memory and gets slow. CIMA Box now checks how much of the card is free before loading and says so under the model ("The graphics card's memory is almost full..."), so you know to pick a lighter model or close something.
+- The log now says which graphics card a local model runs on and how long its first answer took ("Gemma 4 E4B Uncensored is ready on NVIDIA GeForce RTX 3090. Its first answer took 2.1 s."), and how much of the card's memory was free, so a PC where it is slow can be told apart at a glance.
+
 ## 3.1.4
 - Changed, local models: the three Gemma 4 models are now uncensored builds. They translate swearing, insults between friends and crude lines as they were said, where the stock Gemma softened or declined them.
   - Light (Gemma 4 E2B Uncensored, 3.5 GB download), Balanced (Gemma 4 E4B Uncensored, 5 GB) and Best (Gemma 4 12B Uncensored, 7.4 GB). They need a little more memory than the old ones: about 5, 7 and 11 GB.

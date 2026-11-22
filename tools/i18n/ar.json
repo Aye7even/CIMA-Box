@@ -1192,5 +1192,10 @@
  "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "الجمل من كلمة إلى ثلاث كلمات تذهب مباشرة إلى DeepL أو Microsoft: أسرع بكثير، لكن باللغة الفصحى القياسية، بدون لهجتك أو طريقة كلامك.",
  "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "نموذج أقدم: نماذج Uncensored في القائمة تحل محله. يمكنك الاستمرار في استخدامه أو حذفه.",
  "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "ما زالت النماذج الأقدم على هذا الحاسوب وتشغل %s. نماذج Uncensored في الأسفل تحل محلها: نزّل واحدًا منها ثم احذف القديمة من هنا.",
- "Delete the older models": "حذف النماذج الأقدم"
+ "Delete the older models": "حذف النماذج الأقدم",
+ "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.": "ذاكرة بطاقة الرسوميات شبه ممتلئة، لذلك هذا النموذج بطيء الآن. أغلق ما يستخدمها غيره، أو اختر نموذجًا أخف.",
+ "Use NVIDIA's own engine": "استخدام محرك NVIDIA الخاص",
+ "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "من صنع NVIDIA لبطاقاتها، وهو أسرع عليها في العادة. في المرة الأولى ينزّل نحو 0.6 غيغابايت إضافية. إذا تعذّر استخدامه على هذا الحاسوب، يعود CIMA Box تلقائيًا إلى المحرك القياسي ويذكر ذلك هنا.",
+ "Off: the standard engine, which works on every graphics card.": "متوقف: المحرك القياسي الذي يعمل مع كل بطاقات الرسوميات.",
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "تعذّر استخدام محرك NVIDIA على هذا الحاسوب، لذلك يعمل المحرك القياسي."
 }

@@ -1400,6 +1400,7 @@ const Findable kFindables[] = {
     {"Short lines skip the AI", kPageVoice, "Voice and language", "short words deepl microsoft speed fast slow latency skip", TOGGLE(shortToPlain)},
     {"Time limit", kPageVoice, "Voice and language", "ai time limit timeout too slow seconds wait backup", nullptr},
     {"Use the graphics card", kPageVoice, "Voice and language", "local model gpu graphics card processor cpu vram slow", TOGGLE(localGpu)},
+    {"Use NVIDIA's own engine", kPageVoice, "Voice and language", "local model nvidia cuda geforce rtx engine faster speed slow graphics card", TOGGLE(localNvidia)},
     // My voice: microphone
     {"Opens above", kPageVoice, "Microphone", "threshold sensitivity gate level loud quiet background noise db", nullptr},
     {"Key", kPageVoice, "Microphone", "push to talk key hotkey bind", nullptr, "Push to talk key"},
@@ -1896,6 +1897,17 @@ void localModels(Settings& c) {
     }
     toggleRow("Use the graphics card", &c.localGpu);
     note("Works with NVIDIA, AMD and Intel cards, and is much faster. Turn it off if your game stutters: the model then runs on the processor, slowly.");
+    {   // NVIDIA's own engine: only offered where there is an NVIDIA card to use it, and only by choice.
+        std::string card = pc.gpu;
+        for (char& ch : card) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        const bool nvidiaCard = card.find("nvidia") != std::string::npos || card.find("geforce") != std::string::npos;
+        if (nvidiaCard && c.localGpu) {
+            toggleRow("Use NVIDIA's own engine", &c.localNvidia);
+            note(c.localNvidia ? "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. "
+                                 "If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here."
+                               : "Off: the standard engine, which works on every graphics card.");
+        }
+    }
     if (ls.diskBytes > 0) {
         char d[120];
         std::snprintf(d, sizeof(d), TF("Local models use %s on this PC. Deleting them all frees everything."), gigabytes(ls.diskBytes).c_str());

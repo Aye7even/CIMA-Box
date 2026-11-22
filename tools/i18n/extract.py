@@ -123,7 +123,9 @@ found += ["Not enough free space on the disk.","Couldn't download it. Check your
           "Couldn't find this model's file to download.","The download was damaged on the way. Try again.","Couldn't save the model.",
           "Couldn't find the engine to download. Check your connection and try again.","The engine didn't download correctly. Try again.",
           "Couldn't unpack the engine.","The engine download didn't have what was expected in it.","The engine couldn't be started.",
-          "The model couldn't be loaded.","Running on the processor (the graphics card couldn't load it), so it's slower."]
+          "The model couldn't be loaded.","Running on the processor (the graphics card couldn't load it), so it's slower.",
+          "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.",
+          "NVIDIA's engine couldn't be used on this PC, so the standard one is running."]
 found += ['Off','Showing','Connected','Waiting for SteamVR','Problem','Hearing speech','Translating','Listening','Your mic',
           'Working','Some problems','Outage','Maintenance',"Couldn't check",'All Systems Operational','Problems reported',
           "Couldn't check right now","That picture couldn't be read. Pick a JPEG or PNG file.","Couldn't copy that picture into CIMA Box's settings folder.",'Answering normally (checked from this PC)',"This key isn't allowed to read usage (it needs User: Read access).",
