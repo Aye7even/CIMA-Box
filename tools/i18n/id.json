@@ -1197,5 +1197,10 @@
  "Use NVIDIA's own engine": "Pakai mesin buatan NVIDIA",
  "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "Dibuat NVIDIA untuk kartunya sendiri, dan biasanya lebih cepat di sana. Pertama kali, ada unduhan tambahan sekitar 0,6 GB. Kalau tidak bisa dipakai di PC ini, CIMA Box kembali sendiri ke mesin standar dan memberi tahu di sini.",
  "Off: the standard engine, which works on every graphics card.": "Mati: mesin standar, yang jalan di semua kartu grafis.",
- "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "Mesin NVIDIA tidak bisa dipakai di PC ini, jadi mesin standar yang berjalan."
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "Mesin NVIDIA tidak bisa dipakai di PC ini, jadi mesin standar yang berjalan.",
+ "Getting the laugh and cough recogniser (about 40 MB, once). Until it's here, laughs and coughs aren't picked up while live transcription is on.": "Mengunduh pengenal tawa dan batuk (sekitar 40 MB, sekali saja). Sampai selesai, tawa dan batuk tidak tertangkap selama transkripsi langsung menyala.",
+ "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "Tawa dan batuk tidak tertangkap selama transkripsi langsung menyala: pengenalnya tidak bisa diunduh atau dimuat di PC ini. CIMA Box mencoba lagi saat dibuka berikutnya.",
+ "The model is picked under More voice settings, just below.": "Model dipilih di \"More voice settings\", tepat di bawah.",
+ "Faster translations": "Terjemahan lebih cepat",
+ "Turn on Live transcription": "Nyalakan transkripsi langsung"
 }

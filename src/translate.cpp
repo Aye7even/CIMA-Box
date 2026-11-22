@@ -1242,6 +1242,11 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         else if (st.speaker == kGenderNonbinary)
             genders += "- The speaker is nonbinary: where the language marks the speaker's gender, choose wording that "
                        "avoids it if that sounds natural; otherwise use the most neutral natural option.\n";
+        else  // not set: left to itself a model picks one, and not the same one in every line
+            genders += std::string("- You don't know the speaker's gender") +
+                       (st.persona.empty() ? "" : " (unless the description of who they are says it)") +
+                       ": where the language marks it in words about themselves, prefer wording that avoids it; if that "
+                       "would sound unnatural, use the language's usual default, the same one in every line.\n";
         if (st.listener == kListenerMan || st.listener == kListenerWoman)
             genders += std::string("- They are talking to a ") + (st.listener == kListenerMan ? "man" : "woman") +
                        ": use the " + (st.listener == kListenerMan ? "masculine" : "feminine") +
@@ -1291,6 +1296,20 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         st.variety.empty() ? std::string()
                            : "- Speak that variety, not the textbook standard: its own everyday words, expressions and grammar, "
                              "written the way people from there normally type it.\n";
+    // "Sound like" is a description of a person. It picks words; it must not quietly override a
+    // setting (a persona "from Madrid" with the dialect set to Mexico, "a polite girl" with Very casual).
+    const std::string personaRule =
+        st.persona.empty() ? std::string()
+                           : std::string("- That description of who you are only shapes word choice: the slang and expressions "
+                             "someone like that uses. It never changes how you were told to sound") + (st.variety.empty() ? "" : ", the dialect") +
+                             " or the gender forms set here, and it adds nothing to what is said (no catchphrases, no extra words)." +
+                             (st.variety.empty() ? std::string()
+                                                 : " If it names another place than " + (st.varietyName.empty() ? st.variety : st.varietyName) +
+                                                       ", " + (st.varietyName.empty() ? st.variety : st.varietyName) + " wins.") +
+                             "\n";
+    // This language's own informal and polite forms, in a few concrete words (the same table a model
+    // on this PC gets at the end).
+    const LocalLevel* forms = localLevel(to.code);
     // The style is the part people notice most, and models drift back to neat, polite sentences
     // unless it is spelled out: who you're talking to, what that sounds like in this language, what
     // is not allowed, examples, and a last check right before the answer. A neatly worded original
@@ -1320,7 +1339,9 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         level = "HOW TO SOUND: you're talking to someone you just met in a lobby and want to come across as friendly and "
                 "respectful. Use the polite speech level (for example Korean 해요체, Japanese です/ます, or vous/usted/Sie/вы "
                 "where the language has them). Warm and relaxed, like a friendly stranger in a game: never stiff, never "
-                "like written text, and no slang or swearing the original didn't have.";
+                "like written text, and no slang or swearing the original didn't have." +
+                (forms ? std::string(" In ") + target + " that means: " + forms->polite + "." : std::string()) +
+                " A casual or blunt original does NOT make the result casual: the setting decides, not the original's wording.";
     } else {
         level = std::string("HOW TO SOUND (the most important rule, it outranks staying close to the original wording): ") +
                 (veryCasual
@@ -1382,8 +1403,10 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
     // Polite and "My own" get the same two last looks: nothing added, and the dialect really used.
     if (polite || custom) {
         if (polite)
-            check = "Before you answer, go through your line word by word against what they said: anything they "
-                    "didn't say gets deleted.";
+            check = std::string("Before you answer, go through your line word by word against what they said: anything they "
+                    "didn't say gets deleted. Then check the speech level: every sentence polite") +
+                    (forms ? std::string(" (") + forms->polite + ")" : std::string()) +
+                    ", none of it casual or slangy, and none of it stiff or official either.";
         if (!st.variety.empty() && !mixed)
             check += " Then check the dialect: is this really " + (st.varietyName.empty() ? spoken : st.varietyName) +
                      ", the way people from there talk? Wherever it has its own word, ending or spelling, the standard " +
@@ -1402,7 +1425,13 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
     s = "You are the voice of a person in live voice chat (for example in VRChat or a game). They said something in " +
         source + "; you say it for them in " + spoken + ".\n"
         "Write exactly what " + who + " would actually say out loud here.\n"
-        "- " + level + "\n" + dialect + genders + keep + st.wordNote +
+        "- " + level + "\n" + dialect + personaRule + genders + keep +
+        "- When two of these rules pull in different directions: what they mean comes first (nothing added, nothing left "
+        "out), then " + (st.variety.empty() ? std::string(custom ? "the way they asked to sound" : "the speech level")
+                                            : std::string("the dialect and ") + (custom ? "the way they asked to sound" : "the speech level") + " together (the " +
+        std::string(custom ? "described" : polite ? "polite" : "informal") + " way of talking as it is in " +
+        (st.varietyName.empty() ? st.variety : st.varietyName) + ", never the standard language's forms where the dialect has its own)") +
+        ", then everything else.\n" + st.wordNote +
         "- A text-to-speech voice will speak it: write only spoken words. No emoji, hashtags, texting abbreviations or "
         "laughter written as letters (no ㅋㅋ, lol, www, jaja, хаха), no quotation marks, no notes.\n" +
         (mixed ? "- Mix in English the way people who speak " + spoken.substr(0, spoken.find(',')) + " really do: the everyday "
@@ -1413,6 +1442,16 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                  "because they were there: someone who only speaks " + target +
                  " has to understand all of it. Names stay exactly as they are: people, places, games, apps, brands and "
                  "products (like VRChat, Discord, ElevenLabs, Claude), and any words you were told to keep.\n") +
+        (st.marked.empty() ? std::string()
+         : std::string("- Their line comes with stage directions in square brackets, such as [whispers], [quickly], [coughs] or "
+           "[laughs]: how a part was said, or a sound they made. They are not words. Copy every one exactly as written, "
+           "in English, each one once: never translate, reword, add or drop one. Put each at the place in your line "
+           "that matches its place in theirs: a direction in front of some words goes in front of the words that carry "
+           "the same meaning, and a sound stays between the same thoughts (or at the very start or end) as it was.\n"
+           "- A word in CAPITALS was stressed by their voice: write the word that carries its meaning in CAPITALS in your "
+           "line too, and nothing else in capitals. If " + target + " is written without capital letters, leave the "
+           "stress out. A word with a drawn-out letter (\"nooo\", \"sooo\") was drawn out: draw out its counterpart the "
+           "same way where that reads naturally, and otherwise write it normally.\n")) +
         "- If it is already in " + spoken + ", just make it sound natural in that style.\n"
         "- If what they said is garbled or unclear, say your best guess of what they meant. Never explain or comment.\n"
         "- If there is a word you won't say, just leave that word out and translate the rest as it is. Never replace "
@@ -1422,7 +1461,8 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
              "from it into your line. Use it only to understand what's being talked about and to reuse the words the "
              "others use. ") +
              (casual ? "Keep the style described above even if the others talk politely or formally: never become more "
-                       "polite because of them. If they are even more casual than you, you may match them:\n"
+                       "polite because of them. If they are even more casual than you, you may match them in form only "
+                       "(shorter, looser), never by adding swearing, insults or anything the speaker didn't say:\n"
               : polite ? "Keep the style described above: if the others are clearly more casual with you, you may move one "
                          "small step toward them, never further:\n"
                        : "Keep the style described above:\n") +
@@ -1438,10 +1478,13 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
     // A model on this PC is small: it reads the long description above and still slides back to the
     // standard language and a neutral, polite tone. For it only, the two things that go wrong are said
     // once more at the very end, short and concrete for this language, as rules with no way around them.
-    if (st.service == kLocal && !custom) {
-        const LocalLevel* ll = localLevel(to.code);
+    if (st.service == kLocal) {
+        const LocalLevel* ll = forms;
         s += "\n\nSTRICT RULES. Your line is wrong if it breaks one of them:\n";
-        if (polite)
+        if (custom)
+            s += "1. Style: exactly as they describe it (\"" + trimText(st.customStyle) + "\"), in every sentence. It changes how "
+                 "the line sounds, never what it says.\n";
+        else if (polite)
             s += "1. Speech level: POLITE, in every sentence" +
                  (ll ? std::string(": ") + ll->polite : std::string(": the polite forms and the polite \"you\"")) +
                  ". Not casual, not slang, and not stiff or official either.\n";
@@ -1459,7 +1502,11 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         else
             s += "2. Language: " + target + " only, the everyday spoken kind. No words left in " + source + ".\n";
         s += "3. Same content: nothing added, nothing explained, nothing left out except a word you won't say.\n"
-             "4. One answer: the line itself. No second version, no notes, no brackets.\n"
+             "4. One answer: the line itself. No second version, no notes, " +
+             std::string(st.marked.empty() ? "no brackets"
+                                           : "no brackets of your own: only the [stage directions] from their line, each copied "
+                                             "exactly, in English, at the matching place") +
+             ".\n"
              "5. Punctuation stays: a question ends with a question mark, sentences are separated by full stops or "
              "commas. A voice reads it aloud and needs them.";
     }
@@ -1934,7 +1981,7 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
         // Only whole lines on their own: not a line that goes on from the one before, and never the
         // lines with marked words.
         const std::string memoKey = st.rememberLines && !multi && st.before.empty() && st.deeplWords.empty() && fewWords(text, 6)
-                                        ? rememberKey(st, from, to, text) : std::string();
+                                        ? rememberKey(st, from, to, st.marked.empty() ? text : st.marked) : std::string();
         if (!memoKey.empty()) {
             const auto hit = remembered_.find(memoKey);
             if (hit != remembered_.end()) {
@@ -2035,7 +2082,9 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
         };
         bool good = false;
         std::string firstErr;
-        std::string ask = text;
+        // With directions written in (Carry my emotion): that is what the AI is asked to say.
+        const std::string& askBase = st.marked.empty() || multi ? text : st.marked;
+        std::string ask = askBase;
         int lastWhy = kFailOther;
         bool declined = false;  // it gave something other than the line (held back on it) at least once
         wordsGender = 0;
@@ -2160,7 +2209,7 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
         // translates the line around markers, and DeepL (or Free) translates just those words.
         if (!multi && !st.deeplWords.empty() && !st.faithful) {
             std::vector<std::string> found;
-            const std::string marked = markListed(text, st.deeplWords, found);
+            const std::string marked = markListed(askBase, st.deeplWords, found);  // with the directions, when there are any
             if (!found.empty()) {
                 std::string masked;
                 int why = kFailOther;
@@ -2253,7 +2302,7 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
                 ask = text + "\n\n(Translate every numbered line. Answer with only the <l1></l1>, <l2></l2>... tags. No notes, "
                              "no refusal.)";
             else if (why == kFailRejected)
-                ask = text + "\n\n(Say this line in " + std::string(st.variety.empty() ? to.name : st.variety) +
+                ask = askBase + "\n\n(Say this line in " + std::string(st.variety.empty() ? to.name : st.variety) +
                       ". Answer with only the line, inside <line></line>. No notes, no refusal.)";
             else if (why == kFailBusy)
                 std::this_thread::sleep_for(std::chrono::milliseconds(std::min(400, std::max(0, left() - 600))));

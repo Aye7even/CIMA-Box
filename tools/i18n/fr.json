@@ -1197,5 +1197,10 @@
  "Use NVIDIA's own engine": "Utiliser le moteur de NVIDIA",
  "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "Conçu par NVIDIA pour ses cartes, et en général plus rapide dessus. La première fois, il télécharge environ 0,6 Go de plus. S'il ne peut pas servir sur ce PC, CIMA Box revient tout seul au moteur standard et le dit ici.",
  "Off: the standard engine, which works on every graphics card.": "Désactivé : le moteur standard, qui fonctionne avec toutes les cartes graphiques.",
- "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "Le moteur de NVIDIA n'a pas pu être utilisé sur ce PC, donc c'est le moteur standard qui tourne."
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "Le moteur de NVIDIA n'a pas pu être utilisé sur ce PC, donc c'est le moteur standard qui tourne.",
+ "Getting the laugh and cough recogniser (about 40 MB, once). Until it's here, laughs and coughs aren't picked up while live transcription is on.": "Téléchargement du détecteur de rires et de toux (environ 40 Mo, une seule fois). En attendant, les rires et la toux ne sont pas captés tant que la transcription en direct est activée.",
+ "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "Les rires et la toux ne sont pas captés tant que la transcription en direct est activée : le détecteur n'a pas pu être téléchargé ou chargé sur ce PC. CIMA Box réessaie à son prochain démarrage.",
+ "The model is picked under More voice settings, just below.": "Le modèle se choisit dans « More voice settings », juste en dessous.",
+ "Faster translations": "Traductions plus rapides",
+ "Turn on Live transcription": "Activer la transcription en direct"
 }

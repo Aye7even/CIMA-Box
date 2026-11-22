@@ -83,6 +83,7 @@ private:
         bool gotText = false;
         LiveText text;
         long long offset = 0;  // where this phrase starts in the connection's audio (samples)
+        long long length = 0;  // how much audio the phrase is (samples)
         std::chrono::steady_clock::time_point sent, textAt;
     };
 

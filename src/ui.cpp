@@ -234,6 +234,7 @@ void fieldLabel(const char* text) {
 }
 
 void voicePackRows(UiModel& m, UiActions& act);
+void subheading(const char* text);
 
 // Small muted help text. Translated when the whole text is a known one.
 void note(const std::string& text, const ImVec4& color = kMuted) {
@@ -699,19 +700,6 @@ void translationService(Settings& c, bool forCaptions) {
         }
     }
     if (!forCaptions) {
-        toggleRow("Say each sentence as soon as it's finished", &c.speakSentences);
-        note(!c.speakSentences ? "Off: several sentences said without a pause are translated and spoken together."
-             : c.liveStt       ? "When you say several sentences in a row, the first is translated and spoken while you're still on the next. "
-                                 "New: if words go missing between sentences, turn it off."
-                               : "Needs Live transcription (Microphone).");
-        toggleRow("Start translating before I finish talking", &c.earlyTranslate);
-        note(!c.earlyTranslate ? "Off: a line is translated once you've finished it."
-             : c.liveStt       ? "During the pause at the end of a sentence, the words so far are translated ahead of time. They're "
-                                 "used only if you really had finished, so the voice says the same thing, sooner. If you go on "
-                                 "talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say "
-                                 "\"Translated (early)\"."
-                               : "Only helps sentences that wait for their rest right now. Turn on Live transcription (Microphone) "
-                                 "for the full effect. If you go on talking, the early request is thrown away and still costs tokens.");
         fieldLabel("How you talk");
         static const char* const kLevels[] = {"Polite", "Casual", "Very casual", "My own"};
         segmented("##level", kLevels, 4, &c.speechLevel);
@@ -735,8 +723,34 @@ void translationService(Settings& c, bool forCaptions) {
                         "stays; it only leans a little toward theirs. Needs Listen on."
                       : "Translates each phrase on its own.");
     }
-    // Speed. None of these change the instructions the AI gets: the dialect and the speech level stay
-    // as they are, except where the note says otherwise.
+    // Speed, all in one place. None of these change the instructions the AI gets: the dialect and the
+    // speech level stay as they are, except where the note says otherwise.
+    subheading("Faster translations");
+    if (!forCaptions) {
+        toggleRow("Say each sentence as soon as it's finished", &c.speakSentences);
+        note(!c.speakSentences ? "Off: several sentences said without a pause are translated and spoken together."
+             : c.liveStt       ? "When you say several sentences in a row, the first is translated and spoken while you're still on the next. "
+                                 "New: if words go missing between sentences, turn it off."
+                               : "Needs Live transcription (Microphone).");
+        if (c.speakSentences && !c.liveStt) {
+            ImGui::PushID("sentlive");
+            if (button("Turn on Live transcription")) c.liveStt = true;
+            ImGui::PopID();
+        }
+        toggleRow("Start translating before I finish talking", &c.earlyTranslate);
+        note(!c.earlyTranslate ? "Off: a line is translated once you've finished it."
+             : c.liveStt       ? "During the pause at the end of a sentence, the words so far are translated ahead of time. They're "
+                                 "used only if you really had finished, so the voice says the same thing, sooner. If you go on "
+                                 "talking, that request is thrown away: it can cost up to two extra AI requests per line. Lines that used it say "
+                                 "\"Translated (early)\"."
+                               : "Only helps sentences that wait for their rest right now. Turn on Live transcription (Microphone) "
+                                 "for the full effect. If you go on talking, the early request is thrown away and still costs tokens.");
+        if (c.earlyTranslate && !c.liveStt) {
+            ImGui::PushID("earlylive");
+            if (button("Turn on Live transcription")) c.liveStt = true;
+            ImGui::PopID();
+        }
+    }
     toggleRow("Read the AI's answer as it arrives", &c.aiStream);
     note(c.aiStream ? "An answer that has begun by the time limit gets a moment more to finish, instead of being dropped for a "
                       "plain translation. Same words, same dialect, same speech level. Nothing is used before it's whole."
@@ -1028,10 +1042,49 @@ void voicePanel(UiModel& m, UiActions& act) {
         dialectPicker(c);
         translationService(c, false);
     }
+    if (c.engine != kVoiceChanger) {
+        gap(0.2f);
+        toggleRow("Carry my emotion", &c.emotion);
+        if (c.emotion) {
+            static const char* const kStrengths[] = {"Subtle", "Strong"};
+            segmented("##emotionstrength", kStrengths, 2, &c.emotionStrength);
+            note(c.emotionStrength == kEmotionStrong ? "Picks up smaller changes in your voice."
+                                                     : "Only picks up clear changes in your voice.");
+            if (modelTakesTags(c.ttsModel))
+                note("Follows the words you stress, words you draw out, your pauses, laughs, and how each part of a "
+                     "sentence was said: excited, whispered, shouted, hesitant, rushed, slow, sad, flat. It compares you "
+                     "with your own usual voice and how much it normally varies, so it works on any mic. Adds no delay.");
+            else {
+                note("This model would read tags out loud and spell out capitals, so only pauses, questions and drawn-out "
+                     "words carry over. Pick a v3 or v4 model for the full effect.",
+                     kBusy);
+                note("The model is picked under More voice settings, just below.");
+            }
+            // The laugh and cough recogniser gets itself; this only says so while it does, or if it couldn't.
+            if (modelTakesTags(c.ttsModel) && c.liveStt) {
+                if (m.soundPack.stage == kSoundIdDownloading)
+                    note("Getting the laugh and cough recogniser (about 40 MB, once). Until it's here, laughs and coughs "
+                         "aren't picked up while live transcription is on.", kBusy);
+                else if (!m.soundPack.error.empty())
+                    note("Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be "
+                         "downloaded or loaded on this PC. CIMA Box tries again the next time it starts.", kBusy);
+            }
+            if (!c.baseline.ready()) {
+                char b[320];
+                std::snprintf(b, sizeof(b), TF("Learning your usual voice. Phrases still needed (just talk normally): %d"),
+                              VoiceBaseline::kReady - c.baseline.phrases);
+                note(b);
+            }
+            if (button("Relearn my usual voice")) act.resetBaseline = true;
+            note("It keeps learning as you talk, and relearns the mic part by itself when you switch microphones.");
+        } else {
+            note("Off: the voice reads only your words, in its own tone.");
+        }
+    }
     if (!moreRow("##morevoice", "More voice settings",
                  c.engine == kVoiceChanger ? "Model, fine-tuning the voice"
-                 : c.engine == kTranslate  ? "Model, a voice per language, gender, emotion, fine-tuning"
-                                           : "Model, emotion, fine-tuning"))
+                 : c.engine == kTranslate  ? "Model, a voice per language, gender, fine-tuning"
+                                           : "Model, fine-tuning the voice"))
         return;
     if (c.engine == kTranslate) {
         toggleRow("A voice for each language", &c.voicePerLanguage);
@@ -1048,35 +1101,6 @@ void voicePanel(UiModel& m, UiActions& act) {
             genderPicker(m);
         }
     }
-    if (c.engine != kVoiceChanger) {
-        gap(0.2f);
-        toggleRow("Carry my emotion", &c.emotion);
-        if (c.emotion) {
-            static const char* const kStrengths[] = {"Subtle", "Strong"};
-            segmented("##emotionstrength", kStrengths, 2, &c.emotionStrength);
-            note(c.emotionStrength == kEmotionStrong ? "Picks up smaller changes in your voice."
-                                                     : "Only picks up clear changes in your voice.");
-            if (modelTakesTags(c.ttsModel))
-                note("Follows the words you stress, words you draw out, your pauses, laughs, and how each part of a "
-                     "sentence was said: excited, whispered, shouted, hesitant, rushed, slow, sad, flat. It compares you "
-                     "with your own usual voice and how much it normally varies, so it works on any mic. Adds no delay.");
-            else
-                note("This model would read tags out loud and spell out capitals, so only pauses, questions and drawn-out "
-                     "words carry over. Pick a v3 or v4 model for the full effect.",
-                     kBusy);
-            if (!c.baseline.ready()) {
-                char b[320];
-                std::snprintf(b, sizeof(b), TF("Learning your usual voice. Phrases still needed (just talk normally): %d"),
-                              VoiceBaseline::kReady - c.baseline.phrases);
-                note(b);
-            }
-            if (button("Relearn my usual voice")) act.resetBaseline = true;
-            note("It keeps learning as you talk, and relearns the mic part by itself when you switch microphones.");
-        } else {
-            note("Off: the voice reads only your words, in its own tone.");
-        }
-    }
-
     const bool sts = c.engine == kVoiceChanger;
     const bool v4 = !sts && c.ttsModel.find("v4") != std::string::npos;
     gap(0.3f);

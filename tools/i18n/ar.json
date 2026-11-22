@@ -1197,5 +1197,10 @@
  "Use NVIDIA's own engine": "استخدام محرك NVIDIA الخاص",
  "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "من صنع NVIDIA لبطاقاتها، وهو أسرع عليها في العادة. في المرة الأولى ينزّل نحو 0.6 غيغابايت إضافية. إذا تعذّر استخدامه على هذا الحاسوب، يعود CIMA Box تلقائيًا إلى المحرك القياسي ويذكر ذلك هنا.",
  "Off: the standard engine, which works on every graphics card.": "متوقف: المحرك القياسي الذي يعمل مع كل بطاقات الرسوميات.",
- "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "تعذّر استخدام محرك NVIDIA على هذا الحاسوب، لذلك يعمل المحرك القياسي."
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "تعذّر استخدام محرك NVIDIA على هذا الحاسوب، لذلك يعمل المحرك القياسي.",
+ "Getting the laugh and cough recogniser (about 40 MB, once). Until it's here, laughs and coughs aren't picked up while live transcription is on.": "جارٍ تنزيل أداة التعرف على الضحك والسعال (نحو 40 ميغابايت، مرة واحدة). إلى أن تكتمل، لا يُلتقط الضحك والسعال أثناء تشغيل التفريغ المباشر.",
+ "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "لا يُلتقط الضحك والسعال أثناء تشغيل التفريغ المباشر: تعذّر تنزيل أداة التعرف أو تحميلها على هذا الحاسوب. سيحاول CIMA Box مجددًا عند تشغيله في المرة القادمة.",
+ "The model is picked under More voice settings, just below.": "يُختار النموذج من \"More voice settings\" في الأسفل مباشرة.",
+ "Faster translations": "ترجمات أسرع",
+ "Turn on Live transcription": "شغّل التفريغ المباشر"
 }

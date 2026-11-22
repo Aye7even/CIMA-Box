@@ -164,10 +164,19 @@ or your own PC:
 | **[DeepL](https://www.deepl.com)**, **[Microsoft Azure Translator](https://azure.microsoft.com/products/ai-services/ai-translator)**, **[MyMemory](https://mymemory.translated.net)** | Fast, accurate wording, and the backup when an AI is slow (MyMemory needs no key) |
 | **[Gemma 4](https://ai.google.dev/gemma)** (Google), **[Qwen 3.8](https://huggingface.co/Qwen)** (Alibaba) | The Local models that translate on your own PC, run by **[llama.cpp](https://github.com/ggml-org/llama.cpp)** |
 | **[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)** with a WeSpeaker model | Voice fingerprints: telling who is who in a busy room |
+| **[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)** with a **[CED](https://github.com/RicherMans/CED)** model | Hearing your laughs, coughs and sighs on your own PC, for Carry my emotion |
 | **[SteamVR](https://store.steampowered.com/app/250820/SteamVR/)** (OpenVR), **[Dear ImGui](https://github.com/ocornut/imgui)**, **[miniaudio](https://miniaud.io)**, **[curl](https://curl.se)** | Captions in your headset, the window, sound in and out, and talking to the internet |
 
 CIMA Box is an independent, free project. It isn't made, sponsored or endorsed by any of these
 companies; their names belong to them.
+
+## License
+
+CIMA Box is free to use, change and build on for any noncommercial purpose, under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). Keep the LICENSE file and its "Required Notice" line
+in your copy. Selling it, or using it in a paid product or service, needs permission from Aye7even.
+Please give your version its own name, so it isn't mistaken for CIMA Box. The libraries CIMA Box uses
+keep their own licenses.
 
 ## Credits
 

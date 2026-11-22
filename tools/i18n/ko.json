@@ -1197,5 +1197,10 @@
  "Use NVIDIA's own engine": "NVIDIA 전용 엔진 사용",
  "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "NVIDIA가 자사 카드용으로 만든 엔진이라 보통 더 빨라요. 처음에는 약 0.6 GB를 더 내려받아요. 이 PC에서 쓸 수 없으면 CIMA Box가 알아서 표준 엔진으로 돌아가고 여기에 알려 줘요.",
  "Off: the standard engine, which works on every graphics card.": "꺼짐: 모든 그래픽 카드에서 되는 표준 엔진을 써요.",
- "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "이 PC에서는 NVIDIA 엔진을 쓸 수 없어서 표준 엔진으로 돌아가고 있어요."
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "이 PC에서는 NVIDIA 엔진을 쓸 수 없어서 표준 엔진으로 돌아가고 있어요.",
+ "Getting the laugh and cough recogniser (about 40 MB, once). Until it's here, laughs and coughs aren't picked up while live transcription is on.": "웃음·기침 인식기를 내려받는 중입니다(약 40MB, 한 번만). 완료될 때까지 실시간 받아쓰기가 켜져 있는 동안에는 웃음과 기침을 잡지 못합니다.",
+ "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "실시간 받아쓰기가 켜져 있는 동안에는 웃음과 기침을 잡지 못합니다: 이 PC에서 인식기를 내려받거나 불러오지 못했습니다. 다음에 CIMA Box를 시작할 때 다시 시도합니다.",
+ "The model is picked under More voice settings, just below.": "모델은 바로 아래 \"More voice settings\"에서 고릅니다.",
+ "Faster translations": "더 빠른 번역",
+ "Turn on Live transcription": "실시간 받아쓰기 켜기"
 }

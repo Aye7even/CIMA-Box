@@ -176,6 +176,9 @@ bool partsDiffer(const Direction& d);
 
 // Maps a transcribed sound ("(laughter)") to an audio tag ("laughs"); empty = not a voice sound.
 std::string eventTag(const std::string& event);
+// The same for a name from the on-PC sound recogniser ("Laughter", "Cough"): only sounds a person's
+// voice makes, and only the clear ones. "" for everything else (speech, music, a dog, a breath).
+std::string voiceSoundTag(const std::string& name);
 
 // True for models that follow audio tags (Eleven v3 and v4).
 bool modelTakesTags(const std::string& modelId);

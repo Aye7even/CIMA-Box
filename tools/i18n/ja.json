@@ -1197,5 +1197,10 @@
  "Use NVIDIA's own engine": "NVIDIA 専用エンジンを使う",
  "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "NVIDIA が自社のカード向けに作ったエンジンで、たいていはより高速です。初回は約 0.6 GB を追加でダウンロードします。この PC で使えない場合、CIMA Box は自動で標準エンジンに戻り、ここに表示します。",
  "Off: the standard engine, which works on every graphics card.": "オフ：どのグラフィックカードでも動く標準エンジンを使います。",
- "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "この PC では NVIDIA のエンジンを使えなかったため、標準エンジンで動いています。"
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "この PC では NVIDIA のエンジンを使えなかったため、標準エンジンで動いています。",
+ "Getting the laugh and cough recogniser (about 40 MB, once). Until it's here, laughs and coughs aren't picked up while live transcription is on.": "笑いと咳の認識機能をダウンロードしています(約 40 MB、初回のみ)。完了するまで、ライブ文字起こしがオンの間は笑いや咳を拾えません。",
+ "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "ライブ文字起こしがオンの間は笑いや咳を拾えません:この PC で認識機能をダウンロードまたは読み込みできませんでした。次回 CIMA Box を起動したときにもう一度試します。",
+ "The model is picked under More voice settings, just below.": "モデルはすぐ下の「More voice settings」で選べます。",
+ "Faster translations": "翻訳を速くする",
+ "Turn on Live transcription": "ライブ文字起こしをオンにする"
 }

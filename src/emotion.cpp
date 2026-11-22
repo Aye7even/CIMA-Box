@@ -265,8 +265,8 @@ struct Thresholds {
     float fast, slow;         // speaking rate against your usual one
 };
 Thresholds thresholds(int strength) {
-    if (strength == kEmotionStrong) return {1.6f, 2.0f, 1.5f, 1.9f, 6.f, 2.0f, 2.0f, -4.f, 3.0f, 2.0f, 1.3f, 1.28f, 0.72f};
-    return {2.2f, 3.0f, 2.0f, 2.2f, 8.f, 2.5f, 2.5f, -6.f, 2.5f, 3.0f, 1.6f, 1.38f, 0.64f};
+    if (strength == kEmotionStrong) return {1.6f, 2.0f, 1.5f, 1.9f, 6.f, 2.0f, 2.0f, -4.f, 3.0f, 2.0f, 1.3f, 1.18f, 0.72f};
+    return {2.2f, 3.0f, 2.0f, 2.2f, 8.f, 2.5f, 2.5f, -6.f, 2.5f, 3.0f, 1.6f, 1.25f, 0.64f};
 }
 
 // Hesitation sounds the transcriber writes down, in the app's languages.
@@ -882,6 +882,9 @@ Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& t
             }
         }
         std::string why;
+        // Talking fast: a quarter faster than your usual rate (less on Strong). Fast speech also runs a
+        // little higher and louder and flattens out, so on its own that must not read as excited or flat.
+        const bool fastPart = nWords >= 4 && span >= 1.f && rateRatio >= th.fast;
 
         if ((m.seconds >= 0.4f && m.voiced < 0.2f) ||
             (m.seconds >= 0.5f && m.voiced < 0.45f && (m.jumpy > 0.3f || (canCompare && dLoud <= -4.f)))) {
@@ -891,7 +894,8 @@ Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& t
             part.tag = "shouts";        // much louder AND higher: leaning into the mic alone doesn't count
             part.exclaim = true;
         } else if (steady && canCompare && dPitch >= std::max(th.excitedPitch, th.spread * pitchSd) &&
-                   (m.range >= refRange * 1.3f || dLoud >= std::max(3.f, loudSd) || rateRatio >= 1.15f)) {
+                   (fastPart ? m.range >= refRange * 1.3f && dLoud >= std::max(3.f, loudSd)   // fast AND livelier AND louder
+                             : m.range >= refRange * 1.3f || dLoud >= std::max(3.f, loudSd) || rateRatio >= 1.15f)) {
             part.tag = "excited";       // clearly higher than you usually swing, plus livelier, louder or faster
             part.exclaim = true;
         } else if (nWords >= 3 && fillers >= 1 && (fillers + smallPauses) * 3 >= int(nWords)) {
@@ -901,12 +905,13 @@ Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& t
             part.tag = "sad";           // lower, narrower, slower and quieter, all at once
         } else if (enough && canCompare && dLoud <= th.softDb && (dTilt <= -1.5f || dPitch <= -1.f)) {
             part.tag = "softly";
-        } else if (nWords >= 4 && span >= 1.f && rateRatio >= th.fast) {
+        } else if (fastPart) {
             part.tag = "quickly";
         } else if (nWords >= 3 && span >= 1.f && rateRatio <= th.slow) {
             part.tag = "slowly";
-        } else if (steady && m.seconds >= 0.8f && m.range < th.flatRange && std::fabs(dPitch) < 2.f && dLoud < 4.f) {
-            part.tag = "flatly";        // monotone
+        } else if (steady && m.seconds >= 0.8f && m.range < th.flatRange && std::fabs(dPitch) < 2.f && dLoud < 4.f &&
+                   rateRatio < 1.12f) {
+            part.tag = "flatly";        // monotone, at your usual pace or slower (said fast, it's just fast)
         }
         // Question: the voice rises over the last word.
         if (timed && last.start >= 0 && part.tag != "shouts") {
@@ -966,6 +971,12 @@ Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& t
         }
         part.plain = trim(plain);
         part.marked = trim(marked);
+        // A laugh or a cough is loud and high, which reads as an excited or shouted voice. With one
+        // in this part, that reading says more about the sound than about how the words were said.
+        if ((!part.leadSounds.empty() || !part.trailSounds.empty()) && (part.tag == "excited" || part.tag == "shouts")) {
+            part.tag.clear();
+            part.exclaim = false;
+        }
         if (part.plain.empty() && part.leadSounds.empty()) continue;
         partTags.push_back(part.tag.empty() ? (part.question ? "question" : "usual") : part.tag);
         out.parts.push_back(std::move(part));
@@ -990,7 +1001,9 @@ Direction directSpeech(const VoiceTrack& track, const std::vector<HeardToken>& t
             } else {
                 follow(a, base.pitch, &base.pitchVar, m.mid);
                 follow(a, base.range, nullptr, std::max(1.f, m.range));
-                if (nWords >= 3) follow(a, base.rate, &base.rateVar, partRate);
+                // A part said fast or slow on purpose moves the usual rate only a little, or talking
+                // fast for a while would become "usual" and stop being noticed.
+                if (nWords >= 3) follow(t == "quickly" || t == "slowly" ? a * 0.35f : a, base.rate, &base.rateVar, partRate);
             }
             if (base.micParts == 0) {
                 base.loudDb = m.loud;
@@ -1088,12 +1101,43 @@ std::string eventTag(const std::string& event) {
     std::string e;
     for (unsigned char c : event) e += char(std::tolower(c));
     if (e.find("laugh") != std::string::npos || e.find("giggl") != std::string::npos) return "laughs";
-    if (e.find("chuckl") != std::string::npos) return "chuckles";
+    if (e.find("chuckl") != std::string::npos || e.find("snicker") != std::string::npos) return "chuckles";
     if (e.find("sigh") != std::string::npos) return "sighs";
     if (e.find("gasp") != std::string::npos) return "gasps";
     if (e.find("throat") != std::string::npos) return "clears throat";
     if (e.find("sob") != std::string::npos || e.find("cry") != std::string::npos) return "crying";
+    if (e.find("cough") != std::string::npos) return "coughs";
+    if (e.find("yawn") != std::string::npos) return "yawns";
+    if (e.find("sniff") != std::string::npos) return "sniffs";
+    if (e.find("groan") != std::string::npos) return "groans";
+    if (e.find("snort") != std::string::npos) return "snorts";
+    if (e.find("sneez") != std::string::npos) return "sneezes";
+    if (e.find("hiccup") != std::string::npos) return "hiccups";
+    if (e.find("wheez") != std::string::npos) return "wheezing";
+    if (e.find("exhal") != std::string::npos) return "exhales";
+    if (e.find("inhal") != std::string::npos) return "inhales";
+    if (e.find("breath") != std::string::npos) return "breathes heavily";
+    if (e.find("gulp") != std::string::npos || e.find("swallow") != std::string::npos) return "gulps";
+    if (e.find("grunt") != std::string::npos) return "grunts";
+    if (e.find("scoff") != std::string::npos) return "scoffs";
+    if (e.find("whimper") != std::string::npos) return "whimpers";
+    if (e.find("scream") != std::string::npos || e.find("shriek") != std::string::npos) return "screams";
+    if (e.find("moan") != std::string::npos) return "moans";
+    if (e.find("hum") != std::string::npos && e.find("human") == std::string::npos) return "hums";
     return std::string();
+}
+
+std::string voiceSoundTag(const std::string& name) {
+    std::string e;
+    for (unsigned char c : name) e += char(std::tolower(c));
+    // The model's list has babies, animals and crowds too ("Baby laughter", "Whimper (dog)", "Battle cry").
+    for (const char* other : {"baby", "infant", "battle", "(", "child"})
+        if (e.find(other) != std::string::npos) return std::string();
+    const std::string tag = eventTag(e);
+    // Left to the transcriber, which hears them in context: here a breath between words would count.
+    for (const char* faint : {"breathes heavily", "exhales", "inhales", "hums", "gulps", "scoffs"})
+        if (tag == faint) return std::string();
+    return tag;
 }
 
 bool modelTakesTags(const std::string& modelId) {

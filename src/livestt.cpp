@@ -238,6 +238,7 @@ void LiveStt::run() {
             }
             phraseOpen_ = false;
             pending_.clear();
+            w.length = sessionSamples_ - w.offset;
             if (sent && connected_) {
                 waiting_.push_back(std::move(w));
             } else if (keep && it.result) {
@@ -486,16 +487,38 @@ void LiveStt::handle(const std::string& message) {
             if (!t.empty()) w.text.text = t;
             if (j.contains("language_code") && j["language_code"].is_string()) w.text.language = j["language_code"].get<std::string>();
             if (j.contains("words") && j["words"].is_array()) {
-                const float shift = float(w.offset) / float(kRate);  // times count from the start of the connection
+                // Word times either count from the start of the connection or from the start of this
+                // phrase; which one isn't promised. Whichever puts the words inside the phrase's own
+                // audio is the right one (after the first phrase of a connection the two differ).
+                const float shift = float(w.offset) / float(kRate), dur = float(w.length) / float(kRate);
+                std::vector<HeardToken> raw;
                 for (const json& x : j["words"]) {
                     if (!x.is_object()) continue;
                     HeardToken tk;
                     tk.text = x.value("text", std::string());
                     const std::string kind = x.value("type", std::string("word"));
                     tk.kind = kind == "spacing" ? kTokSpace : kind == "audio_event" ? kTokSound : kTokWord;
-                    if (x.contains("start") && x["start"].is_number()) tk.start = std::max(0.f, x["start"].get<float>() - shift);
-                    if (x.contains("end") && x["end"].is_number()) tk.end = std::max(0.f, x["end"].get<float>() - shift);
-                    if (!tk.text.empty()) w.text.words.push_back(std::move(tk));
+                    if (x.contains("start") && x["start"].is_number()) tk.start = x["start"].get<float>();
+                    if (x.contains("end") && x["end"].is_number()) tk.end = x["end"].get<float>();
+                    if (!tk.text.empty()) raw.push_back(std::move(tk));
+                }
+                auto inside = [&](float by) {
+                    int n = 0;
+                    for (const HeardToken& tk : raw)
+                        if (tk.kind == kTokWord && tk.start >= 0 && tk.start - by >= -0.3f && tk.end - by <= dur + 0.6f) ++n;
+                    return n;
+                };
+                const bool fromPhrase = shift > 0.5f && inside(0.f) > inside(shift);
+                const float by = fromPhrase ? 0.f : shift;
+                static bool told = false;
+                if (fromPhrase && !told && onLog) {
+                    told = true;
+                    onLog("Live transcription: word times count from the start of each phrase; using them that way.");
+                }
+                for (HeardToken& tk : raw) {
+                    if (tk.start >= 0) tk.start = std::max(0.f, tk.start - by);
+                    if (tk.end >= 0) tk.end = std::max(0.f, tk.end - by);
+                    w.text.words.push_back(std::move(tk));
                 }
             }
             finish(w, true, "");

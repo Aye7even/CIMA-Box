@@ -1197,5 +1197,10 @@
  "Use NVIDIA's own engine": "使用 NVIDIA 自家的引擎",
  "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "由 NVIDIA 为自家显卡制作，通常在这些显卡上更快。第一次会多下载约 0.6 GB。如果这台电脑用不了，CIMA Box 会自动换回标准引擎，并在这里说明。",
  "Off: the standard engine, which works on every graphics card.": "关闭：使用标准引擎，任何显卡都能用。",
- "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "这台电脑用不了 NVIDIA 的引擎，所以正在使用标准引擎。"
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "这台电脑用不了 NVIDIA 的引擎，所以正在使用标准引擎。",
+ "Getting the laugh and cough recogniser (about 40 MB, once). Until it's here, laughs and coughs aren't picked up while live transcription is on.": "正在下载笑声和咳嗽识别器（约 40 MB，仅一次）。下载完成前，开启实时转写时无法捕捉笑声和咳嗽。",
+ "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "开启实时转写时无法捕捉笑声和咳嗽：识别器无法在这台电脑上下载或加载。CIMA Box 下次启动时会再试。",
+ "The model is picked under More voice settings, just below.": "模型在下方的“More voice settings”中选择。",
+ "Faster translations": "更快的翻译",
+ "Turn on Live transcription": "开启实时转写"
 }

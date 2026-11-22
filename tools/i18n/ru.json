@@ -1197,5 +1197,10 @@
  "Use NVIDIA's own engine": "Использовать собственный движок NVIDIA",
  "Made by NVIDIA for its cards, and usually faster on them. The first time, it downloads about 0.6 GB more. If it can't be used on this PC, CIMA Box goes back to the standard engine by itself and says so here.": "Сделан NVIDIA для своих видеокарт и обычно работает на них быстрее. В первый раз скачивается ещё около 0,6 ГБ. Если на этом ПК его использовать нельзя, CIMA Box сам вернётся к стандартному движку и напишет об этом здесь.",
  "Off: the standard engine, which works on every graphics card.": "Выключено: стандартный движок, который работает на любой видеокарте.",
- "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "Движок NVIDIA не удалось использовать на этом ПК, поэтому работает стандартный."
+ "NVIDIA's engine couldn't be used on this PC, so the standard one is running.": "Движок NVIDIA не удалось использовать на этом ПК, поэтому работает стандартный.",
+ "Getting the laugh and cough recogniser (about 40 MB, once). Until it's here, laughs and coughs aren't picked up while live transcription is on.": "Загружается распознаватель смеха и кашля (около 40 МБ, один раз). Пока он не загружен, смех и кашель не улавливаются при включённом распознавании на лету.",
+ "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "Смех и кашель не улавливаются при включённом распознавании на лету: распознаватель не удалось скачать или загрузить на этом ПК. CIMA Box попробует снова при следующем запуске.",
+ "The model is picked under More voice settings, just below.": "Модель выбирается в разделе «More voice settings» чуть ниже.",
+ "Faster translations": "Быстрее переводы",
+ "Turn on Live transcription": "Включить распознавание на лету"
 }

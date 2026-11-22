@@ -62,6 +62,11 @@ struct TranslateSetup {
     bool faithful = false;      // Listen: for understanding what others say, not for speaking
     int timeoutMs = 2000;       // AI services: after this, use DeepL (or Free) for this phrase instead
                                 // (a dialect gets a little longer: its answers take more work)
+    // Carry my emotion, AI services only: the same line with how it was said written into it, the way
+    // the voice reads it: "[whispers] I don't know [coughs] [quickly] but we HAVE to go". The AI is
+    // asked to carry each direction and each stressed word over to the matching place. Everything
+    // else (DeepL, Microsoft, Free, your marked words) still gets the plain text.
+    std::string marked;
     std::string context;        // recent lines of the conversation, oldest first ("Them: ...", "Me: ...")
     // What the speaker said just before, in the same stretch of talking (oldest first): what they said,
     // and how it was said for them. This line goes on from it.
