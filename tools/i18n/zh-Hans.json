@@ -1189,5 +1189,8 @@
  "Remember repeated lines": "记住重复的句子",
  "A short line this AI already translated, with the same settings, is answered at once and costs nothing. It comes out the same way every time, whatever the conversation around it. Forgotten when CIMA Box closes.": "这个 AI 用相同设置翻译过的短句会立刻给出回答，不花钱。不管前后在聊什么，每次都是同一种说法。关闭 CIMA Box 后就会忘记。",
  "Short lines skip the AI": "短句不经过 AI",
- "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "一到三个词的句子直接交给 DeepL 或 Microsoft：快得多，但用的是标准语，不带你的方言和说话方式。"
+ "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "一到三个词的句子直接交给 DeepL 或 Microsoft：快得多，但用的是标准语，不带你的方言和说话方式。",
+ "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "旧模型：列表里的 Uncensored 模型已取代它。你可以继续使用，也可以删除。",
+ "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "这台电脑上还留着旧模型，占用 %s。下面的 Uncensored 模型已取代它们：先下载一个，再在这里删除旧的。",
+ "Delete the older models": "删除旧模型"
 }

@@ -1189,5 +1189,8 @@
  "Remember repeated lines": "Retenir les phrases répétées",
  "A short line this AI already translated, with the same settings, is answered at once and costs nothing. It comes out the same way every time, whatever the conversation around it. Forgotten when CIMA Box closes.": "Une phrase courte que cette IA a déjà traduite, avec les mêmes réglages, reçoit sa réponse tout de suite et ne coûte rien. Elle sort de la même façon à chaque fois, quelle que soit la conversation. Oublié à la fermeture de CIMA Box.",
  "Short lines skip the AI": "Les phrases courtes évitent l'IA",
- "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "Les phrases d'un à trois mots vont directement à DeepL ou Microsoft : beaucoup plus rapide, mais dans la langue standard, sans ton dialecte ni ta façon de parler."
+ "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "Les phrases d'un à trois mots vont directement à DeepL ou Microsoft : beaucoup plus rapide, mais dans la langue standard, sans ton dialecte ni ta façon de parler.",
+ "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "Un ancien modèle : les modèles Uncensored de la liste le remplacent. Tu peux continuer à l'utiliser ou le supprimer.",
+ "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "D'anciens modèles sont encore sur ce PC et occupent %s. Les modèles Uncensored ci-dessous les remplacent : télécharge-en un, puis supprime les anciens ici.",
+ "Delete the older models": "Supprimer les anciens modèles"
 }

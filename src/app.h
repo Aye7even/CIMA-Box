@@ -334,6 +334,7 @@ struct UiActions {
     bool listOlder = false;                  // look up the earlier versions
     int voicePack = 0;  // the voice fingerprint pack: 1 download, 2 stop, 3 delete
     std::string localDownload, localCancel, localRemove;  // a local model to download, stop downloading, delete
+    bool localRemoveRetired = false;                      // delete every downloaded model that's no longer offered
     std::string installOlder;                // go back to this version and restart
     bool pickPicture = false, clearPicture = false;  // Settings > Look
     int setSettingsPlace = -1;  // SettingsPlace picked in Settings > About

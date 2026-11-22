@@ -141,6 +141,9 @@ void loadFonts() {
     const std::vector<List> extra = {{d + "YuGothM.ttc", d + "meiryo.ttc", d + "msgothic.ttc"},
                                      {d + "malgun.ttf"},
                                      {d + "msyh.ttc", d + "simsun.ttc"},
+                                     // Traditional Chinese and Cantonese: the characters the Simplified font above
+                                     // doesn't have (Hong Kong ones especially) come from this one.
+                                     {d + "msjh.ttc", d + "mingliub.ttc"},
                                      // Hindi, Bengali, Tamil, Telugu, Gujarati... Newer Windows 11 ships Nirmala UI as a
                                      // collection (Nirmala.ttc), older ones as Nirmala.ttf; Mangal (Hindi only) is the
                                      // font from before either. Without one of them Hindi shows as boxes.
@@ -1730,6 +1733,22 @@ void localModels(Settings& c) {
                           double(pc.ramBytes) / 1073741824.0);
         note(line);
     }
+    {   // Older models still on the disk (the ones the Uncensored models replaced): said once, up top,
+        // with one button that frees all of them. Nothing is ever deleted without that click.
+        uint64_t oldBytes = 0;
+        for (const LocalModel& lm : all)
+            if (lm.retired)
+                for (const LocalModelState& s : ls.models)
+                    if (s.id == lm.id) oldBytes += s.stage == kModelInstalled ? s.bytes : s.done;
+        if (oldBytes > 0) {
+            char line[400];
+            std::snprintf(line, sizeof(line), TF("Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here."),
+                          gigabytes(oldBytes).c_str());
+            note(line, kBusy);
+            if (button("Delete the older models", false, ImGui::GetContentRegionAvail().x)) act.localRemoveRetired = true;
+            gap(0.3f);
+        }
+    }
     fieldLabel("Model");
     auto stateOf = [&](const std::string& id) -> const LocalModelState* {
         for (const LocalModelState& s : ls.models)
@@ -1738,12 +1757,18 @@ void localModels(Settings& c) {
     };
     // The one showing: the one in use, or the first on the list until something is picked.
     // Until something is picked: the one in use, else the biggest one that's a good fit for this PC
-    // (the lightest when none is). An uncensored one is only ever someone's own choice.
-    if (!findLocalModel(m.localView)) {
+    // (the lightest when none is). The big ones are only ever someone's own choice, and a model that
+    // is no longer offered only shows where it's already downloaded (or half downloaded).
+    auto offered = [&](const LocalModel& lm) {
+        if (!lm.retired) return true;
+        const LocalModelState* s = stateOf(lm.id);
+        return s && (s->stage != kModelNone || s->done > 0);
+    };
+    if (!findLocalModel(m.localView) || !offered(*findLocalModel(m.localView))) {
         m.localView = all[0].id;
         for (const LocalModel& lm : all)
-            if (!lm.uncensored && fitOf(lm) == kFitGood) m.localView = lm.id;
-        if (findLocalModel(c.localModel)) m.localView = c.localModel;
+            if (!lm.byChoice && !lm.retired && fitOf(lm) == kFitGood) m.localView = lm.id;
+        if (const LocalModel* mine = findLocalModel(c.localModel); mine && offered(*mine)) m.localView = c.localModel;
     }
     auto statusOf = [&](const LocalModel& lm) -> std::string {
         const LocalModelState* s = stateOf(lm.id);
@@ -1766,6 +1791,7 @@ void localModels(Settings& c) {
     if (ImGui::BeginCombo("##localmodel", preview.c_str(), ImGuiComboFlags_HeightLarge)) {
         const float rowH = ImGui::GetTextLineHeight() * 2.f + em() * 0.45f;
         for (const LocalModel& lm : all) {
+            if (!offered(lm)) continue;
             ImGui::PushID(lm.id);
             const ImVec2 at = ImGui::GetCursorScreenPos();
             const float rowW = ImGui::GetContentRegionAvail().x;
@@ -1804,6 +1830,7 @@ void localModels(Settings& c) {
         const float full = ImGui::GetContentRegionAvail().x, gapX = ImGui::GetStyle().ItemSpacing.x;
         note(sizeLine(lm) + ".");
         note(lm.blurb);
+        if (lm.retired) note("An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.", kBusy);
         const int fit = fitOf(lm);
         if (fit != kFitUnknown)
             note(fit == kFitGood    ? "On this PC: a good fit."

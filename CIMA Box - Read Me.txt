@@ -1,4 +1,4 @@
-CIMA Box 3.1.3
+CIMA Box 3.1.4
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
@@ -246,13 +246,18 @@ Voice and language
                              included, which is what makes it believable in a conversation.
     Local .................. An AI that runs on your own PC: free, private, no key, and it works
                              offline once downloaded. Pick Local, then a model from the dropdown:
-                               Light (Gemma 4 E2B, 2.6 GB): most PCs, about 4 GB of free memory.
-                               Balanced (Gemma 4 E4B, 4.2 GB): a graphics card with 8 GB or more.
-                               Best (Gemma 4 12B, 6.7 GB): a graphics card with 12 GB or more.
-                             For big graphics cards there is also Qwen 3.8 27B Uncensored, a model
-                             with its refusals removed: it translates swearing and crude lines as
-                             they were said, where the others soften or decline them. Same model,
-                             three sizes:
+                               Light (Gemma 4 E2B Uncensored, 3.5 GB): most PCs, about 5 GB of free memory.
+                               Balanced (Gemma 4 E4B Uncensored, 5 GB): a graphics card with 8 GB or more.
+                               Best (Gemma 4 12B Uncensored, 7.4 GB): a graphics card with 12 GB or more.
+                             These are Google's Gemma 4 with its refusals removed: they translate
+                             swearing and crude lines as they were said, where the stock models
+                             soften or decline them. (Up to 3.1.3 the stock Gemma 4 models were
+                             offered. If you downloaded one, it still shows in the list, to keep
+                             using or to delete; it isn't offered for download any more. While
+                             one is still on your PC, a line above the list says how much space
+                             the old ones take, with a "Delete the older models" button.)
+                             For big graphics cards there is also Qwen 3.8 27B Uncensored. Same
+                             model, three sizes:
                                Light (13.1 GB): a graphics card with 16 GB; tight next to a game.
                                Balanced (17.7 GB): a graphics card with 24 GB.
                                Best (21 GB): a graphics card with 32 GB.

@@ -462,11 +462,16 @@ std::string guessLanguage(const std::string& text, bool* sure) {
     if (!latin) return {};
     // Latin script: the language whose everyday little words show up most.
     static const std::pair<const char*, std::vector<std::string>> kWords[] = {
-        {"en", {"the", "and", "you", "is", "are", "i", "it", "to", "of", "that", "what", "this", "my", "we", "do", "don't", "i'm", "was", "have", "not", "with"}},
+        {"en", {"the", "and", "you", "is", "are", "i", "it", "to", "of", "that", "what", "this", "my", "we", "do", "don't", "i'm", "was", "have", "not", "with",
+                "your", "just", "like", "can", "can't", "how", "why", "she", "they", "them", "there", "here", "get", "got", "let", "go", "going",
+                "okay", "hey", "yeah", "yes", "if", "from", "about", "know", "think", "need", "really", "right", "good", "pretty", "girl", "guys",
+                "who", "when", "where", "would", "did", "does", "has", "now", "too", "very", "please", "thanks", "thank", "because", "for", "be",
+                "it's", "that's", "you're", "i'll", "our", "out", "up"}},
         {"es", {"el", "la", "que", "de", "y", "es", "no", "un", "una", "por", "con", "para", "qué", "yo", "lo", "pero", "está", "como", "muy", "eso"}},
         {"pt", {"o", "a", "que", "de", "não", "é", "um", "uma", "eu", "você", "com", "para", "isso", "tá", "muito", "mas", "como", "aqui", "vamos", "tudo"}},
         {"fr", {"le", "la", "les", "et", "est", "je", "tu", "pas", "que", "un", "une", "c'est", "de", "des", "on", "vous", "ça", "mais", "il", "avec",
-                "sa", "son", "ses", "mon", "ma", "pour", "dans", "qui", "au", "du", "ne", "plus", "j'ai", "suis", "oui", "non", "quoi"}},
+                "sa", "son", "ses", "mon", "ma", "pour", "dans", "qui", "au", "du", "ne", "plus", "j'ai", "suis", "oui", "non", "quoi",
+                "ce", "qu'il", "qu'est", "elle", "nous", "très", "y'a", "t'es"}},
         {"de", {"der", "die", "das", "und", "ist", "ich", "du", "nicht", "ein", "eine", "was", "mit", "auf", "es", "wir", "auch", "aber", "sie", "ja", "zu"}},
         {"it", {"il", "la", "che", "di", "e", "è", "non", "un", "una", "io", "tu", "per", "con", "sono", "ma", "come", "questo", "anche", "lo", "cosa"}},
         {"nl", {"de", "het", "een", "en", "is", "ik", "je", "niet", "dat", "wat", "van", "op", "met", "maar", "ook", "jij", "zijn", "we", "hoe", "nee"}},
@@ -489,11 +494,19 @@ std::string guessLanguage(const std::string& text, bool* sure) {
     flush();
     const char* pick = nullptr;
     int top = 0, second = 0;
+    // "what's", "let's", "girl's": the word in front of the apostrophe counts too (two letters or more,
+    // so a French "l'" or "j'" isn't taken for a word).
+    auto head = [](const std::string& word) {
+        const size_t q = word.find('\'');
+        return q != std::string::npos && q >= 2 ? word.substr(0, q) : std::string();
+    };
     for (const auto& l : kWords) {
         int n = 0;
-        for (const auto& word : words)
+        for (const auto& word : words) {
+            const std::string front = head(word);
             for (const auto& x : l.second)
-                if (word == x) { ++n; break; }
+                if (word == x || (!front.empty() && front == x)) { ++n; break; }
+        }
         if (n > top) { second = top; top = n; pick = l.first; }
         else if (n > second) second = n;
     }

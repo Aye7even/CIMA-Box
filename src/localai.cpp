@@ -329,28 +329,37 @@ std::string sha256Hex(const fs::path& file, const std::function<bool()>& keepGoi
 }
 
 const std::vector<LocalModel>& localCatalog() {
-    // Google's Gemma 4 (Apache 2.0 licence), in the sizes that leave room for a game on the same
-    // graphics card. They follow CIMA Box's translation instructions (tone, slang, context, the
-    // answer tags) like the online AIs do, which the small translation-only models can't.
-    // Files: Unsloth's 4-bit builds, the ones most people run.
+    // Google's Gemma 4 with its refusals removed ("uncensored"), in the sizes that leave room for a game
+    // on the same graphics card. In a voice chat people swear, insult each other for fun and say crude
+    // things, and the stock models soften or decline those lines; these say them as they were said.
+    // They follow CIMA Box's translation instructions (tone, slang, context, the answer tags) like the
+    // online AIs do, which the small translation-only models can't. All three are HauhauCS's builds
+    // (4-bit, made with an importance matrix; the 12B one from Google's quantization-aware weights).
+    // Its think-through is switched off per request, like every local model's (translate.cpp).
     static const std::vector<LocalModel> k = {
-        {"gemma4-e2b", "Gemma 4 E2B", "Light", "unsloth/gemma-4-E2B-it-qat-GGUF", "UD-Q4_K_XL", 2.6, 4,
-         "For most PCs, and while a game is using the graphics card. Fine for everyday lines; weakest with slang.", false},
-        {"gemma4-e4b", "Gemma 4 E4B", "Balanced", "unsloth/gemma-4-E4B-it-qat-GGUF", "UD-Q4_K_XL", 4.2, 6,
-         "The one to try first on a graphics card with 8 GB or more. Clearly better wording than Light.", false},
-        {"gemma4-12b", "Gemma 4 12B", "Best", "unsloth/gemma-4-12B-it-qat-GGUF", "UD-Q4_K_XL", 6.7, 10,
-         "The closest to the online AIs. Wants a graphics card with 12 GB or more, or it's slow.", false},
+        {"gemma4u-e2b", "Gemma 4 E2B Uncensored", "Light", "HauhauCS/Gemma-4-E2B-Uncensored-HauhauCS-Aggressive", "Q4_K_P", 3.45, 5,
+         "For most PCs, and while a game is using the graphics card. Fine for everyday lines; weakest with slang.", false, false},
+        {"gemma4u-e4b", "Gemma 4 E4B Uncensored", "Balanced", "HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive", "Q4_K_M", 5.0, 7,
+         "The one to try first on a graphics card with 8 GB or more. Clearly better wording than Light.", false, false},
+        {"gemma4u-12b", "Gemma 4 12B Uncensored", "Best", "HauhauCS/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced", "Q4_K_M", 7.4, 11,
+         "The closest to the online AIs. Wants a graphics card with 12 GB or more, or it's slow.", false, false},
         // Alibaba's Qwen3.8-27B (Apache 2.0 licence) with its refusals removed ("abliterated"), for big
-        // graphics cards: it translates swearing and crude lines as they were said, where Gemma and the
-        // online AIs soften or decline them. One model in three sizes of the same file (3, 4 and 5 bits
-        // per weight); the edit is applied to Unsloth's builds, so mainline llama.cpp runs them. Its
-        // think-through is switched off per request, like every local model's (translate.cpp).
+        // graphics cards. One model in three sizes of the same file (3, 4 and 5 bits per weight); the
+        // edit is applied to Unsloth's builds, so mainline llama.cpp runs them.
         {"qwen38-27b-q3", "Qwen 3.8 27B Uncensored", "Light", "mrfakename/Qwen3.8-27B-abliterated-GGUF", "UD-Q3_K_XL", 13.1, 15,
-         "Uncensored: translates swearing and crude lines as they were said. Wants a graphics card with 16 GB, and it's tight next to a game.", true},
+         "Uncensored: translates swearing and crude lines as they were said. Wants a graphics card with 16 GB, and it's tight next to a game.", true, false},
         {"qwen38-27b-q4", "Qwen 3.8 27B Uncensored", "Balanced", "mrfakename/Qwen3.8-27B-abliterated-GGUF", "UD-Q4_K_XL", 17.7, 20,
-         "Uncensored, with more natural wording than its Light size. Wants a graphics card with 24 GB.", true},
+         "Uncensored, with more natural wording than its Light size. Wants a graphics card with 24 GB.", true, false},
         {"qwen38-27b-q5", "Qwen 3.8 27B Uncensored", "Best", "mrfakename/Qwen3.8-27B-abliterated-GGUF", "UD-Q5_K_XL", 21.0, 24,
-         "Uncensored, and the closest to the full model. Wants a graphics card with 32 GB; for one-line translations it's hardly better than Balanced.", true},
+         "Uncensored, and the closest to the full model. Wants a graphics card with 32 GB; for one-line translations it's hardly better than Balanced.", true, false},
+        // The stock Gemma 4 models these replaced (3.1.0 to 3.1.3). Not offered any more, but someone
+        // who downloaded one keeps it: it still shows for them, to go on using or to delete.
+        {"gemma4-e2b", "Gemma 4 E2B", "Light", "unsloth/gemma-4-E2B-it-qat-GGUF", "UD-Q4_K_XL", 2.6, 4,
+         "For most PCs, and while a game is using the graphics card. Fine for everyday lines; weakest with slang.", false, true},
+        {"gemma4-e4b", "Gemma 4 E4B", "Balanced", "unsloth/gemma-4-E4B-it-qat-GGUF", "UD-Q4_K_XL", 4.2, 6,
+         "The one to try first on a graphics card with 8 GB or more. Clearly better wording than Light.", false, true},
+        {"gemma4-12b", "Gemma 4 12B", "Best", "unsloth/gemma-4-12B-it-qat-GGUF", "UD-Q4_K_XL", 6.7, 10,
+         "The closest to the online AIs. Wants a graphics card with 12 GB or more, or it's slow.", false, true},
     };
     return k;
 }

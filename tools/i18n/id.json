@@ -1189,5 +1189,8 @@
  "Remember repeated lines": "Ingat kalimat yang berulang",
  "A short line this AI already translated, with the same settings, is answered at once and costs nothing. It comes out the same way every time, whatever the conversation around it. Forgotten when CIMA Box closes.": "Kalimat pendek yang sudah pernah diterjemahkan AI ini, dengan pengaturan yang sama, langsung dijawab dan gratis. Hasilnya selalu sama, apa pun percakapan di sekitarnya. Dilupakan saat CIMA Box ditutup.",
  "Short lines skip the AI": "Kalimat pendek melewati AI",
- "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "Kalimat satu sampai tiga kata langsung ke DeepL atau Microsoft: jauh lebih cepat, tapi dalam bahasa baku, tanpa dialek dan gaya bicaramu."
+ "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "Kalimat satu sampai tiga kata langsung ke DeepL atau Microsoft: jauh lebih cepat, tapi dalam bahasa baku, tanpa dialek dan gaya bicaramu.",
+ "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "Model lama: model Uncensored di daftar menggantikannya. Kamu bisa tetap memakainya atau menghapusnya.",
+ "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "Model lama masih ada di PC ini, memakai %s. Model Uncensored di bawah menggantikannya: unduh salah satu, lalu hapus yang lama di sini.",
+ "Delete the older models": "Hapus model lama"
 }

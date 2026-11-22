@@ -92,8 +92,8 @@ and Hebrew are shown right to left with joined letters, in the app and in VR.
   [Microsoft Translator](https://azure.microsoft.com/products/ai-services/ai-translator) works too,
   with a free Azure key.
   Or no key at all: **Local** runs a translation model on your own PC (free, private, works offline;
-  Gemma 4 at 2.6 to 6.7 GB, best with a graphics card, or the uncensored Qwen 3.8 at 13 to 21 GB
-  for big graphics cards).
+  uncensored Gemma 4 at 3.5 to 7.4 GB, best with a graphics card, or the uncensored Qwen 3.8 at
+  13 to 21 GB for big graphics cards).
 - For VR captions: SteamVR.
 
 ## Getting started

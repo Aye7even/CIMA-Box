@@ -2278,7 +2278,23 @@ static void workerLoop() {
             // alongside the voice (which doesn't wait for it), so a wrong or refused line shows. The
             // languages are kept with the line, so the switch can also be turned on afterwards.
             if (ok && !blank && !testJob && translating && !spoken.empty()) {
-                const Language* back = from ? from : findLanguage(guessLanguage(heard));
+                // Your language: the one picked or heard. When neither is known (spoken language on
+                // automatic, and the speech service didn't say), a guess from a few words is often wrong
+                // ("what's going on" read as French, and the meaning came back in French): then the one
+                // language you said you speak, a guess only when the words make it clear, and otherwise
+                // the language you read CIMA Box in.
+                const Language* back = from;
+                if (!back && s.fx.myLanguages.size() == 1) back = findLanguage(s.fx.myLanguages[0]);
+                if (!back) {
+                    bool clear = false;
+                    const Language* guess = findLanguage(guessLanguage(heard, &clear));
+                    if (clear) back = guess;
+                }
+                if (!back) {
+                    const std::string ui = uiLanguage();  // "es", "pt-BR", "zh-Hans", "" (English)
+                    back = findLanguage(ui.empty() ? "en" : ui.substr(0, ui.find('-')));
+                    if (!back) back = findLanguage("en");
+                }
                 lineTo = to->code;
                 lineMine = back ? back->code : "";
                 if (s.showMeaning && back && back != to) checkMeaning(s, withoutTags(spoken), *to, *back);
@@ -3656,6 +3672,12 @@ int main() {
         {   // Models on this PC: downloads and deletes asked for in the app, and which one should be loaded.
             if (!act.localDownload.empty()) localAi.download(act.localDownload);
             if (!act.localCancel.empty()) localAi.cancel(act.localCancel);
+            if (act.localRemoveRetired)  // the older models, all at once (the list is the catalog's own)
+                for (const LocalModel& lm : localCatalog()) {
+                    if (!lm.retired) continue;
+                    localAi.remove(lm.id);
+                    if (ui.cfg.localModel == lm.id) ui.cfg.localModel.clear();
+                }
             if (!act.localRemove.empty()) {
                 localAi.remove(act.localRemove);
                 if (ui.cfg.localModel == act.localRemove) ui.cfg.localModel.clear();

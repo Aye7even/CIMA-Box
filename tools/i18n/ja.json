@@ -1189,5 +1189,8 @@
  "Remember repeated lines": "繰り返しの言葉を覚える",
  "A short line this AI already translated, with the same settings, is answered at once and costs nothing. It comes out the same way every time, whatever the conversation around it. Forgotten when CIMA Box closes.": "この AI が同じ設定で一度訳した短い言葉は、すぐに返され、料金もかかりません。前後の会話に関係なく、毎回同じ言い方になります。CIMA Box を閉じると忘れます。",
  "Short lines skip the AI": "短い言葉は AI を通さない",
- "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "1〜3 語の言葉は DeepL か Microsoft に直接送られます。ずっと速くなりますが、標準語になり、方言や話し方は反映されません。"
+ "Lines of one to three words go straight to DeepL or Microsoft: much faster, but in the standard language, without your dialect or speech level.": "1〜3 語の言葉は DeepL か Microsoft に直接送られます。ずっと速くなりますが、標準語になり、方言や話し方は反映されません。",
+ "An older model: the Uncensored ones in the list replace it. You can keep using it or delete it.": "以前のモデルです。一覧の Uncensored モデルがこれに代わります。このまま使い続けることも、削除することもできます。",
+ "Older models are still on this PC, taking %s. The Uncensored ones below replace them: download one, then delete the old ones here.": "以前のモデルがまだこの PC に残っていて、%s を使っています。下の Uncensored モデルがこれに代わります。どれかをダウンロードしてから、ここで古いものを削除してください。",
+ "Delete the older models": "以前のモデルを削除"
 }
