@@ -3581,12 +3581,21 @@ int main() {
                 glfwRestoreWindow(win);
                 glfwGetWindowSize(win, &fullW, &fullH);
                 glfwSetWindowSizeLimits(win, int(380 * scale), int(170 * scale), GLFW_DONT_CARE, GLFW_DONT_CARE);
-                glfwSetWindowSize(win, int(480 * scale), int(220 * scale));
+                glfwSetWindowSize(win, int(480 * scale), int((ui.cfg.listen.on ? 360 : 250) * scale));
             } else {
                 glfwSetWindowSize(win, fullW, fullH);
                 glfwSetWindowSizeLimits(win, minW, minH, GLFW_DONT_CARE, GLFW_DONT_CARE);
             }
             glfwSetWindowAttrib(win, GLFW_FLOATING, ui.mini ? GLFW_TRUE : GLFW_FALSE);
+        }
+        {   // The mini window makes room for what others say when Listen goes on, and gives it back when it goes off.
+            static bool miniTall = false;
+            if (ui.mini && ui.cfg.listen.on != miniTall) {
+                int w = 0, h = 0;
+                glfwGetWindowSize(win, &w, &h);
+                glfwSetWindowSize(win, w, int((ui.cfg.listen.on ? 360 : 250) * scale));
+            }
+            miniTall = ui.mini && ui.cfg.listen.on;
         }
         ui.passing = g.passing;
         ui.matchProgress = (g.match.micSeconds() + g.match.voiceSeconds()) / (2.f * MicMatch::kNeedSeconds);

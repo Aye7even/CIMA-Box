@@ -21,7 +21,8 @@ std::vector<std::string> systemFonts() {
 #if defined(_WIN32)
     const std::string d = "C:\\Windows\\Fonts\\";
     return {d + "segoeui.ttf", d + "arial.ttf",  d + "YuGothM.ttc", d + "meiryo.ttc", d + "malgun.ttf",
-            d + "msyh.ttc",    d + "simsun.ttc", d + "Nirmala.ttf", d + "LeelawUI.ttf", d + "ebrima.ttf", d + "mmrtext.ttf"};
+            d + "msyh.ttc",    d + "simsun.ttc", d + "Nirmala.ttc", d + "Nirmala.ttf", d + "mangal.ttf",  // (Nirmala: .ttc on newer Windows 11)
+            d + "LeelawUI.ttf", d + "ebrima.ttf", d + "mmrtext.ttf"};
 #elif defined(__APPLE__)
     const std::string d = "/System/Library/Fonts/";
     return {d + "SFNS.ttf", d + "Helvetica.ttc", d + "Hiragino Sans GB.ttc", d + "AppleSDGothicNeo.ttc", d + "PingFang.ttc"};

@@ -68,7 +68,8 @@ ever stops updating, it fixes itself (or press Reset VR captions).
 ![The Extra features page: screen translation, extras for talking, and handy tools](docs/features.png)
 
 **Mini window**: shrink CIMA Box to a small window that stays on top of your game, with the last
-line, the mode, Stop and the switch.
+line, the mode, Stop and the switch. With Listen on, what other people say shows right under your
+own line, translated, so the whole conversation is in one small window.
 
 ![The mini window](docs/mini.png)
 

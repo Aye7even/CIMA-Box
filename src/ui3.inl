@@ -1365,6 +1365,7 @@ void voicePage(UiModel& m, UiActions& act) {
 }
 
 // ---------------------------------------------------------------- the mini window
+// Your own line, and under it what others are saying when Listen is on.
 
 void miniView(UiModel& m, UiActions& act) {
     Settings& c = m.cfg;
@@ -1430,6 +1431,50 @@ void miniView(UiModel& m, UiActions& act) {
         ImGui::PopTextWrapPos();
     }
     endCard();
+    // What others are saying (Listen), under your own line: one small window for the whole
+    // conversation. It takes the room between your line and the controls, newest first, and what
+    // doesn't fit is simply not shown (make the window taller to see more).
+    {
+        const float floorY = ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - bottomH;
+        const float room = floorY - ImGui::GetCursorScreenPos().y - em() * 0.2f;
+        if (!c.listen.on) {
+            if (room > ImGui::GetFrameHeight()) {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(kMuted, "%s", T("Listen is off"));
+                ImGui::SameLine(0, em() * 0.8f);
+                if (button("Turn on Listen", false, em() * 9.f)) c.listen.on = true;
+            }
+        } else if (room > em() * 2.4f) {
+            ImGui::BeginChild("##minithem", ImVec2(0, room), 0, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+            ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
+            ImGui::TextColored(kMuted, "%s", T("Around you"));
+            const PageState ls = listenState(m);
+            if (ls.text[0]) {
+                ImGui::SameLine(0, em() * 0.6f);
+                ImGui::TextColored(ls.color, "%s", T(ls.text));
+            }
+            ImGui::PopFont();
+            int shown = 0;
+            for (auto it = m.captions.rbegin(); it != m.captions.rend() && shown < 6; ++it) {
+                if (it->pending || it->lines.empty()) continue;
+                for (const CaptionLine& line : it->lines) {
+                    if (shown >= 6 || line.text.empty()) continue;
+                    const bool person = line.voiceId >= 0 && c.fx.voiceIds;
+                    if (person && std::find(m.mutedVoices.begin(), m.mutedVoices.end(), line.voiceId) != m.mutedVoices.end()) continue;
+                    const ImVec4 who = person ? kPeople[line.voiceId % 12] : kMuted;
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(at.x + em() * 0.3f, at.y + em() * 0.62f), em() * 0.22f, col(who), 12);
+                    ImGui::SetCursorScreenPos(ImVec2(at.x + em() * 0.9f, at.y));
+                    ImGui::PushTextWrapPos(0.f);
+                    ImGui::TextUnformatted(line.text.c_str());
+                    ImGui::PopTextWrapPos();
+                    ++shown;
+                }
+            }
+            if (shown == 0) ImGui::TextColored(kMuted, "%s", T("Captions show up here when someone speaks."));
+            ImGui::EndChild();
+        }
+    }
     const float y = ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - bottomH + em() * 0.2f;
     if (y > ImGui::GetCursorScreenPos().y) ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, y));
     // The mode, stop, and the switch.

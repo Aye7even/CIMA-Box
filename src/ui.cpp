@@ -141,7 +141,10 @@ void loadFonts() {
     const std::vector<List> extra = {{d + "YuGothM.ttc", d + "meiryo.ttc", d + "msgothic.ttc"},
                                      {d + "malgun.ttf"},
                                      {d + "msyh.ttc", d + "simsun.ttc"},
-                                     {d + "Nirmala.ttf"},    // Hindi, Bengali, Tamil, Telugu, Gujarati, ...
+                                     // Hindi, Bengali, Tamil, Telugu, Gujarati... Newer Windows 11 ships Nirmala UI as a
+                                     // collection (Nirmala.ttc), older ones as Nirmala.ttf; Mangal (Hindi only) is the
+                                     // font from before either. Without one of them Hindi shows as boxes.
+                                     {d + "Nirmala.ttc", d + "Nirmala.ttf", d + "NirmalaS.ttf", d + "mangal.ttf"},
                                      {d + "LeelawUI.ttf"},   // Thai, Lao
                                      {d + "ebrima.ttf"},     // Amharic (Ethiopic)
                                      {d + "mmrtext.ttf"}};   // Burmese
