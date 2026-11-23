@@ -234,6 +234,10 @@ void fieldLabel(const char* text) {
 }
 
 void voicePackRows(UiModel& m, UiActions& act);
+
+// CIMA Box's Discord server: questions, tips, and news about updates ("Join our Discord" in the
+// sidebar and in Settings > About).
+const char* const kDiscordUrl = "https://discord.gg/QMM6tASKwc";
 void subheading(const char* text);
 
 // Small muted help text. Translated when the whole text is a known one.
@@ -832,6 +836,11 @@ void genderPicker(UiModel& m) {
     fieldLabel("I am");
     static const char* const kMe[] = {"Not set", "A man", "A woman", "Nonbinary"};
     segmented("##mygender", kMe, 4, &c.myGender);
+    // DeepL, Microsoft and Free word a line the same way whoever says it: say so here, where it is set,
+    // and not only in Settings.
+    if (!isAiService(c.translateService))
+        note("Only an AI translator (Claude, Gemini, OpenAI or a model on this PC) follows these two. The translation service "
+             "you picked words a line the same way for everyone.", kBusy);
     fieldLabel("Talking to");
     ImGui::SetNextItemWidth(-FLT_MIN);
     if (ImGui::BeginCombo("##talkingto", T(kTalkingLabels[c.talkingTo]))) {
@@ -1361,9 +1370,12 @@ const Findable kFindables[] = {
     {"Listen to", kPageListen, "Source", "source app game speakers capture", nullptr},
     {"Translate into", kPageListen, "Source", "captions language my language", nullptr},
     {"They speak", kPageListen, "Source", "their language detect", nullptr},
+    {"Only this language", kPageListen, "Source", "only one language isolate filter ignore other languages", nullptr},
     {"Tell speakers apart", kPageListen, "Source", "speakers who", TOGGLE(listen.tellApart)},
     {"Show the original words", kPageListen, "Source", "original text", TOGGLE(listen.showOriginal)},
     {"Skip speech in my language", kPageListen, "Source", "skip ignore my language", TOGGLE(listen.onlyOtherLanguages)},
+    {"Skip sounds that aren't a voice", kPageListen, "Source", "voice detection noise door music footsteps picks up too much", TOGGLE(listen.skipNoVoice)},
+    {"Clean noisy phrases (trial)", kPageListen, "Source", "noise removal denoise clean sanitize hiss fan hum", TOGGLE(listen.cleanWords)},
     {"Send to VRChat chatbox", kPageListen, "Source", "chatbox osc captions", TOGGLE(listen.chatbox)},
     // VR
     {"Reset VR captions", kPageVR, "Placement", "vr captions stuck frozen not updating stopped reset reconnect", nullptr},
@@ -2029,6 +2041,12 @@ void listenSourcePanel(UiModel& m, UiActions& act) {
     cardTitle("Translation");
     fieldLabel("They speak");
     languageCombo("##listenfrom", l.fromLang, true);
+    if (!l.fromLang.empty()) {
+        toggleRow("Only this language", &l.onlyFromLang);
+        if (l.onlyFromLang)
+            note("Speech in any other language gets no caption. Very short replies can't always be told apart, so one may slip through "
+                 "now and then, or be missed.");
+    }
     fieldLabel("Translate into");
     languageCombo("##listento", l.toLang, false);
     translationService(c, true);
@@ -2037,6 +2055,19 @@ void listenSourcePanel(UiModel& m, UiActions& act) {
     toggleRow("Tell speakers apart", &l.tellApart);
     toggleRow("Show the original words", &l.showOriginal);
     toggleRow("Skip speech in my language", &l.onlyOtherLanguages);
+    toggleRow("Skip sounds that aren't a voice", &l.skipNoVoice);
+    if (l.skipNoVoice || l.cleanWords) {  // the pack gets itself; this only says so while it does, or if it couldn't
+        if (m.cleanPack.stage == kCleanSoundDownloading)
+            note("Getting voice detection (about 10 MB, once). Until it's here, every sound loud enough is sent to the speech "
+                 "service, as before.", kBusy);
+        else if (!m.cleanPack.error.empty())
+            note("Voice detection couldn't be downloaded or loaded on this PC, so every sound loud enough is sent to the speech "
+                 "service, as before. CIMA Box tries again the next time it starts.", kBusy);
+    }
+    toggleRow("Clean noisy phrases (trial)", &l.cleanWords);
+    if (l.cleanWords)
+        note("A hiss, a fan or a hum is taken out from under a voice before the words are written down. Only for noisy phrases, "
+             "and not for the words shown while someone is still talking. If the words get worse, turn it off.");
     toggleRow("Send to VRChat chatbox", &l.chatbox);
     if (l.chatbox) note("Shows above your avatar, so people near you can read it too. Needs OSC turned on in VRChat.");
     sliderF("Caption size", &l.textScale, 0.9f, 2.4f, "%.1fx");
@@ -2519,6 +2550,9 @@ void settingsPage(UiModel& m, UiActions& act) {
     buttonPair("Open settings folder", "Open log file", act.openSettingsFolder, act.openLog);
     note("Settings save by themselves. The file holds your API keys: don't share it. The log file has no keys "
          "in it: send it to whoever helps you when something goes wrong.");
+    gap(0.2f);
+    if (button("Join our Discord", true)) act.openUrl = kDiscordUrl;
+    note("Questions, tips and news about updates, with other people who use CIMA Box. Opens in your browser.");
     gap(0.2f);
     if (button("Report a problem")) act.reportProblem = true;
     note(m.reportPath.empty() ? "Opens a new report on CIMA Box's GitHub page with the basics filled in, and puts a file on your Desktop to drag into it. No keys, nothing anyone said. Needs a free GitHub account; reports there are public."

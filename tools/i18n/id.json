@@ -1202,5 +1202,16 @@
  "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "Tawa dan batuk tidak tertangkap selama transkripsi langsung menyala: pengenalnya tidak bisa diunduh atau dimuat di PC ini. CIMA Box mencoba lagi saat dibuka berikutnya.",
  "The model is picked under More voice settings, just below.": "Model dipilih di \"More voice settings\", tepat di bawah.",
  "Faster translations": "Terjemahan lebih cepat",
- "Turn on Live transcription": "Nyalakan transkripsi langsung"
+ "Turn on Live transcription": "Nyalakan transkripsi langsung",
+ "Only this language": "Hanya bahasa ini",
+ "Speech in any other language gets no caption. Very short replies can't always be told apart, so one may slip through now and then, or be missed.": "Ucapan dalam bahasa lain tidak diberi teks. Jawaban yang sangat pendek tidak selalu bisa dibedakan, jadi sesekali ada yang lolos atau terlewat.",
+ "Skip sounds that aren't a voice": "Lewati suara yang bukan suara orang",
+ "Getting voice detection (about 10 MB, once). Until it's here, every sound loud enough is sent to the speech service, as before.": "Mengunduh deteksi suara orang (sekitar 10 MB, sekali saja). Sampai selesai, setiap bunyi yang cukup keras tetap dikirim ke layanan ucapan, seperti sebelumnya.",
+ "Voice detection couldn't be downloaded or loaded on this PC, so every sound loud enough is sent to the speech service, as before. CIMA Box tries again the next time it starts.": "Deteksi suara orang tidak bisa diunduh atau dimuat di PC ini, jadi setiap bunyi yang cukup keras tetap dikirim ke layanan ucapan, seperti sebelumnya. CIMA Box akan mencoba lagi saat dijalankan berikutnya.",
+ "Clean noisy phrases (trial)": "Bersihkan frasa yang berisik (uji coba)",
+ "A hiss, a fan or a hum is taken out from under a voice before the words are written down. Only for noisy phrases, and not for the words shown while someone is still talking. If the words get worse, turn it off.": "Desis, kipas, atau dengung dihilangkan dari bawah suara sebelum kata-katanya ditulis. Hanya untuk frasa yang berisik, dan tidak untuk kata-kata yang ditampilkan saat seseorang masih berbicara. Kalau kata-katanya jadi lebih buruk, matikan.",
+ "Only an AI translator (Claude, Gemini, OpenAI or a model on this PC) follows these two. The translation service you picked words a line the same way for everyone.": "Hanya penerjemah AI (Claude, Gemini, OpenAI, atau model di PC ini) yang mengikuti dua pengaturan ini. Layanan terjemahan yang kamu pilih menyusun kalimat dengan cara yang sama untuk semua orang.",
+ "The graphics card kept dropping the model, so it runs on the processor for now (slower). Start CIMA Box again to try the card.": "Kartu grafis terus menjatuhkan model, jadi untuk sementara model berjalan di prosesor (lebih lambat). Jalankan ulang CIMA Box untuk mencoba kartu grafis lagi.",
+ "Join our Discord": "Gabung ke Discord kami",
+ "Questions, tips and news about updates, with other people who use CIMA Box. Opens in your browser.": "Pertanyaan, tips, dan kabar pembaruan, bersama pengguna CIMA Box lainnya. Terbuka di browser."
 }

@@ -30,6 +30,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <iterator>
 #include <set>
 #include <mutex>
 #include <thread>
@@ -340,6 +341,9 @@ static void settingsFromJson(const json& j, Settings& s) {
             ls.speakers = l.value("speakers", ls.speakers);
             ls.input = l.value("input", ls.input);
             ls.fromLang = l.value("from", ls.fromLang);
+            ls.onlyFromLang = l.value("only_from", ls.onlyFromLang);
+            ls.skipNoVoice = l.value("skip_no_voice", ls.skipNoVoice);
+            ls.cleanWords = l.value("clean_words", ls.cleanWords);
             ls.toLang = l.value("to", ls.toLang);
             ls.thresholdDb = l.value("threshold_db", ls.thresholdDb);
             ls.pace = l.value("pace", ls.pace);
@@ -615,7 +619,7 @@ static std::string settingsJson(const Settings& s) {
     const ListenSettings& ls = s.listen;
     j["listen"] = {
         {"source", ls.source}, {"app", ls.app}, {"speakers", ls.speakers}, {"input", ls.input},
-        {"from", ls.fromLang}, {"to", ls.toLang}, {"threshold_db", ls.thresholdDb}, {"pace", ls.pace}, {"focus", ls.focus},
+        {"from", ls.fromLang}, {"only_from", ls.onlyFromLang}, {"skip_no_voice", ls.skipNoVoice}, {"clean_words", ls.cleanWords}, {"to", ls.toLang}, {"threshold_db", ls.thresholdDb}, {"pace", ls.pace}, {"focus", ls.focus},
         {"tell_speakers_apart", ls.tellApart}, {"show_original", ls.showOriginal},
         {"only_other_languages", ls.onlyOtherLanguages}, {"chatbox", ls.chatbox}, {"text_scale", ls.textScale},
     };
@@ -1717,6 +1721,21 @@ static std::vector<std::string> directionsIn(const std::string& s) {
     return out;
 }
 
+// The same, in the order they stand in the line.
+static std::vector<std::string> directionsInOrder(const std::string& s) {
+    std::vector<std::string> out;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] != '[') continue;
+        const size_t end = s.find(']', i);
+        if (end == std::string::npos) break;
+        std::string t;
+        for (size_t k = i + 1; k < end; ++k) t += char(std::tolower((unsigned char)s[k]));
+        out.push_back(t);
+        i = end;
+    }
+    return out;
+}
+
 static std::string withoutTags(const std::string& s) {
     std::string out;
     bool in = false;
@@ -1726,6 +1745,25 @@ static std::string withoutTags(const std::string& s) {
         else if (!in && !(c == ' ' && (out.empty() || out.back() == ' '))) out += c;
     }
     while (!out.empty() && out.back() == ' ') out.pop_back();
+    return out;
+}
+
+// A sound on its own ("[coughs]") with a short word after each sound, for voice models that refuse a
+// line with nothing in it but tags: "[coughs] Ahem." Empty when one of the sounds has no such word
+// (then the line is left out rather than said wrong).
+static std::string soundWithWord(const std::string& line) {
+    static const std::pair<const char*, const char*> kWords[] = {
+        {"laughs", "Ha ha."}, {"chuckles", "Heh."}, {"coughs", "Ahem."}, {"clears throat", "Ahem."}, {"sighs", "Hahh."},
+        {"gasps", "Ah!"}, {"sneezes", "Achoo!"}, {"yawns", "Aaah."}, {"groans", "Ugh."}, {"grunts", "Hm."},
+        {"screams", "Aah!"}, {"hiccups", "Hic."}, {"sniffs", "Hm."}};
+    std::string out;
+    for (const std::string& tag : directionsInOrder(line)) {
+        const char* word = nullptr;
+        for (const auto& w : kWords)
+            if (tag == w.first) word = w.second;
+        if (!word) return std::string();
+        out += (out.empty() ? "[" : " [") + tag + "] " + word;
+    }
     return out;
 }
 
@@ -1770,74 +1808,158 @@ static void checkMeaning(const Settings& s, const std::string& line, const Langu
 // times run into one another, so they can't show where a cough was. The sound recogniser listens to
 // the phrase itself instead, a second at a time in half-second steps, and each laugh, cough or sigh
 // it is sure of comes back with its time, ready to be put among the words. `notes` gets what it
-// heard, for the log. `tokens` is only used to skip nothing: a phrase with no words is listened to too.
+// heard, for the log. `tokens`: the words and their times, when there are any (a phrase with no
+// words is listened to too). `track`: how loud each moment of the phrase was.
 static std::vector<HeardToken> soundsOnThisPc(SoundId& ear, const std::vector<int16_t>& pcm, float endS, const VoiceTrack& track,
                                               const std::vector<HeardToken>& tokens, std::string& notes) {
-    (void)track;
-    (void)tokens;
     std::vector<HeardToken> found;
+    const size_t rate = size_t(Segmenter::kRate);
     const size_t total = std::min(pcm.size(), size_t(std::max(0.f, endS) * Segmenter::kRate));
-    if (total < size_t(Segmenter::kRate) / 5) return found;
+    if (total < rate / 5) return found;
     const auto began = std::chrono::steady_clock::now();
-    const size_t win = Segmenter::kRate, hop = Segmenter::kRate / 2;
-    struct Hit { std::string tag, name; float sure, at; };
-    std::vector<Hit> hits;        // the surest voice sound of each window that has one
+    struct Hit { std::string tag, name; float sure, at; bool gap; };
+    std::vector<Hit> hits;
     std::string best;             // the surest thing that wasn't speech, for the log when nothing counted
     float bestSure = 0, bestAt = 0;
+    std::string nearest;          // the surest laugh, cough or the like that wasn't sure enough to count
+    float nearSure = 0, nearAt = 0;
     std::vector<float> clip;
     int windows = 0;
-    for (size_t from = 0; from < total && windows < 24; from += hop, ++windows) {
-        const size_t to = std::min(total, from + win);
-        if (to - from < size_t(Segmenter::kRate) / 2 && from > 0) break;  // a short tail was in the window before
+    // One stretch of the phrase. `gap`: a stretch between words, where a sound isn't under anyone's
+    // talking, so it counts from a little less sure.
+    auto hear = [&](size_t from, size_t to, bool gap) {
+        if (to <= from || to - from < rate / 5) return;
+        ++windows;
         clip.resize(to - from);
         for (size_t i = from; i < to; ++i) clip[i - from] = float(pcm[i]) / 32768.f;
         std::vector<HeardSound> heard;
-        if (!ear.listen(clip.data(), clip.size(), heard)) continue;
-        const float at = float(from + to) / 2.f / float(Segmenter::kRate);
-        Hit top{"", "", 0.f, at};
+        if (!ear.listen(clip.data(), clip.size(), heard)) return;
+        const float at = float(from + to) / 2.f / float(rate);
+        Hit top{"", "", 0.f, at, gap};
         for (const HeardSound& h : heard) {
             std::string tag = voiceSoundTag(h.name);
             // On a headset mic a short cough comes back as "Beatboxing" (seen in testing, confirmed coughs).
             if (tag.empty() && h.name == "Beatboxing" && h.sure >= 0.5f) tag = "coughs";
-            // The clear ones count from a third sure; the faint ones (a sigh, a sniff, a grunt), which
-            // ordinary speech can sound like for a moment, only from half.
+            // The clear ones count from a third sure (a quarter between words); the faint ones (a sigh,
+            // a sniff, a grunt), which ordinary speech can sound like for a moment, only from half.
             const bool clear = tag == "laughs" || tag == "chuckles" || tag == "coughs" || tag == "sneezes" || tag == "clears throat" ||
                                tag == "screams" || tag == "crying";
-            if (!tag.empty() && h.sure >= (clear ? 0.3f : 0.5f) && h.sure > top.sure) top = {tag, h.name, h.sure, at};
-            const bool speech = h.name == "Speech" || h.name.find("speech") != std::string::npos || h.name.find("Narration") != std::string::npos ||
-                                h.name.find("Conversation") != std::string::npos || h.name == "Silence" || h.name == "Inside, small room";
-            if (!speech && h.sure > bestSure) { best = h.name; bestSure = h.sure; bestAt = at; }
+            if (!tag.empty() && h.sure >= (clear ? (gap ? 0.25f : 0.3f) : 0.5f)) {
+                if (h.sure > top.sure) top = {tag, h.name, h.sure, at, gap};
+            } else if (!tag.empty() && h.sure > nearSure) {
+                nearest = h.name;
+                nearSure = h.sure;
+                nearAt = at;
+            }
+            std::string low;
+            for (unsigned char c : h.name) low += char(std::tolower(c));
+            const bool speech = low.find("speech") != std::string::npos || low.find("narration") != std::string::npos ||
+                                low.find("conversation") != std::string::npos || low == "silence" || low == "inside, small room";
+            if (!speech && tag.empty() && h.sure > bestSure) { best = h.name; bestSure = h.sure; bestAt = at; }
         }
-        if (top.tag.empty()) continue;
-        // The same sound in the window before (they overlap): one sound, at the surer of the two.
-        if (!hits.empty() && hits.back().tag == top.tag && at - hits.back().at <= 0.6f) {
-            if (top.sure > hits.back().sure) { hits.back().sure = top.sure; hits.back().name = top.name; }
-            hits.back().at = at;  // a long laugh: keep following it, so the next window still joins
+        if (!top.tag.empty()) hits.push_back(top);
+    };
+
+    // ---- between the words. Live transcription says when each word was said; a stretch with no word
+    // in it that still has voice in it is where a laugh or a cough is. Those go to the recogniser on
+    // their own, without the talking around them that used to drown them out.
+    std::vector<std::pair<float, float>> said;  // each word's time
+    for (const HeardToken& tk : tokens)
+        if (tk.kind == kTokWord && tk.start >= 0 && tk.end >= tk.start) said.push_back({tk.start, tk.end});
+    std::sort(said.begin(), said.end());
+    const float phraseS = float(total) / float(rate);
+    auto loudFor = [&](float a, float b) {  // seconds of that stretch nearly as loud as the phrase's loudest
+        if (track.db.empty()) return b - a;
+        int n = 0;
+        const size_t i0 = size_t(std::max(0.f, a) * 100.f), i1 = std::min(track.db.size(), size_t(std::max(0.f, b) * 100.f));
+        for (size_t i = i0; i < i1; ++i) n += track.db[i] > track.topDb - 15.f ? 1 : 0;
+        return float(n) / 100.f;
+    };
+    int gaps = 0;
+    if (!said.empty()) {
+        float from = 0;
+        for (size_t i = 0; i <= said.size() && gaps < 8; ++i) {
+            const float to = std::min(phraseS, i < said.size() ? said[i].first : phraseS);
+            if (to - from >= 0.25f && loudFor(from, to) >= 0.15f) {
+                ++gaps;
+                float a = from - 0.05f, b = to + 0.05f;
+                if (b - a < 0.6f) {  // the recogniser wants a little more than a quarter second
+                    const float mid = 0.5f * (a + b);
+                    a = mid - 0.3f;
+                    b = mid + 0.3f;
+                }
+                a = std::max(0.f, a);
+                b = std::min(phraseS, b);
+                if (b - a <= 1.4f) {
+                    hear(size_t(a * float(rate)), size_t(b * float(rate)), true);
+                } else {  // a long one (a laugh that goes on): a second at a time
+                    for (float w = a; w < b - 0.4f && windows < 32; w += 0.5f)
+                        hear(size_t(w * float(rate)), size_t(std::min(b, w + 1.f) * float(rate)), true);
+                }
+            }
+            if (i < said.size()) from = std::max(from, said[i].second);
+        }
+    }
+
+    // ---- and the phrase as a whole, a second at a time in half-second steps: laughing while
+    // talking, and any phrase whose words have no times.
+    const size_t win = rate, hop = rate / 2;
+    int whole = 0;
+    for (size_t from = 0; from < total && whole < 24; from += hop, ++whole) {
+        const size_t to = std::min(total, from + win);
+        if (to - from < rate / 2 && from > 0) break;  // a short tail was in the window before
+        hear(from, to, false);
+    }
+
+    // One sound heard by overlapping stretches is one sound: the surer hearing of it stays, and one
+    // from between the words wins over one heard under talking.
+    std::sort(hits.begin(), hits.end(), [](const Hit& x, const Hit& y) { return x.at < y.at; });
+    std::vector<Hit> kept;
+    for (const Hit& h : hits) {
+        if (!kept.empty() && kept.back().tag == h.tag && h.at - kept.back().at <= 0.75f) {
+            Hit& k = kept.back();
+            const bool better = (h.gap && !k.gap) || (h.gap == k.gap && h.sure > k.sure);
+            const float at = h.at;
+            if (better) k = h;
+            if (!k.gap) k.at = at;  // a long laugh under talking: keep following it, so the next window still joins
             continue;
         }
-        hits.push_back(top);
+        kept.push_back(h);
     }
-    for (const Hit& h : hits) {
+    for (const Hit& h : kept) {
         if (found.size() >= 4) break;
-        char b[96];
-        std::snprintf(b, sizeof(b), "%s%.1f s: %s %.2f", notes.empty() ? "" : "; ", h.at, h.name.c_str(), h.sure);
-        notes += b;
+        char line[160];
+        std::snprintf(line, sizeof(line), "%s%.1f s: %s %.2f%s", notes.empty() ? "" : "; ", h.at, h.name.c_str(), h.sure,
+                      h.gap ? " (between words)" : "");
+        notes += line;
         HeardToken tk;
         tk.text = "[" + h.tag + "]";
         tk.kind = kTokSound;
         tk.start = tk.end = h.at;
         found.push_back(std::move(tk));
     }
-    char b[160];
+    char line[240];
     const int ms = int(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count());
-    if (notes.empty() && !best.empty()) {
-        std::snprintf(b, sizeof(b), "nothing clear (closest: %s %.2f at %.1f s)", best.c_str(), bestSure, bestAt);
-        notes = b;
-    } else if (notes.empty()) {
-        notes = "only speech";
+    if (notes.empty()) {
+        // For Report a problem: how close it came. "Nearest" is the surest laugh, cough or the like,
+        // which is what the levels above are judged by.
+        if (nearest.empty() && best.empty()) {
+            notes = "only speech";
+        } else {
+            notes = "nothing clear (";
+            if (!nearest.empty()) {
+                std::snprintf(line, sizeof(line), "nearest voice sound: %s %.2f at %.1f s", nearest.c_str(), nearSure, nearAt);
+                notes += line;
+            }
+            if (!best.empty()) {
+                std::snprintf(line, sizeof(line), "%sclosest other: %s %.2f at %.1f s", nearest.empty() ? "" : "; ", best.c_str(), bestSure, bestAt);
+                notes += line;
+            }
+            notes += ")";
+        }
     }
-    std::snprintf(b, sizeof(b), " (%d windows, took %d ms)", windows, ms);
-    notes += b;
+    std::snprintf(line, sizeof(line), " (%d stretches, %d between words, took %d ms)", windows, gaps, ms);
+    notes += line;
     return found;
 }
 
@@ -1883,6 +2005,7 @@ static void workerLoop() {
     // Early translation: requests sent for the line being said (all its pieces). At most three, so at
     // most two are thrown away, however many pauses a long line has.
     int earlyThisLine = 0;
+    const Language* lastFrom = nullptr;  // the language the last line was spoken in
 
     while (g.running) {
         std::vector<int16_t> pcm, full;
@@ -1975,7 +2098,9 @@ static void workerLoop() {
             // All connections at once (each waits 3 s at most), so a phrase that ends soon after
             // isn't kept waiting behind them.
             auto warmVoice = std::async(std::launch::async, [&] { api.warm(); });
-            if (s.engine == kTranslate) translator.warm(translateSetup(s));
+            // (The language of the last line: "They said something in English" is how the instructions
+            // begin, so a model on this PC is given the same words it will get with the line.)
+            if (s.engine == kTranslate) translator.warm(translateSetup(s), lastFrom ? lastFrom : spokenLanguage(s, std::string()), findLanguage(s.targetLang));
             if (s.engine == kVoiceChanger && s.chatbox) captionApi.warm();
             warmVoice.get();
             continue;
@@ -2363,6 +2488,7 @@ static void workerLoop() {
             say = heard;
             const Language* to = findLanguage(s.targetLang);
             const Language* from = spokenLanguage(s, detected);
+            if (from) lastFrom = from;
             const bool translating = s.engine == kTranslate && to && from != to && !soundOnly;  // a sound needs no translating
             if (ok && !blank && s.engine == kTranslate && !to) {
                 ok = false;
@@ -2445,8 +2571,27 @@ static void workerLoop() {
                                 (dir.stressed.empty() ? "" : ", " + std::to_string(dir.stressed.size()) + " stressed") + ".");
                         const std::string& v = translator.via;
                         const bool plainService = v.rfind("DeepL", 0) == 0 || v.rfind("Microsoft", 0) == 0 || v.rfind("Free", 0) == 0;
-                        carried = !plainService && directionsIn(say) == wanted;
-                        if (carried) logLine("Carry my emotion: the translation (" + v + ") kept every direction.");
+                        const std::vector<std::string> gotTags = directionsIn(say);
+                        carried = !plainService && gotTags == wanted;
+                        // You laughed and it was written down as words ("haha"): the AI is told not to
+                        // write laughter as letters, so it puts [laughs] there instead. That one is
+                        // right, and it used to cost the line every direction. Kept, when it is the
+                        // only difference and nothing that was sent is missing.
+                        std::string ownLaugh;
+                        if (!plainService && !carried) {
+                            std::vector<std::string> extra, missing;
+                            std::set_difference(gotTags.begin(), gotTags.end(), wanted.begin(), wanted.end(), std::back_inserter(extra));
+                            std::set_difference(wanted.begin(), wanted.end(), gotTags.begin(), gotTags.end(), std::back_inserter(missing));
+                            bool laughsOnly = missing.empty() && !extra.empty() && extra.size() <= 2;
+                            for (const std::string& t : extra) laughsOnly = laughsOnly && (t == "laughs" || t == "chuckles");
+                            if (laughsOnly) {
+                                carried = true;
+                                ownLaugh = "[" + extra.front() + "]";
+                            }
+                        }
+                        if (carried && !ownLaugh.empty())
+                            logLine("Carry my emotion: the translation (" + v + ") kept every direction, and wrote your laugh as " + ownLaugh + ".");
+                        else if (carried) logLine("Carry my emotion: the translation (" + v + ") kept every direction.");
                         else if (plainService) logLine("Carry my emotion: " + v + " did this line, so it gets one delivery.");
                         if (!carried) {
                             if (!plainService) {
@@ -2551,11 +2696,37 @@ static void workerLoop() {
                 lineMine = back ? back->code : "";
                 if (s.showMeaning && back && back != to) checkMeaning(s, withoutTags(spoken), *to, *back);
             }
-            if (ok && !blank && (!typed || s.textSpeak)) {
+            // A sound alone ("[coughs]"): some voice models refuse a line with nothing in it but tags
+            // (seen with v4 Turbo: "Input ... has empty text"). Once a model has refused one, the
+            // sound goes with a short word after it ("[coughs] Ahem."), which every model takes.
+            static std::string refusesBareSounds;  // the voice model that did (this worker thread only)
+            bool soundLeftOut = false;
+            auto withWord = [&]() {
+                const std::string worded = soundWithWord(say);
+                if (worded.empty()) {
+                    logLine("Sounds: this voice model can't make " + say + " on its own, so it was left out.");
+                    soundLeftOut = true;
+                    return false;
+                }
+                logLine("Sounds: this voice model doesn't take a sound on its own, so it goes as " + worded);
+                say = spoken = worded;
+                return true;
+            };
+            if (ok && soundOnly && refusesBareSounds == s.ttsModel) withWord();
+            if (ok && !blank && !soundLeftOut && (!typed || s.textSpeak)) {
                 tVoice = Clock::now();
                 ok = speak([&](const std::string& format, std::string& e) {
                     return api.textToSpeech(s.voiceId, s.ttsModel, s.vs, say, sayLang, sink, e, format);
                 }, err);
+                if (!ok && soundOnly && first && err.find("empty text") != std::string::npos) {
+                    refusesBareSounds = s.ttsModel;
+                    err.clear();
+                    ok = true;
+                    if (withWord())
+                        ok = speak([&](const std::string& format, std::string& e) {
+                            return api.textToSpeech(s.voiceId, s.ttsModel, s.vs, say, sayLang, sink, e, format);
+                        }, err);
+                }
             }
             if (ok && !blank && !typed && !soundOnly) {  // for the next line, if it goes on from this one
                 stretch.push_back({heard, withoutTags(spoken.empty() ? heard : spoken), ended});
@@ -3140,7 +3311,9 @@ static std::string usingLine(const Settings& c) {
     line += ", quality " + std::to_string(c.quality) + (c.matchMic ? ", match my mic" : "") + (c.passthrough ? ", passthrough" : "") +
             (c.activation == kPushToTalk && c.pttRealVoice ? ", real voice between presses" : "");
     line += std::string(". Listen ") + (c.listen.on ? "on" : "off") + " (" + sources[std::max(0, std::min(2, c.listen.source))] +
-            (c.listen.source == kSrcApp ? " " + c.listen.app : "") + ", to " + c.listen.toLang + "). VR " + (c.vr.on ? "on" : "off") +
+            (c.listen.source == kSrcApp ? " " + c.listen.app : "") + ", " +
+            (c.listen.fromLang.empty() ? std::string("auto") : c.listen.fromLang + (c.listen.onlyFromLang ? " only" : "")) + " to " +
+            c.listen.toLang + (c.listen.skipNoVoice ? ", voices only" : "") + (c.listen.cleanWords ? ", noisy phrases cleaned" : "") + "). VR " + (c.vr.on ? "on" : "off") +
             ". Chatbox " + (c.chatbox || c.listen.chatbox ? "on" : "off") + ". App language " + c.uiLanguage + ".";
     // Which keys are filled in (never the keys themselves), and the AI time limit: the first things to
     // check when translations fall back or fail.
@@ -3230,6 +3403,9 @@ int main() {
     SoundId soundId(appDataDir() / "sounds", [](const std::string& line) { logLine(line); });
     setSoundIdEngine(&soundId);
     bool soundPackAsked = false;  // fetched by itself, once a run, the first time it's needed
+    CleanSound cleanSound(appDataDir() / "clean", [](const std::string& line) { logLine(line); });
+    setCleanSoundEngine(&cleanSound);
+    bool cleanPackAsked = false;  // the same: once a run, the first time Listen wants it
     ui.pc = readPcSpecs();
     localAi.preferGpu(ui.pc.gpu);  // on a PC with two graphics devices, the local model runs on the real card
     if (ui.pc.known)
@@ -3954,6 +4130,16 @@ int main() {
                 }
             }
             ui.soundPack = soundId.state();
+            // Voice detection and noise removal for Listen: the same, when Listen is on and wants either.
+            if (ui.cfg.listen.on && (ui.cfg.listen.skipNoVoice || ui.cfg.listen.cleanWords)) {
+                if (ui.cleanPack.stage == kCleanSoundNone && !cleanPackAsked) {
+                    cleanPackAsked = true;
+                    cleanSound.download();
+                } else if (ui.cleanPack.stage == kCleanSoundInstalled && !ui.cleanPack.loaded && ui.cleanPack.error.empty()) {
+                    cleanSound.warm();
+                }
+            }
+            ui.cleanPack = cleanSound.state();
             // Nothing chosen (or the chosen one was deleted): the first one that's downloaded.
             auto has = [&](const std::string& id) {
                 for (const LocalModelState& ms : ui.local.models)

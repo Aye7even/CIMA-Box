@@ -43,6 +43,7 @@ struct VoicePrint {
     // Its fingerprint from the recognition model (voiceid.h), when that pack is installed: then the
     // voices are compared by this, and the measurements above only fill in where it's missing.
     std::vector<float> fp;
+    float fpSeconds = 0;  // how much of their own speech the fingerprint was made from
     // The clip turned out to hold more than one voice (its two halves have different fingerprints:
     // two people the speech service wrote down as one). It is nobody's voice: never named, never learned from.
     bool mixed = false;
@@ -85,7 +86,7 @@ public:
     // `keep`: numbers that must not be given up or reused (muted voices).
     // `renamed`: (from, to) pairs for lines already shown; "from" >= 100 is a voice that had no number yet.
     int who(const VoicePrint& p, double now, const std::vector<int>& keep, std::vector<std::pair<int, int>>& renamed);
-    void clear() { voices_.clear(); nextTemp_ = 100; last_ = -1; }
+    void clear() { voices_.clear(); waiting_.clear(); ties_.clear(); nextTemp_ = 100; last_ = -1; }
     // How many numbers there are to give out. More with fingerprints (they can keep a dozen voices
     // apart); the built-in way stays at kMax.
     void setMax(int n) { max_ = n < 1 ? 1 : n; }
@@ -106,6 +107,14 @@ private:
         double panAt = -1e9;
     };
     std::vector<Known> voices_;
+    // Lines that were nobody known and not clearly someone new either (see who()): kept a little
+    // while, because two of them that are alike are one person who hasn't been met yet.
+    struct Waiting { VoicePrint p; double at = 0; };
+    std::vector<Waiting> waiting_;
+    // Two numbered voices that a line was about as alike to, and how often lately: the same two
+    // again and again are one person who was given two numbers.
+    struct Tie { int a = -1, b = -1, count = 0; double at = 0; };
+    std::vector<Tie> ties_;
     int nextTemp_ = 100, last_ = -1;
     int max_ = kMax;
     float lastNearest_ = -1, lastNext_ = -1;

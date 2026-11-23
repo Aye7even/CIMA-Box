@@ -14,6 +14,7 @@
 #include "vroverlay.h"
 #include "translate.h"
 #include "localai.h"
+#include "cleansound.h"
 #include "soundid.h"
 #include "voiceid.h"
 #include "pcspecs.h"
@@ -254,6 +255,7 @@ struct UiModel {
     bool olderOpen = false;                  // Settings: the list of earlier versions is showing
     PcSpecs pc;                              // this PC's graphics card and memory, to rate the local models
     SoundIdState soundPack;                  // the laugh and cough recogniser: downloaded? downloading?
+    CleanSoundState cleanPack;               // voice detection and noise removal for Listen: downloaded? downloading?
     VoiceIdState voicePack;                  // the voice fingerprint pack: downloaded? downloading?
     bool voicePackAsk = false;               // "Delete it?" is showing
     LocalState local;                        // models on this PC: what's downloaded, downloading, loaded

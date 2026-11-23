@@ -510,6 +510,12 @@ constexpr float kAlikeSame = 0.45f, kAlikeOther = 0.30f;
 // voices are only ever declared one person when their averages are very alike (kAlikeOne: averages
 // of two different people are more alike than single lines are).
 constexpr float kAlikeClear = 0.10f, kAlikeLearn = 0.50f, kAlikeOne = 0.62f;
+// Two lines that matched nobody known but are this alike to each other are one new person
+// (kAlikeNew: clearly above what two different people score). And two numbered voices that lines
+// keep tying between are one person once their averages are this alike (kAlikeTied: lower than
+// kAlikeOne, because the repeated ties are evidence too) after this many ties in two minutes.
+constexpr float kAlikeNew = 0.55f, kAlikeTied = 0.50f;
+constexpr int kTiesToJoin = 4;
 bool byFingerprint(const VoicePrint& a, const VoicePrint& b) { return !a.fp.empty() && a.fp.size() == b.fp.size(); }
 // The built-in measurements alone (also used for a line too short for a fingerprint).
 float byMeasurements(const VoicePrint& a, const VoicePrint& b) {
@@ -550,6 +556,8 @@ int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep
             ++i;
         }
     }
+    waiting_.erase(std::remove_if(waiting_.begin(), waiting_.end(), [&](const Waiting& w) { return now - w.at > 120.0; }), waiting_.end());
+    ties_.erase(std::remove_if(ties_.begin(), ties_.end(), [&](const Tie& t) { return now - t.at > 120.0; }), ties_.end());
     lastNearest_ = lastNext_ = -1;
     lastWhy_ = "";
     if (p.mixed) {  // two people in one clip: nobody's voice
@@ -619,7 +627,10 @@ int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep
     }
     lastNearest_ = bestAlike;
     lastNext_ = nextAlike;
-    const bool brief = p.voiced < 1.0f;  // a word or two: too little to be sure of much
+    // A word or two: too little to be sure of much. With a fingerprint, that goes by how much speech
+    // the fingerprint was made from. (It used to go by the seconds of clear pitch, which game audio
+    // has little of: a third of all lines counted as "too little voice" with a good fingerprint in hand.)
+    const bool brief = p.fp.empty() ? p.voiced < 1.0f : (p.fpSeconds < 1.5f || p.voiced < 0.4f);
     const float matchAt = brief ? 0.75f : 1.0f;
     if (best >= 0 && bestD < matchAt) {
         const bool printedBest = byFingerprint(p, voices_[size_t(best)].mean);
@@ -630,6 +641,39 @@ int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep
             // there against one clearly somewhere else); otherwise it could be either: unnamed.
             if (best == bestBy && nextBy >= 0 && nextAlike >= kAlikeOther && bestAlike - nextAlike < kAlikeClear) {
                 if (!(here(voices_[size_t(best)]) && elsewhere(voices_[size_t(nextBy)]))) {
+                    // The same two numbers, again and again: one person with two numbers (their voice
+                    // was learned twice, in two moods or from two distances). Once their averages are
+                    // alike enough, they become one, and the line is theirs.
+                    Known& x = voices_[size_t(best)];
+                    Known& y = voices_[size_t(nextBy)];
+                    if (x.id < 100 && y.id < 100 && !apart(x, y)) {
+                        const int lo = std::min(x.id, y.id), hi = std::max(x.id, y.id);
+                        Tie* tie = nullptr;
+                        for (Tie& t : ties_)
+                            if (t.a == lo && t.b == hi) tie = &t;
+                        if (!tie) {
+                            ties_.push_back(Tie{lo, hi, 0, now});
+                            tie = &ties_.back();
+                        }
+                        ++tie->count;
+                        tie->at = now;
+                        if (tie->count >= kTiesToJoin && !kept(hi) && alike(x.mean, y.mean) >= kAlikeTied) {
+                            Known& keepV = x.id == lo ? x : y;
+                            const size_t dropAt = x.id == lo ? size_t(nextBy) : size_t(best);
+                            keepV.count += voices_[dropAt].count;
+                            keepV.heard = now;
+                            if (p.hasPan) {
+                                keepV.pan = p.pan;
+                                keepV.panAt = now;
+                            }
+                            renamed.push_back({hi, lo});
+                            voices_.erase(voices_.begin() + long(dropAt));  // `x`, `y`, `keepV` are stale after this
+                            ties_.erase(std::remove_if(ties_.begin(), ties_.end(), [&](const Tie& t) { return t.a == hi || t.b == hi; }), ties_.end());
+                            last_ = lo;
+                            lastWhy_ = "two numbers turned out to be one voice";
+                            return lo;
+                        }
+                    }
                     lastWhy_ = "about as alike to two known voices, left unnamed";
                     return -1;
                 }
@@ -754,6 +798,52 @@ int VoiceBook::who(const VoicePrint& p, double now, const std::vector<int>& keep
             last_ = v.id;
             lastWhy_ = "a new voice, remembered without a number yet";
             return v.id;  // 100 or more: remembered, but shown without a number for now
+        }
+    }
+    // In between: not close enough to anyone known, not far enough to be clearly new. That used to
+    // be the end of it, every time that person spoke, so in a busy room most people never got a
+    // number. Now the line waits a little: a second line that is clearly the same voice as a waiting
+    // one (and still nobody known) is a new person, remembered from the two.
+    if (!brief && !p.fp.empty()) {
+        int like = -1;
+        float most = kAlikeNew;
+        for (size_t i = 0; i < waiting_.size(); ++i) {
+            const float a = alike(p, waiting_[i].p);
+            if (a >= most) { most = a; like = int(i); }
+        }
+        int unnamed = 0;
+        for (const Known& v : voices_) unnamed += v.id >= 100;
+        if (like >= 0 && unnamed < (max_ > kMax ? 10 : 4)) {
+            Known v;
+            v.mean = p;
+            const VoicePrint& w = waiting_[size_t(like)].p;
+            v.mean.pitch = 0.5f * (p.pitch + w.pitch);
+            v.mean.spread = 0.5f * (p.spread + w.spread);
+            v.mean.bright = 0.5f * (p.bright + w.bright);
+            double sum = 0;
+            for (size_t i = 0; i < v.mean.fp.size(); ++i) {
+                v.mean.fp[i] = 0.5f * (p.fp[i] + w.fp[i]);
+                sum += double(v.mean.fp[i]) * v.mean.fp[i];
+            }
+            const float len = float(std::sqrt(sum));
+            if (len > 1e-6f)
+                for (float& x : v.mean.fp) x /= len;
+            v.count = 2;
+            v.heard = now;
+            if (p.hasPan) {
+                v.pan = p.pan;
+                v.panAt = now;
+            }
+            v.id = nextTemp_++;
+            voices_.push_back(v);
+            waiting_.erase(waiting_.begin() + like);
+            last_ = v.id;
+            lastWhy_ = "a new voice (heard twice, alike both times), remembered without a number yet";
+            return v.id;
+        }
+        if (like < 0) {
+            if (waiting_.size() >= 8) waiting_.erase(waiting_.begin());
+            waiting_.push_back(Waiting{p, now});
         }
     }
     lastWhy_ = brief ? "too little voice to say who" : "between two voices, can't say";

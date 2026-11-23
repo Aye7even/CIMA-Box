@@ -132,6 +132,35 @@ jobs:
           ls -la sp/out
           (cd sp/out && 7z a -tzip ../../cimabox-sounds-win-x64.zip ./* > /dev/null)
 
+      # Voice detection and noise removal for Listen: a phrase with no voice in it (a door, a fan,
+      # music) isn't sent to the speech service, and noisy phrases can be cleaned first. Two small
+      # models (Silero VAD and GTCRN, both MIT) and the same open-source library as above, from that
+      # project's own releases. If this step fails the release still goes out; Listen then sends
+      # every phrase as before, and the app says so.
+      - name: Voice detection pack
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHERPA_VERSION: v2.0.3
+        run: |
+          set -euo pipefail
+          mkdir -p cp/in cp/out
+          gh release download "$SHERPA_VERSION" --repo k2-fsa/sherpa-onnx --dir cp/in \
+            --pattern 'sherpa-onnx-v*-win-x64-shared-MT-Release-lib.tar.bz2'
+          gh release download asr-models --repo k2-fsa/sherpa-onnx --dir cp/in --pattern 'silero_vad.onnx'
+          gh release download speech-enhancement-models --repo k2-fsa/sherpa-onnx --dir cp/in --pattern 'gtcrn_simple.onnx'
+          for f in cp/in/*.tar.bz2; do tar -xjf "$f" -C cp/in; done
+          find cp/in -name '*.dll' -exec cp {} cp/out/ \;
+          cp cp/in/silero_vad.onnx cp/out/vad.onnx
+          cp cp/in/gtcrn_simple.onnx cp/out/denoise.onnx
+          test -f cp/out/sherpa-onnx-c-api.dll
+          test -f cp/out/onnxruntime.dll
+          test -s cp/out/vad.onnx
+          test -s cp/out/denoise.onnx
+          ls -la cp/out
+          (cd cp/out && 7z a -tzip ../../cimabox-clean-win-x64.zip ./* > /dev/null)
+
       - name: Publish the release
         shell: bash
         env:
@@ -140,6 +169,7 @@ jobs:
           extra=""
           if [ -f cimabox-voiceid-win-x64.zip ]; then extra="cimabox-voiceid-win-x64.zip"; fi
           if [ -f cimabox-sounds-win-x64.zip ]; then extra="$extra cimabox-sounds-win-x64.zip"; fi
+          if [ -f cimabox-clean-win-x64.zip ]; then extra="$extra cimabox-clean-win-x64.zip"; fi
           gh release create "$GITHUB_REF_NAME" \
             build/Release/CIMABox.exe build/Release/CIMABox.exe.sig CIMABox-windows.zip $extra \
             --title "CIMA Box ${GITHUB_REF_NAME#v}" --notes-file release-notes.md

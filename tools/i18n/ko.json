@@ -1202,5 +1202,16 @@
  "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "실시간 받아쓰기가 켜져 있는 동안에는 웃음과 기침을 잡지 못합니다: 이 PC에서 인식기를 내려받거나 불러오지 못했습니다. 다음에 CIMA Box를 시작할 때 다시 시도합니다.",
  "The model is picked under More voice settings, just below.": "모델은 바로 아래 \"More voice settings\"에서 고릅니다.",
  "Faster translations": "더 빠른 번역",
- "Turn on Live transcription": "실시간 받아쓰기 켜기"
+ "Turn on Live transcription": "실시간 받아쓰기 켜기",
+ "Only this language": "이 언어만",
+ "Speech in any other language gets no caption. Very short replies can't always be told apart, so one may slip through now and then, or be missed.": "다른 언어로 하는 말에는 자막이 붙지 않습니다. 아주 짧은 대답은 항상 구별할 수 있는 것은 아니어서, 가끔 하나가 나타나거나 빠질 수 있습니다.",
+ "Skip sounds that aren't a voice": "목소리가 아닌 소리 건너뛰기",
+ "Getting voice detection (about 10 MB, once). Until it's here, every sound loud enough is sent to the speech service, as before.": "음성 감지를 받는 중입니다(약 10MB, 한 번만). 준비될 때까지는 이전처럼 충분히 큰 소리가 모두 음성 서비스로 전송됩니다.",
+ "Voice detection couldn't be downloaded or loaded on this PC, so every sound loud enough is sent to the speech service, as before. CIMA Box tries again the next time it starts.": "이 PC에서 음성 감지를 다운로드하거나 불러올 수 없어, 이전처럼 충분히 큰 소리가 모두 음성 서비스로 전송됩니다. 다음에 CIMA Box를 시작할 때 다시 시도합니다.",
+ "Clean noisy phrases (trial)": "시끄러운 구절 정리하기(시험)",
+ "A hiss, a fan or a hum is taken out from under a voice before the words are written down. Only for noisy phrases, and not for the words shown while someone is still talking. If the words get worse, turn it off.": "말을 받아쓰기 전에 목소리 아래의 잡음, 선풍기 소리, 윙윙거리는 소리를 제거합니다. 시끄러운 구절에만 적용되며, 상대가 아직 말하는 동안 표시되는 말에는 적용되지 않습니다. 말이 더 나빠지면 끄세요.",
+ "Only an AI translator (Claude, Gemini, OpenAI or a model on this PC) follows these two. The translation service you picked words a line the same way for everyone.": "이 두 설정은 AI 번역기(Claude, Gemini, OpenAI 또는 이 PC의 모델)만 따릅니다. 선택한 번역 서비스는 누구에게나 같은 방식으로 문장을 옮깁니다.",
+ "The graphics card kept dropping the model, so it runs on the processor for now (slower). Start CIMA Box again to try the card.": "그래픽 카드가 모델을 계속 놓쳐서 지금은 프로세서에서 실행합니다(더 느립니다). 카드를 다시 시도하려면 CIMA Box를 다시 시작하세요.",
+ "Join our Discord": "Discord 참여하기",
+ "Questions, tips and news about updates, with other people who use CIMA Box. Opens in your browser.": "CIMA Box를 쓰는 사람들과 질문, 팁, 업데이트 소식을 나눕니다. 브라우저에서 열립니다."
 }

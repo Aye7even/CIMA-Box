@@ -119,6 +119,7 @@ _i=_lc.index('static const std::vector<LocalModel> k = {'); _cat=_lc[_i:_lc.inde
 for _row in re.findall(r'\{"[^}]*\}', _cat, re.S):
     _l=literals(_row)
     if len(_l)>=6: found += [_l[2], _l[-1]]
+found += ["The graphics card kept dropping the model, so it runs on the processor for now (slower). Start CIMA Box again to try the card."]
 found += ["Not enough free space on the disk.","Couldn't download it. Check your connection and try again.",
           "Couldn't find this model's file to download.","The download was damaged on the way. Try again.","Couldn't save the model.",
           "Couldn't find the engine to download. Check your connection and try again.","The engine didn't download correctly. Try again.",

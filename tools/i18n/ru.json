@@ -1202,5 +1202,16 @@
  "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "Смех и кашель не улавливаются при включённом распознавании на лету: распознаватель не удалось скачать или загрузить на этом ПК. CIMA Box попробует снова при следующем запуске.",
  "The model is picked under More voice settings, just below.": "Модель выбирается в разделе «More voice settings» чуть ниже.",
  "Faster translations": "Быстрее переводы",
- "Turn on Live transcription": "Включить распознавание на лету"
+ "Turn on Live transcription": "Включить распознавание на лету",
+ "Only this language": "Только этот язык",
+ "Speech in any other language gets no caption. Very short replies can't always be told apart, so one may slip through now and then, or be missed.": "Речь на любом другом языке остаётся без субтитров. Очень короткие ответы не всегда удаётся различить, поэтому иногда один может проскочить или потеряться.",
+ "Skip sounds that aren't a voice": "Пропускать звуки, в которых нет голоса",
+ "Getting voice detection (about 10 MB, once). Until it's here, every sound loud enough is sent to the speech service, as before.": "Загружается распознавание голоса (около 10 МБ, один раз). Пока его нет, любой достаточно громкий звук отправляется в сервис распознавания речи, как раньше.",
+ "Voice detection couldn't be downloaded or loaded on this PC, so every sound loud enough is sent to the speech service, as before. CIMA Box tries again the next time it starts.": "Не удалось загрузить или запустить распознавание голоса на этом ПК, поэтому любой достаточно громкий звук отправляется в сервис распознавания речи, как раньше. CIMA Box попробует снова при следующем запуске.",
+ "Clean noisy phrases (trial)": "Очищать шумные фразы (проба)",
+ "A hiss, a fan or a hum is taken out from under a voice before the words are written down. Only for noisy phrases, and not for the words shown while someone is still talking. If the words get worse, turn it off.": "Шипение, шум вентилятора или гул убирается из-под голоса до того, как слова будут записаны. Только для шумных фраз и не для слов, которые показываются, пока человек ещё говорит. Если слова стали хуже, выключите.",
+ "Only an AI translator (Claude, Gemini, OpenAI or a model on this PC) follows these two. The translation service you picked words a line the same way for everyone.": "Эти две настройки учитывает только ИИ-переводчик (Claude, Gemini, OpenAI или модель на этом ПК). Выбранный вами сервис перевода формулирует фразу одинаково для всех.",
+ "The graphics card kept dropping the model, so it runs on the processor for now (slower). Start CIMA Box again to try the card.": "Видеокарта раз за разом сбрасывала модель, поэтому пока она работает на процессоре (медленнее). Запустите CIMA Box заново, чтобы снова попробовать видеокарту.",
+ "Join our Discord": "Заходите в наш Discord",
+ "Questions, tips and news about updates, with other people who use CIMA Box. Opens in your browser.": "Вопросы, советы и новости об обновлениях, вместе с другими пользователями CIMA Box. Откроется в браузере."
 }

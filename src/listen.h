@@ -26,6 +26,9 @@ struct ListenSettings {
     std::string speakers;            // playback device to listen to, empty = system default
     std::string input;               // capture device, empty = system default
     std::string fromLang;            // ISO 639-1, empty = detect automatically
+    bool onlyFromLang = false;       // with fromLang: caption only speech in that language, nothing else
+    bool skipNoVoice = true;         // a phrase with no voice in it (a door, a fan, music) isn't sent to the speech service
+    bool cleanWords = false;         // a trial: a noisy phrase has its noise taken out before it is written down
     std::string toLang = "en";       // ISO 639-1
     float thresholdDb = -45.f;
     int pace = kPaceBalanced;

@@ -120,7 +120,9 @@ public:
     std::string via;  // after translate(): which service did it, e.g. "Claude" or "DeepL (Claude too slow)"
     int wordsGender = 0;  // after translate() with readGender: Gender the speaker's own words showed (0 = they didn't)
 
-    void warm(const TranslateSetup& setup);
+    // With the languages of the next line (when known), a model on this PC also reads its instructions
+    // ahead of time, so the line itself doesn't wait for that.
+    void warm(const TranslateSetup& setup, const Language* from = nullptr, const Language* to = nullptr);
 
     // `from` may be null when the spoken language is unknown (DeepL and the AI services detect it;
     // the free service can't).
@@ -163,6 +165,7 @@ private:
     Http backupHttp_;  // DeepL (or Free) backup, ready in case the AI runs out of time
     Http otherHttp_;   // a second AI (when there's a key for one), for lines the chosen AI fails on
     Http localHttp_;   // the model on this PC, for lines the online AI declines (localOnDecline)
+    std::string localWarmedFor_;  // the engine and instructions a model on this PC has already read (see warm())
     std::string typicalKey_;  // the service and model typicalMs_ is for
     int typicalMs_ = 0;       // how long that AI usually takes to answer a line (0 = not known yet)
     // Extra time a language needs on top of the time limit, per AI model and language (and dialect).

@@ -1202,5 +1202,16 @@
  "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "لا يُلتقط الضحك والسعال أثناء تشغيل التفريغ المباشر: تعذّر تنزيل أداة التعرف أو تحميلها على هذا الحاسوب. سيحاول CIMA Box مجددًا عند تشغيله في المرة القادمة.",
  "The model is picked under More voice settings, just below.": "يُختار النموذج من \"More voice settings\" في الأسفل مباشرة.",
  "Faster translations": "ترجمات أسرع",
- "Turn on Live transcription": "شغّل التفريغ المباشر"
+ "Turn on Live transcription": "شغّل التفريغ المباشر",
+ "Only this language": "هذه اللغة فقط",
+ "Speech in any other language gets no caption. Very short replies can't always be told apart, so one may slip through now and then, or be missed.": "الكلام بأي لغة أخرى لا يحصل على ترجمة مكتوبة. الردود القصيرة جدًا لا يمكن تمييزها دائمًا، فقد يمرّ أحدها أحيانًا أو يفوت.",
+ "Skip sounds that aren't a voice": "تخطّي الأصوات التي ليست صوت إنسان",
+ "Getting voice detection (about 10 MB, once). Until it's here, every sound loud enough is sent to the speech service, as before.": "جارٍ تنزيل كشف الصوت البشري (حوالي 10 ميغابايت، مرة واحدة). إلى أن يكتمل، يُرسَل كل صوت عالٍ بما يكفي إلى خدمة الكلام كما كان من قبل.",
+ "Voice detection couldn't be downloaded or loaded on this PC, so every sound loud enough is sent to the speech service, as before. CIMA Box tries again the next time it starts.": "تعذّر تنزيل كشف الصوت البشري أو تحميله على هذا الحاسوب، لذلك يُرسَل كل صوت عالٍ بما يكفي إلى خدمة الكلام كما كان من قبل. سيحاول CIMA Box مرة أخرى عند التشغيل التالي.",
+ "Clean noisy phrases (trial)": "تنظيف العبارات المليئة بالضجيج (تجريبي)",
+ "A hiss, a fan or a hum is taken out from under a voice before the words are written down. Only for noisy phrases, and not for the words shown while someone is still talking. If the words get worse, turn it off.": "يُزال الهسيس أو صوت المروحة أو الطنين من تحت الصوت قبل كتابة الكلمات. للعبارات المليئة بالضجيج فقط، وليس للكلمات التي تظهر بينما لا يزال أحدهم يتكلم. إذا ساءت الكلمات فأوقِفه.",
+ "Only an AI translator (Claude, Gemini, OpenAI or a model on this PC) follows these two. The translation service you picked words a line the same way for everyone.": "فقط مترجم الذكاء الاصطناعي (Claude أو Gemini أو OpenAI أو نموذج على هذا الحاسوب) يتبع هذين الإعدادين. خدمة الترجمة التي اخترتها تصوغ الجملة بالطريقة نفسها للجميع.",
+ "The graphics card kept dropping the model, so it runs on the processor for now (slower). Start CIMA Box again to try the card.": "ظلّت بطاقة الرسومات تُسقط النموذج، لذلك يعمل الآن على المعالج (أبطأ). أعد تشغيل CIMA Box لتجربة البطاقة من جديد.",
+ "Join our Discord": "انضم إلى خادم Discord الخاص بنا",
+ "Questions, tips and news about updates, with other people who use CIMA Box. Opens in your browser.": "أسئلة ونصائح وأخبار التحديثات، مع أشخاص آخرين يستخدمون CIMA Box. يُفتح في متصفحك."
 }

@@ -6,7 +6,9 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <deque>
@@ -16,6 +18,7 @@
 
 #include "appaudio.h"
 #include "audio.h"
+#include "cleansound.h"
 #include "core.h"
 #include "eleven.h"
 #include "extras.h"
@@ -34,6 +37,85 @@ constexpr int kWorkers = 2;          // phrases are transcribed side by side, sh
 constexpr size_t kMaxWaiting = 3;    // more than this waiting = falling behind: drop the oldest
 constexpr size_t kMaxCaptions = 200;
 constexpr int kChatboxGapMs = 1600;  // VRChat mutes the chatbox when it is written to too often
+
+// ---- "Only this language". "They speak" tells the speech service which language to write the
+// words down in; it doesn't check that they are in it (Chinese written down as Arabic is nonsense,
+// and it got translated). With "Only this language" the service says what it heard instead, and
+// speech that is clearly another language gets no caption.
+
+// Languages written with the same letters: the words alone can't tell them apart ("ar" is the guess
+// for any Arabic-script text), so a guess inside the same group is no proof of another language.
+bool sameLetters(const Language* a, const Language* b) {
+    if (!a || !b) return false;
+    static const char* const kGroups[][8] = {
+        {"ar", "fa", "ur", "ps", "ku", "sd", "ug", nullptr},
+        {"ru", "uk", "bg", "sr", "be", "kk", "mk", nullptr},
+        {"zh", "yue", nullptr},
+        {"hi", "mr", "ne", nullptr},
+    };
+    for (const auto& group : kGroups) {
+        bool hasA = false, hasB = false;
+        for (const char* const* c = group; *c; ++c) {
+            hasA = hasA || std::strncmp(a->code, *c, std::strlen(*c)) == 0;
+            hasB = hasB || std::strncmp(b->code, *c, std::strlen(*c)) == 0;
+        }
+        if (hasA && hasB) return true;
+    }
+    return false;
+}
+
+// The language these words are clearly in, when that is not `only` (another script, or another
+// language's everyday words). Null when they could be `only`, or it can't be told.
+const Language* clearlyOther(const Language* only, const std::string& text) {
+    if (!only) return nullptr;
+    bool clear = false;
+    const Language* guess = findLanguage(guessLanguage(text, &clear));
+    return clear && guess && guess != only && !sameLetters(guess, only) ? guess : nullptr;
+}
+
+// The language to caption alone, or null when "Only this language" is off.
+const Language* onlyLanguage(const ListenSettings& s) {
+    return s.onlyFromLang && !s.fromLang.empty() ? findLanguage(s.fromLang) : nullptr;
+}
+
+// ---- Cleaner sound for the speech service and the voice fingerprints.
+
+// Takes out the rumble under a voice (below about 90 Hz: a boomy mic, a fan, a game's bass). Speech
+// has nothing down there, and it's what makes a bassy mic hard to write down and to recognise.
+struct RumbleCut {
+    // A second-order high-pass at 90 Hz for 16 kHz sound.
+    float x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    void run(float* s, int n) {
+        constexpr float b0 = 0.975319f, b1 = -1.950638f, b2 = 0.975319f, a1 = -1.950027f, a2 = 0.951246f;
+        for (int i = 0; i < n; ++i) {
+            const float x = s[i];
+            const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+            x2 = x1;
+            x1 = x;
+            y2 = y1;
+            y1 = y;
+            s[i] = y;
+        }
+        if (std::fabs(y1) < 1e-20f) y1 = y2 = 0;  // no denormals in long silences
+    }
+};
+
+// A quiet phrase (someone far away, a low mic) is brought up to an ordinary level before it is
+// written down: at most six times louder, and never so far that it clips. A phrase that is loud
+// enough already is left exactly as it is.
+void evenLevel(std::vector<int16_t>& pcm) {
+    if (pcm.size() < 1600) return;
+    std::vector<int> mags;
+    mags.reserve(pcm.size() / 4 + 1);
+    for (size_t i = 0; i < pcm.size(); i += 4) mags.push_back(std::abs(int(pcm[i])));
+    const size_t at = mags.size() - 1 - mags.size() / 200;  // the level only a two-hundredth of it is above: clicks don't count
+    std::nth_element(mags.begin(), mags.begin() + long(at), mags.end());
+    const float top = float(mags[at]);
+    if (top < 60.f) return;  // silence: nothing to bring up
+    const float gain = std::min(6.f, 16000.f / top);
+    if (gain <= 1.15f) return;
+    for (int16_t& v : pcm) v = int16_t(std::max(-32767.f, std::min(32767.f, float(v) * gain)));
+}
 
 struct Job {
     uint64_t id = 0;
@@ -117,6 +199,11 @@ struct Listener::Impl {
 
     // Voices heard this session, to keep the same colour for the same person across captions.
     VoiceBook voices;                 // guarded by mtx
+    // "Only this language": how often each voice was clearly heard in that language and in another
+    // one (mtx). A line too short to tell the language from goes by who said it.
+    struct VoiceLang { int wanted = 0, other = 0; };
+    std::map<int, VoiceLang> voiceLangs;
+    std::string voiceLangsFor;        // the language those counts are about
     // Captions while they talk: the caption being spoken and the words so far.
     uint64_t liveId = 0;              // guarded by mtx; 0 = none
     std::thread liveThread;           // one transcription of the unfinished phrase at a time
@@ -297,6 +384,7 @@ struct Listener::Impl {
         float block[Segmenter::kBlock], side[Segmenter::kBlock], pairs[Segmenter::kBlock * 2];
         float ahead[Segmenter::kBlock];  // the block with everything off to the sides turned down (focus: in front)
         FrontFilter frontFilter;
+        RumbleCut rumbleMid, rumbleSide;
         NearGate nearGate;  // ("near" and "far" are taken by the Windows headers)
         int focusWas = kFocusAll;
         double rawEnergy = 0, aheadEnergy = 0;  // smoothed over about 100 ms
@@ -406,6 +494,8 @@ struct Listener::Impl {
                     block[i] = pairs[i * 2];
                     side[i] = pairs[i * 2 + 1];
                 }
+                rumbleMid.run(block, Segmenter::kBlock);
+                rumbleSide.run(side, Segmenter::kBlock);
                 pan = int16_t(std::lrint(panOf(block, side, Segmenter::kBlock) * 32767.f));
                 in = block;
                 lastAudio = lastSilence = Clock::now();
@@ -465,7 +555,7 @@ struct Listener::Impl {
                     std::lock_guard<std::mutex> lk(mtx);
                     want = cfg.liveCaptions && !cfg.apiKey.empty();
                     o.apiKey = cfg.apiKey;
-                    o.language = cfg.s.fromLang;
+                    o.language = onlyLanguage(cfg.s) ? std::string() : cfg.s.fromLang;  // only this language: it says what it heard
                 }
                 if (want && liveStt && liveStt->available()) {
                     liveStt->begin(o);
@@ -492,6 +582,7 @@ struct Listener::Impl {
                     words = liveStt->commit();
                     liveThis = false;
                 }
+                evenLevel(phrase);
                 const uint64_t id = enqueue(std::move(phrase), std::move(phrasePan), words);
                 if (words.valid()) {
                     std::lock_guard<std::mutex> lk(mtx);
@@ -551,7 +642,8 @@ struct Listener::Impl {
             api.apiKey = c.apiKey;
             api.http.cancel = &cancel;
             std::string text, lang, err;
-            if (api.transcribe(pcm, c.s.fromLang, text, lang, err) && !text.empty()) {
+            const Language* only = onlyLanguage(c.s);
+            if (api.transcribe(pcm, only ? std::string() : c.s.fromLang, text, lang, err) && !text.empty() && !clearlyOther(only, text)) {
                 text = applyWordFixes(text, c.words);
                 if (c.maskSwears) text = maskSwears(text);
                 std::lock_guard<std::mutex> lk(mtx);
@@ -586,6 +678,11 @@ struct Listener::Impl {
         for (Caption& cap : feed)
             if (cap.id == liveFor && cap.pending) {  // still being spoken, or waiting for the regular pass
                 cap.live = true;
+                if (clearlyOther(onlyLanguage(cfg.s), liveText)) {  // only this language: another one isn't shown
+                    cap.lines.clear();
+                    ++version;
+                    continue;
+                }
                 cap.lines.assign(1, CaptionLine());
                 cap.lines[0].text = cfg.maskSwears ? maskSwears(liveLine()) : liveLine();
                 ++version;
@@ -629,7 +726,12 @@ struct Listener::Impl {
                 const bool finished = done || i + 1 < parts.size() || !open;
                 if (!finished || liveSaid.count(parts[i])) continue;
                 bool sure = false;
+                const Language* only = onlyLanguage(c.s);
                 const Language* from = findLanguage(c.s.fromLang.empty() ? guessLanguage(parts[i], &sure) : c.s.fromLang);
+                if (clearlyOther(only, parts[i])) {
+                    liveSaid[parts[i]] = parts[i];  // only this language: not translated (and not shown, see showLive)
+                    continue;
+                }
                 if (from == to) {
                     liveSaid[parts[i]] = parts[i];  // already in the reader's language
                     continue;
@@ -703,10 +805,23 @@ struct Listener::Impl {
         const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
         std::vector<std::pair<int, int>> renamed;
         const int id = voices.who(p, now, cfg.keepVoices, renamed);
-        for (const auto& r : renamed)
+        for (const auto& r : renamed) {
             for (Caption& c : feed)
                 for (CaptionLine& l : c.lines)
                     if (l.voiceId == r.first) l.voiceId = r.second;
+            // What they've been heard speaking goes with them. A voice that only now gets a number
+            // takes the number over as its own (whoever had it before has left); two numbers that
+            // were one person add up.
+            const auto was = voiceLangs.find(r.first);
+            VoiceLang moved = was != voiceLangs.end() ? was->second : VoiceLang();
+            if (was != voiceLangs.end()) voiceLangs.erase(was);
+            if (r.first < 100) {
+                const VoiceLang& into = voiceLangs[r.second];
+                moved.wanted += into.wanted;
+                moved.other += into.other;
+            }
+            voiceLangs[r.second] = moved;
+        }
         if (!renamed.empty()) ++version;
         return id;
     }
@@ -727,6 +842,9 @@ struct Listener::Impl {
         // Streamed while they talked, and nothing is wanted that only the regular pass gives (who said
         // what, sounds): its words are here already, so the audio isn't sent a second time.
         bool fromLive = false;
+        // "Only this language": the speech service isn't told the language, so it says which one it heard.
+        const Language* only = onlyLanguage(c.s);
+        const std::string sttLang = only ? std::string() : c.s.fromLang;
         // ("Ignore noise" needs nothing more: words came, so it wasn't only noise.)
         if (job.live.valid() && !c.s.tellApart && !c.soundLabels &&
             job.live.wait_for(std::chrono::milliseconds(1500)) == std::future_status::ready) {
@@ -740,7 +858,59 @@ struct Listener::Impl {
                 fromLive = true;
             }
         }
-        if (!fromLive && !api.transcribeTurns(job.pcm, c.s.fromLang, c.s.tellApart, t, err, events, c.soundLabels)) { fail(job.id, err); return; }
+        // What goes to the speech service: the phrase as it was heard, unless it is cleaned below.
+        const std::vector<int16_t>* toWrite = &job.pcm;
+        std::vector<int16_t> cleaned;
+        if (!fromLive) {
+            CleanSound* ear = cleanSoundEngine();
+            // Is there a voice in it at all? Phrases are cut by loudness, so a door, footsteps, a fan or
+            // a game's music is one too. Those go no further: not sent, not paid for, and not in the
+            // queue ahead of someone talking. Not with sound labels on (then "[music]" is wanted), and
+            // not when the live connection already heard words in it.
+            float speech = 0;
+            if (c.s.skipNoVoice && !c.soundLabels && ear && ear->installed() && ear->speechSeconds(job.pcm, speech) && speech < 0.2f) {
+                bool liveWords = false;
+                if (job.live.valid() && job.live.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+                    const LiveText lt = job.live.get();
+                    liveWords = lt.ok && !lt.text.empty();
+                }
+                if (!liveWords) {
+                    static std::atomic<int> count{0};
+                    const int n = ++count;
+                    if (n <= 3 || n % 25 == 0) {
+                        char b[200];
+                        std::snprintf(b, sizeof(b), "Listen: %.1f s of sound with no voice in it was not sent to the speech service (%d so far).",
+                                      job.pcm.size() / 16000.0, n);
+                        logLine(b);
+                    }
+                    std::lock_guard<std::mutex> lk(mtx);
+                    eraseCaption(job.id);
+                    error.clear();
+                    return;
+                }
+            }
+            // A trial: a noisy phrase has the hiss, fan or hum taken out before it is written down.
+            // Only the words: voices are told apart from the sound as it was (see cleansound.h).
+            if (c.s.cleanWords && ear && ear->installed()) {
+                const float out = standsOutDb(job.pcm);
+                if (out < 20.f) {
+                    cleaned = job.pcm;
+                    const Clock::time_point tClean = Clock::now();
+                    if (ear->clean(cleaned)) {
+                        toWrite = &cleaned;
+                        static std::atomic<int> count{0};
+                        const int n = ++count;
+                        if (n <= 3 || n % 25 == 0) {
+                            char b[240];
+                            std::snprintf(b, sizeof(b), "Listen: a noisy phrase was cleaned before it was written down (the voice stood out by %.0f dB, %.0f after; took %d ms; %d so far).",
+                                          out, standsOutDb(cleaned), msSince(tClean), n);
+                            logLine(b);
+                        }
+                    }
+                }
+            }
+        }
+        if (!fromLive && !api.transcribeTurns(*toWrite, sttLang, c.s.tellApart, t, err, events, c.soundLabels)) { fail(job.id, err); return; }
         const int sttMs = msSince(tStart);
         int trMs = 0;
 
@@ -809,6 +979,29 @@ struct Listener::Impl {
                 if (!c.around.empty() && std::find(c.around.begin(), c.around.end(), std::string(l->code)) == c.around.end()) continue;
                 lineFrom[i] = l;
             }
+        // "Only this language": each line is that language (kept), clearly another one (left out), or
+        // too short to tell (kept for now; who said it may settle it once the voices are named).
+        std::vector<char> lineOut(t.turns.size(), 0), lineUnsure(t.turns.size(), 0);
+        bool allOut = only && !t.turns.empty();
+        if (only) {
+            const Language* said = findLanguage(t.language);  // what the service heard, for the whole caption
+            const bool saidSure = said && t.languageSure >= 0.8f;
+            for (size_t i = 0; i < t.turns.size(); ++i) {
+                const Language* other = clearlyOther(only, t.turns[i].text);
+                bool clear = false;
+                const bool wordsAreIt = findLanguage(guessLanguage(t.turns[i].text, &clear)) == only && clear;
+                if (wordsAreIt || (!other && said == only)) {
+                    lineFrom[i] = only;
+                } else if (other || (saidSure && said != only && !sameLetters(said, only))) {
+                    lineOut[i] = 1;
+                    lineFrom[i] = other ? other : said;
+                } else {
+                    lineUnsure[i] = 1;
+                    lineFrom[i] = nullptr;  // the translator works out what it is
+                }
+                allOut = allOut && lineOut[i];
+            }
+        }
         auto lineSame = [&](size_t i) { return to != nullptr && lineFrom[i] == to; };  // already in the reader's language
         bool same = true;  // every line is
         for (size_t i = 0; i < t.turns.size(); ++i) same = same && lineSame(i);
@@ -821,7 +1014,9 @@ struct Listener::Impl {
                         e.find("song") != std::string::npos;
             noise = (t.words == 0 && !t.events.empty()) || (music && t.words <= 6);
         }
-        if (t.turns.empty() || noise || (same && c.s.onlyOtherLanguages)) {
+        // (With voices told apart, a caption that is all another language still goes on to the naming
+        // below, so the voice is remembered as one that speaks another language. It isn't translated.)
+        if (t.turns.empty() || noise || (same && c.s.onlyOtherLanguages) || (allOut && !c.voiceIds)) {
             std::lock_guard<std::mutex> lk(mtx);
             eraseCaption(job.id);  // noise, music, or nothing to translate
             error.clear();
@@ -880,7 +1075,7 @@ struct Listener::Impl {
         for (size_t ti = 0; ti < t.turns.size(); ++ti) {
             const SpeakerTurn& turn = t.turns[ti];
             if (c.s.onlyOtherLanguages && lineSame(ti)) continue;  // only the other languages are wanted
-            noteHeard(lineFrom[ti]);
+            if (!lineOut[ti]) noteHeard(lineFrom[ti]);
             CaptionLine line;
             line.speaker = several ? turn.speaker : -1;
             line.text = applyWordFixes(turn.text, c.words);
@@ -932,6 +1127,7 @@ struct Listener::Impl {
                         for (size_t i = a; i < b; ++i) sound.push_back(float(job.pcm[i]) / 32768.f);
                     }
                     engine->fingerprint(sound.data(), sound.size(), n.vp.fp);  // empty when there's too little
+                    n.vp.fpSeconds = float(sound.size()) / 16000.f;
                     // Is it one voice? The speech service sometimes writes two people down as one
                     // (talking over each other, or one right after the other). With three seconds or
                     // more, the two halves are fingerprinted too: one person's halves are alike, two
@@ -955,7 +1151,7 @@ struct Listener::Impl {
             std::vector<const Language*> froms;
             std::vector<int> voices;
             for (size_t li = 0; li < lines.size(); ++li) {
-                if (lineSame(turnOf[li])) continue;
+                if (lineSame(turnOf[li]) || lineOut[turnOf[li]]) continue;
                 todo.push_back(li);
                 texts.push_back(lines[li].text);
                 froms.push_back(lineFrom[turnOf[li]]);
@@ -1011,6 +1207,50 @@ struct Listener::Impl {
                                       lines[n.line].voiceId >= 0 && lines[n.line].voiceId < 100 ? (", Voice " + std::to_string(lines[n.line].voiceId + 1)).c_str() : "");
                     logLine(b);
                 }
+            }
+        }
+
+        // "Only this language": the lines in another language go. Each voice is remembered by what it
+        // was clearly heard speaking, and a line too short to tell goes by that: from a voice that
+        // speaks the language it stays, from a voice that has only spoken another one it goes. From a
+        // voice nobody knows yet it stays (a missed friend is worse than one stray caption).
+        if (only) {
+            std::vector<CaptionLine> staying;
+            int left = 0;
+            {
+                std::lock_guard<std::mutex> lk(mtx);
+                if (voiceLangsFor != only->code) {
+                    voiceLangs.clear();
+                    voiceLangsFor = only->code;
+                }
+                for (size_t li = 0; li < lines.size(); ++li) {
+                    const size_t ti = turnOf[li];
+                    const int id = lines[li].voiceId;
+                    bool out = lineOut[ti] != 0;
+                    if (id >= 0 && !lineUnsure[ti]) {
+                        VoiceLang& v = voiceLangs[id];
+                        ++(out ? v.other : v.wanted);
+                    } else if (id >= 0) {
+                        const auto it = voiceLangs.find(id);
+                        if (it != voiceLangs.end() && it->second.other >= 2 && it->second.wanted == 0) out = true;
+                    }
+                    if (out) ++left;
+                    else staying.push_back(std::move(lines[li]));
+                }
+            }
+            if (left > 0) {
+                static std::atomic<int> count{0};
+                const int n = ++count;
+                if (n <= 5 || n % 20 == 0)
+                    logLine("Listen: only " + std::string(only->name) + " is captioned: " + std::to_string(left) +
+                            (left == 1 ? " line" : " lines") + " in another language left out (" + std::to_string(n) + " so far).");
+            }
+            lines.swap(staying);
+            if (lines.empty()) {
+                std::lock_guard<std::mutex> lk(mtx);
+                eraseCaption(job.id);
+                error.clear();
+                return;
             }
         }
 

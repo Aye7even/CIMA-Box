@@ -38,6 +38,9 @@ const char* const kLibrary = "libsherpa-onnx-c-api.so";
 #endif
 const char* const kModel = "sounds.onnx";
 const char* const kLabels = "sounds.csv";
+// How many of the model's names come back for a clip. A laugh under someone talking is rarely among
+// the first few, and the log is only useful when it can say how sure the model was of it.
+const int kTopNames = 24;
 
 std::atomic<SoundId*> gEngine{nullptr};
 
@@ -216,7 +219,7 @@ struct SoundId::Impl {
         cfg.model.debug = 0;
         cfg.model.provider = "cpu";
         cfg.labels = labels.c_str();
-        cfg.top_k = 8;
+        cfg.top_k = kTopNames;
         tagger = api.create(&cfg);
         if (!tagger) return failed("the model didn't open");
         say("loaded.");
@@ -339,7 +342,7 @@ bool SoundId::listen(const float* samples, size_t n, std::vector<HeardSound>& ou
     void* stream = a.createStream(p_->tagger);
     if (!stream) return false;
     a.accept(stream, 16000, samples, int32_t(std::min<size_t>(n, 16000 * 10)));
-    if (const AudioEvent* const* events = a.compute(p_->tagger, stream, 8)) {
+    if (const AudioEvent* const* events = a.compute(p_->tagger, stream, kTopNames)) {
         for (const AudioEvent* const* e = events; *e; ++e)
             if ((*e)->name) out.push_back({(*e)->name, (*e)->prob});
         a.freeResults(events);

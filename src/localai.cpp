@@ -10,6 +10,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <fstream>
@@ -23,6 +24,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <pdh.h>
 #else
 #include <csignal>
 #include <fcntl.h>
@@ -275,6 +277,87 @@ std::string lastLine(const fs::path& logFile) {
     }
     if (best.size() > 200) best = best.substr(0, 200);
     return best;
+}
+
+// True when, since the last look, the engine wrote that the graphics card dropped it ("device lost":
+// the driver reset, or the card ran out of memory under a game). It keeps running after that and
+// answers nothing, so nothing else gives it away: every line just fails until something restarts it.
+// `seen`: how much of the log has been looked at (0 for a new log).
+bool lostItsCard(const fs::path& logFile, uint64_t& seen) {
+    std::ifstream f(logFile, std::ios::binary);
+    if (!f) return false;
+    f.seekg(0, std::ios::end);
+    const uint64_t size = uint64_t(f.tellg());
+    if (size < seen) seen = 0;  // a new log
+    if (size == seen) return false;
+    const uint64_t from = seen > 64 ? seen - 64 : 0;  // a little of what was seen, in case the words were cut in two
+    const uint64_t n = std::min<uint64_t>(size - from, uint64_t(1) << 20);
+    f.seekg(std::streamoff(size - n));
+    std::string text(size_t(n), '\0');
+    f.read(text.data(), std::streamsize(n));
+    seen = size;
+    return text.find("device lost") != std::string::npos || text.find("ErrorDeviceLost") != std::string::npos ||
+           text.find("DEVICE_LOST") != std::string::npos;
+}
+
+// Graphics memory as Windows counts it (the same numbers as Task Manager), in MB; -1 when it can't
+// be read. The engine asks the graphics driver how much is free, and on some cards the driver answers
+// "nearly all of it" whatever a game is using (seen on an AMD card: 19.6 GB "free" of 20 with 13.7 GB
+// in use). Windows knows.
+#ifdef _WIN32
+// `pidPart` empty: the fullest graphics card. Else: what that one process ("pid_1234_") has on the cards.
+long graphicsMemoryMb(const wchar_t* counter, const std::wstring& pidPart) {
+    PDH_HQUERY query = nullptr;
+    PDH_HCOUNTER handle = nullptr;
+    if (PdhOpenQueryW(nullptr, 0, &query) != ERROR_SUCCESS) return -1;
+    long result = -1;
+    if (PdhAddEnglishCounterW(query, counter, 0, &handle) == ERROR_SUCCESS && PdhCollectQueryData(query) == ERROR_SUCCESS) {
+        DWORD bytes = 0, count = 0;
+        PdhGetFormattedCounterArrayW(handle, PDH_FMT_LARGE, &bytes, &count, nullptr);  // how much room the list needs
+        std::vector<BYTE> buf(bytes + 16);
+        PDH_FMT_COUNTERVALUE_ITEM_W* items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W*>(buf.data());
+        if (bytes > 0 && PdhGetFormattedCounterArrayW(handle, PDH_FMT_LARGE, &bytes, &count, items) == ERROR_SUCCESS)
+            for (DWORD i = 0; i < count; ++i) {
+                if (!items[i].szName || items[i].FmtValue.largeValue < 0) continue;
+                const long mb = long(items[i].FmtValue.largeValue >> 20);
+                if (pidPart.empty()) result = std::max(result, mb);
+                else if (std::wstring(items[i].szName).find(pidPart) != std::wstring::npos) result = std::max<long>(result, 0) + mb;
+            }
+    }
+    PdhCloseQuery(query);
+    return result;
+}
+long cardInUseMb() {
+    // (For tests: a game filling the card can be pretended with CIMA_TEST_CARD_IN_USE_MB.)
+    if (const char* pretend = std::getenv("CIMA_TEST_CARD_IN_USE_MB")) return std::atol(pretend);
+    return graphicsMemoryMb(L"\\GPU Adapter Memory(*)\\Dedicated Usage", std::wstring());
+}
+long engineOnCardMb(const Proc& p) {
+    if (!p.process) return -1;
+    return graphicsMemoryMb(L"\\GPU Process Memory(*)\\Dedicated Usage", L"pid_" + std::to_wstring(GetProcessId(p.process)) + L"_");
+}
+#else
+long cardInUseMb() { return -1; }
+long engineOnCardMb(const Proc&) { return -1; }
+#endif
+
+// How much of the model the engine put on the graphics card, from what it wrote while loading
+// ("offloaded 37/43 layers to GPU"). False when it didn't say (an older engine, or a quieter log).
+bool layersOnCard(const fs::path& logFile, int& on, int& of) {
+    std::ifstream f(logFile, std::ios::binary);
+    std::string line;
+    bool found = false;
+    for (int n = 0; f && n < 6000 && std::getline(f, line); ++n) {
+        const size_t at = line.find("offloaded ");
+        if (at == std::string::npos) continue;
+        int a = 0, b = 0;
+        if (std::sscanf(line.c_str() + at, "offloaded %d/%d layers", &a, &b) == 2 && b > 0) {
+            on = a;
+            of = b;
+            found = true;
+        }
+    }
+    return found;
 }
 
 // The graphics card the engine says it's using, from what it wrote while starting: any card that
@@ -893,6 +976,13 @@ struct LocalAi::Impl {
         bool nvidiaBroken = false;  // NVIDIA's engine couldn't be used here: the standard one, until the switch is flipped again
         std::string failedId;
         bool failedGpu = true;
+        // The graphics card dropping the model (see lostItsCard): when, so that twice in ten minutes
+        // moves it to the processor for the rest of this run instead of failing over and over.
+        std::deque<Clock::time_point> cardDrops;
+        bool cardGaveUp = false;
+        uint64_t logSeen = 0;
+        Clock::time_point nextLogLook{};
+        std::map<std::string, long> cardNeedMb;  // what each model really took on the card last time (MB)
         Clock::time_point retryAt{};
         std::atomic<bool> never{false};
         auto stopEngine = [&] {
@@ -907,7 +997,7 @@ struct LocalAi::Impl {
             {
                 std::lock_guard<std::mutex> lk(mx);
                 id = wantId;
-                gpu = wantGpu;
+                gpu = wantGpu && !cardGaveUp;
                 nvidia = wantNvidia;
                 if (std::find(removing.begin(), removing.end(), id) != removing.end()) id.clear();
                 const LocalModelState* s = id.empty() ? nullptr : model(id);
@@ -938,11 +1028,43 @@ struct LocalAi::Impl {
                 }
             }
             const bool useNvidia = gpu && nvidia && !nvidiaBroken;
+            // Running on the graphics card: every two seconds, a look at what the engine wrote. A card
+            // that dropped it is not something it recovers from.
+            if (runId == id && runGpu && alive(proc) && Clock::now() >= nextLogLook) {
+                nextLogLook = Clock::now() + std::chrono::seconds(2);
+                if (lostItsCard(dir / "engine.log", logSeen)) {
+                    {   // First of all, not "ready" any more: a line sent now goes to its backup at once, not to an engine that is gone.
+                        std::lock_guard<std::mutex> lk(mx);
+                        st.engine = kEngineStarting;
+                        st.engineMessage = "Loading the model";
+                        st.running.clear();
+                        st.url.clear();
+                        st.key.clear();
+                    }
+                    const Clock::time_point now = Clock::now();
+                    while (!cardDrops.empty() && now - cardDrops.front() > std::chrono::minutes(10)) cardDrops.pop_front();
+                    cardDrops.push_back(now);
+                    const long inUse = cardInUseMb();
+                    log("Local models: the graphics card dropped the model (\"device lost\": the driver reset, or the card's memory "
+                        "ran out under a game)" + (inUse >= 0 ? ". Windows counts " + std::to_string(inUse) + " MB of graphics memory in use" : std::string()) +
+                        ". Starting it again; the engine's log is kept as engine-last.log.");
+                    if (cardDrops.size() >= 2) {
+                        cardGaveUp = true;
+                        gpu = false;
+                        log("Local models: that is twice in ten minutes. Running on the processor (slower) until CIMA Box is started again.");
+                    }
+                    stopEngine();
+                }
+            }
             if (runId == id && runGpu == gpu && runNvidia == useNvidia && alive(proc)) continue;  // answering
             if (failedId == id && failedGpu == gpu && Clock::now() < retryAt) continue;  // it just failed: not in a loop
             const bool died = runId == id && runGpu == gpu && runNvidia == useNvidia;
             stopEngine();
-            if (died) log("Local models: the engine stopped by itself. Starting it again.");
+            if (died) {
+                const std::string last = lastLine(dir / "engine.log");
+                log("Local models: the engine stopped by itself" + (last.empty() ? std::string() : " (the last thing it wrote: " + last + ")") +
+                    ". Starting it again; its log is kept as engine-last.log.");
+            }
             auto failed = [&](const std::string& why) {
                 setEngine(kEngineFailed, why);
                 log("Local models: " + why);
@@ -959,7 +1081,9 @@ struct LocalAi::Impl {
             // roomy, since it borrows the PC's ordinary memory) and every line crawls: it's told to use
             // the real card only. And when a game already fills the card, the model spills into ordinary
             // memory and is slow too: nothing to fix from here, but it's said, in the app and in the log.
-            auto chooseDevice = [&](const fs::path& exe, std::string& deviceId, std::string& tight) {
+            // `fitTarget`: how much of what the DRIVER calls free the engine must leave alone, so that what
+            // it takes fits into what is REALLY free (see cardInUseMb), with room left for a game to grow.
+            auto chooseDevice = [&](const fs::path& exe, std::string& deviceId, std::string& tight, long& fitTarget) {
                 Proc lister;
                 int code = 1;
                 const fs::path listFile = dir / "devices.log";
@@ -991,15 +1115,27 @@ struct LocalAi::Impl {
                     if (id1 == "Other0") { name.clear(); totalMb = freeMb = 0; }
                 }
                 if (!name.empty()) {
-                    const long needMb = long(fileSize(modelFile(id)) >> 20) + 1200;  // the file, and room to work in
+                    // What the model took on the card the last time it ran (some keep a good part of
+                    // the file in ordinary memory); until that is known, the file, and room to work in.
+                    const auto took = cardNeedMb.find(id);
+                    const long needMb = took != cardNeedMb.end() ? took->second + 300 : long(fileSize(modelFile(id)) >> 20) + 1200;
+                    // How much is free: what Windows counts, when that is less than the driver says.
+                    const long inUse = cardInUseMb();
+                    const long driverFreeMb = freeMb;
+                    const bool windowsKnows = inUse >= 0 && totalMb > 0 && inUse <= totalMb && totalMb - inUse < freeMb;
+                    if (windowsKnows) freeMb = totalMb - inUse;
+                    // A gigabyte and a half stays free: a game takes more as it loads a new place, and a
+                    // card with nothing left drops whatever is on it.
+                    fitTarget = std::max<long>(1024, driverFreeMb - (freeMb - 1536));
                     char line[400];
-                    std::snprintf(line, sizeof(line), "Local models: graphics card %s, %.1f GB with %.1f GB free; this model needs about %.1f GB.%s",
-                                  name.c_str(), totalMb / 1024.0, freeMb / 1024.0, needMb / 1024.0,
+                    std::snprintf(line, sizeof(line), "Local models: graphics card %s, %.1f GB with %.1f GB free%s; this model needs about %.1f GB.%s",
+                                  name.c_str(), totalMb / 1024.0, freeMb / 1024.0, windowsKnows ? " (as Windows counts it)" : "", needMb / 1024.0,
                                   picked ? " The PC has more than one graphics device: using this one only." : "");
                     log(line);
                     if (freeMb > 0 && freeMb < needMb) {
                         tight = "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.";
-                        log("Local models: not enough of the card's memory is free for this model (a game or another app is using it), so it will be slow.");
+                        log("Local models: not enough of the card's memory is free for the whole model (a game or another app is using it): as much of it "
+                            "as fits goes on the card, the rest runs on the processor, so it will be slower.");
                     }
                 }
             };
@@ -1007,13 +1143,28 @@ struct LocalAi::Impl {
             // card; then, if it can't load there (not enough graphics memory, usually), on the processor.
             // Whatever goes wrong with NVIDIA's engine (it can't be downloaded, it won't start with this
             // driver, it can't load the model), the standard one takes over by itself, and says so.
-            struct Try { bool nvidia; int layers; };
+            // Each is started with the newer options first (fitting to the card's free memory, the full
+            // attention cache, a log that says how many layers went where). An engine that doesn't know
+            // one of them says "invalid argument" and exits at once: it is then started the plain way, as
+            // before these options were used.
+            struct Try { bool nvidia; int layers; bool plain; };
             std::vector<Try> tries;
-            if (useNvidia) tries.push_back({true, 999});
-            if (gpu) tries.push_back({false, 999});
-            tries.push_back({false, 0});
-            bool gaveUp = false, fellBack = false, viaNvidia = false;
+            if (useNvidia) { tries.push_back({true, 999, false}); tries.push_back({true, 999, true}); }
+            if (gpu) { tries.push_back({false, 999, false}); tries.push_back({false, 999, true}); }
+            tries.push_back({false, 0, false});
+            tries.push_back({false, 0, true});
+            bool gaveUp = false, fellBack = false, viaNvidia = false, wantPlain = false;
+            int layersOn = -1, layersOf = 0;  // how much of the model is on the card (-1: the engine didn't say)
+            {   // The log of the run before stays, under another name: it is the only record of why an engine stopped.
+                std::error_code ec;
+                if (fs::exists(dir / "engine.log", ec) && fs::file_size(dir / "engine.log", ec) > 0) {
+                    fs::remove(dir / "engine-last.log", ec);
+                    fs::rename(dir / "engine.log", dir / "engine-last.log", ec);
+                }
+            }
             for (const Try& t : tries) {
+                if (t.plain && !wantPlain) continue;  // only after the same engine refused the newer options
+                wantPlain = false;
                 const int layers = t.layers;
                 const std::string why = ensureEngine(t.nvidia ? quit : never, t.nvidia);
                 if (!why.empty()) {
@@ -1029,19 +1180,39 @@ struct LocalAi::Impl {
                 }
                 const fs::path exe = engineExe(t.nvidia);
                 std::string deviceId, tight;
-                if (layers > 0) chooseDevice(exe, deviceId, tight);
+                long fitTarget = 1024;
+                if (layers > 0) chooseDevice(exe, deviceId, tight, fitTarget);
                 setEngine(kEngineStarting, "Loading the model");
                 const int port = 39000 + int(std::random_device{}() % 9000);
                 const std::string key = randomHex(32);
                 // Only on this PC (127.0.0.1), and only with this key: nothing else on the PC or the
                 // network can use it. Two lines at once (My voice and Listen).
-                const std::vector<std::string> args = {"-m", modelFile(id).u8string(), "--host", "127.0.0.1", "--port", std::to_string(port),
-                                                       "--api-key", key, "-ngl", std::to_string(layers), "-c", "8192", "-np", "2"};
-                std::vector<std::string> all = args;
+                std::vector<std::string> all = {"-m", modelFile(id).u8string(), "--host", "127.0.0.1", "--port", std::to_string(port),
+                                                "--api-key", key, "-c", "8192", "-np", "2"};
+                if (t.plain || layers == 0) {
+                    all.push_back("-ngl");
+                    all.push_back(std::to_string(layers));
+                } else {
+                    // As much of the model as fits into the card's free memory (all of it, when there is
+                    // room): the engine works that out itself, from the budget worked out above.
+                    for (const std::string& a : {std::string("--fit"), std::string("on"), std::string("--fit-target"), std::to_string(fitTarget)}) all.push_back(a);
+                }
+                if (!t.plain) {
+                    // The whole of what it has read stays in memory, not only the last 512 tokens of some
+                    // layers: going back a little (a new line after the same instructions) is then quick.
+                    // Measured on a graphics card: lines a quarter quicker, for 250 MB more of its memory.
+                    all.push_back("--swa-full");
+                    if (layers > 0) {  // a log that says how many layers went on the card
+                        all.push_back("-lv");
+                        all.push_back("4");
+                    }
+                    if (const char* more = std::getenv("CIMA_TEST_ENGINE_OPTION")) all.push_back(more);  // (for tests)
+                }
                 if (layers > 0 && !deviceId.empty()) {
                     all.push_back("--device");
                     all.push_back(deviceId);
                 }
+                logSeen = 0;
                 if (!spawn(exe, all, exe.parent_path(), dir / "engine.log", proc)) { note = "The engine couldn't be started."; break; }
                 const std::string url = "http://127.0.0.1:" + std::to_string(port);
                 const Clock::time_point t0 = Clock::now();
@@ -1050,7 +1221,7 @@ struct LocalAi::Impl {
                     if (!alive(proc)) break;
                     {
                         std::lock_guard<std::mutex> lk(mx);
-                        if (wantId != id || wantGpu != gpu || std::find(removing.begin(), removing.end(), id) != removing.end()) changed = true;
+                        if (wantId != id || (wantGpu && !cardGaveUp) != gpu || std::find(removing.begin(), removing.end(), id) != removing.end()) changed = true;
                     }
                     if (changed) break;
                     HttpRequest r;
@@ -1096,9 +1267,19 @@ struct LocalAi::Impl {
                     runGpu = gpu;
                     runNvidia = viaNvidia = t.nvidia;
                     onGpu = layers > 0;
+                    if (layers > 0 && layersOnCard(dir / "engine.log", layersOn, layersOf)) {
+                        if (layersOn <= 0) onGpu = false;  // nothing fitted: it is on the processor
+                        // All of it fitted: whatever was said about a full card before loading no longer holds.
+                        // Part of it: it is slower, and says so in the app.
+                        tight = layersOn >= layersOf ? std::string()
+                                : "The graphics card's memory is almost full, so this model is slow right now. Close what else is using it, or pick a lighter model.";
+                    } else {
+                        layersOn = -1;
+                    }
                     std::lock_guard<std::mutex> lk(mx);
                     st.engine = kEngineReady;
-                    st.engineMessage = layers == 0 && gpu ? "Running on the processor (the graphics card couldn't load it), so it's slower."
+                    st.engineMessage = cardGaveUp         ? "The graphics card kept dropping the model, so it runs on the processor for now (slower). Start CIMA Box again to try the card."
+                                       : layers == 0 && gpu ? "Running on the processor (the graphics card couldn't load it), so it's slower."
                                        : fellBack         ? "NVIDIA's engine couldn't be used on this PC, so the standard one is running."
                                        : layers > 0       ? tight
                                                           : std::string();
@@ -1111,6 +1292,11 @@ struct LocalAi::Impl {
                 const std::string last = lastLine(dir / "engine.log");
                 endProc(proc);
                 if (changed || quit) break;
+                if (!t.plain && last.find("invalid argument") != std::string::npos) {
+                    log("Local models: this engine doesn't know one of the newer options (" + last + "). Starting it the plain way.");
+                    wantPlain = true;
+                    continue;
+                }
                 note = "The model couldn't be loaded." + (last.empty() ? std::string() : " (" + last + ")");
                 if (t.nvidia) {
                     nvidiaBroken = fellBack = true;
@@ -1128,9 +1314,28 @@ struct LocalAi::Impl {
                 }
                 char warm[64];
                 std::snprintf(warm, sizeof(warm), "%.1f s", warmMs / 1000.0);
+                // What it really has on the graphics card, as Windows counts it: remembered for the
+                // "is the card full?" check the next time it starts, and said in the log.
+                std::string onCard;
+                if (onGpu) {
+                    const long mb = engineOnCardMb(proc);
+                    const bool part = layersOn >= 0 && layersOn < layersOf;
+                    if (mb > 0 && !part) cardNeedMb[id] = mb;  // what the whole model takes
+                    char b[160];
+                    if (part && mb > 0)
+                        std::snprintf(b, sizeof(b), ", with %d of its %d layers on the graphics card (%.1f GB; the rest on the processor)", layersOn, layersOf, mb / 1024.0);
+                    else if (part)
+                        std::snprintf(b, sizeof(b), ", with %d of its %d layers on the graphics card (the rest on the processor)", layersOn, layersOf);
+                    else if (mb > 0)
+                        std::snprintf(b, sizeof(b), ", with %.1f GB on the graphics card", mb / 1024.0);
+                    else
+                        b[0] = 0;
+                    onCard = b;
+                }
                 log(std::string("Local models: ") + (m ? m->name : id.c_str()) + " is ready" +
-                    (onGpu ? (where.empty() ? std::string() : " on " + where) : std::string(" (on the processor)")) +
-                    (viaNvidia ? ", with NVIDIA's engine" : "") + ". Its first answer took " + warm + ".");
+                    (onGpu ? (where.empty() ? std::string() : " on " + where)
+                           : std::string(gpu && layersOn == 0 ? " (on the processor: nothing of it fitted on the graphics card)" : " (on the processor)")) +
+                    (viaNvidia ? ", with NVIDIA's engine" : "") + onCard + ". Its first answer took " + warm + ".");
             }
             else if (!changed && !quit && !gaveUp) failed(note.empty() ? "The model couldn't be loaded." : note);
         }

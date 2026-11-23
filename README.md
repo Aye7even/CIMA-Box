@@ -6,6 +6,8 @@ Powered by ElevenLabs.
 
 **[Download CIMA Box for Windows](https://github.com/Aye7even/CIMA-Box/releases/latest/download/CIMABox.exe)**
 
+**[Join our Discord](https://discord.gg/QMM6tASKwc)**: questions, tips and news about updates, with other people who use CIMA Box.
+
 That one file is the whole program. Put `CIMABox.exe` in a normal folder (like Documents or
 Desktop) and run it. It updates itself from then on, and tells you what's new after each update.
 

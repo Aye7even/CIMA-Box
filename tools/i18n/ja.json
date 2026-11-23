@@ -1202,5 +1202,16 @@
  "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "ライブ文字起こしがオンの間は笑いや咳を拾えません:この PC で認識機能をダウンロードまたは読み込みできませんでした。次回 CIMA Box を起動したときにもう一度試します。",
  "The model is picked under More voice settings, just below.": "モデルはすぐ下の「More voice settings」で選べます。",
  "Faster translations": "翻訳を速くする",
- "Turn on Live transcription": "ライブ文字起こしをオンにする"
+ "Turn on Live transcription": "ライブ文字起こしをオンにする",
+ "Only this language": "この言語だけ",
+ "Speech in any other language gets no caption. Very short replies can't always be told apart, so one may slip through now and then, or be missed.": "ほかの言語の発言には字幕が付きません。とても短い返事は見分けられないことがあるため、まれに表示されたり、抜けたりすることがあります。",
+ "Skip sounds that aren't a voice": "声ではない音をスキップ",
+ "Getting voice detection (about 10 MB, once). Until it's here, every sound loud enough is sent to the speech service, as before.": "音声検出をダウンロード中です（約10 MB、初回のみ）。完了するまでは、これまでどおり、十分に大きな音はすべて音声サービスに送られます。",
+ "Voice detection couldn't be downloaded or loaded on this PC, so every sound loud enough is sent to the speech service, as before. CIMA Box tries again the next time it starts.": "このPCでは音声検出をダウンロードまたは読み込みできなかったため、これまでどおり、十分に大きな音はすべて音声サービスに送られます。次回の起動時にもう一度試します。",
+ "Clean noisy phrases (trial)": "雑音の多いフレーズをきれいにする（試験的）",
+ "A hiss, a fan or a hum is taken out from under a voice before the words are written down. Only for noisy phrases, and not for the words shown while someone is still talking. If the words get worse, turn it off.": "言葉を書き起こす前に、声の下にあるノイズ、ファンの音、ハム音を取り除きます。雑音の多いフレーズだけが対象で、相手がまだ話している間に表示される言葉には使われません。言葉が悪くなる場合はオフにしてください。",
+ "Only an AI translator (Claude, Gemini, OpenAI or a model on this PC) follows these two. The translation service you picked words a line the same way for everyone.": "この2つの設定に従うのは、AI翻訳（Claude、Gemini、OpenAI、またはこのPC上のモデル）だけです。選択中の翻訳サービスは、誰に対しても同じ言い回しで訳します。",
+ "The graphics card kept dropping the model, so it runs on the processor for now (slower). Start CIMA Box again to try the card.": "グラフィックカードがモデルを何度も落としたため、今はプロセッサで動かしています（遅くなります）。カードをもう一度試すには、CIMA Box を起動し直してください。",
+ "Join our Discord": "Discord に参加する",
+ "Questions, tips and news about updates, with other people who use CIMA Box. Opens in your browser.": "CIMA Box を使っている人たちと、質問やコツ、アップデートのお知らせを共有できます。ブラウザで開きます。"
 }

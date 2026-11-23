@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CIMABox VERSION 3.1.6 LANGUAGES C CXX)
+project(CIMABox VERSION 3.1.7 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -95,6 +95,7 @@ add_executable(cimabox
   src/early.cpp
   src/focus.cpp
   src/soundid.cpp
+  src/cleansound.cpp
   src/voiceid.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
   ${IMGUI_DRAW_RTL}
@@ -168,7 +169,7 @@ if(UNIX AND NOT APPLE)
 endif()
 if(WIN32)
   # dark title bar, per-application audio capture, chatbox messages (UDP)
-  target_link_libraries(cimabox PRIVATE dwmapi mmdevapi ole32 ws2_32 bcrypt shell32 comdlg32 winmm dxgi)
+  target_link_libraries(cimabox PRIVATE dwmapi mmdevapi ole32 ws2_32 bcrypt shell32 comdlg32 winmm dxgi pdh)
   # Screen translation reads text with Windows' own recognizer (C++/WinRT, part of the Windows SDK).
   # C++/WinRT wants C++20 with this compiler, so src/screen.cpp is built as its own small library.
   # Without the headers the build still works; only AI reading is offered then.
@@ -255,3 +256,19 @@ add_custom_command(TARGET cimabox POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:cimabox>/lang"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/lang/_template.json.txt" "$<TARGET_FILE_DIR:cimabox>/lang"
   VERBATIM)
+
+# ---------------------------------------------------------------- translation quality test
+# tools/quality: the app's own translation code as a small command-line program, run against a model
+# on this PC (see tools/quality/README.txt). Not part of the app, and only built when asked for:
+#   cmake --build build --config Release --target cima_quality
+add_executable(cima_quality EXCLUDE_FROM_ALL tools/quality/quality.cpp src/translate.cpp src/http.cpp src/extras.cpp)
+target_include_directories(cima_quality PRIVATE src ${json_SOURCE_DIR}/single_include)
+target_link_libraries(cima_quality PRIVATE CURL::libcurl Threads::Threads)
+if(WIN32)
+  target_link_libraries(cima_quality PRIVATE ws2_32 bcrypt)
+  target_compile_definitions(cima_quality PRIVATE NOMINMAX)
+endif()
+if(MSVC)
+  target_compile_options(cima_quality PRIVATE /utf-8)
+  target_compile_definitions(cima_quality PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()

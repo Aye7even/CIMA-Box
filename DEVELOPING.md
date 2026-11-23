@@ -194,5 +194,9 @@ To change it later, replace `assets/icon.png` and `assets/cimabox.ico` and regen
     assets/           icon.png, cimabox.ico, cimabox.rc.in (Windows icon and version details)
     lang/             _template.json.txt, copied next to the program (add app languages)
     tools/i18n/       interface translations and the scripts that check and build them
+    src/cleansound.*  Listen: is there a voice in a phrase, and noise removal (a pack, like voiceid and soundid)
+    tools/quality/    translation quality test: lines run through the app's own translation code
+                      against a model on this PC (see its README.txt); run it after changing the
+                      AI instructions in src/translate.cpp
     tools/updates/    make-update-key.sh: the signing key for updates
     .github/workflows/release.yml   builds, signs and publishes a release for each version tag

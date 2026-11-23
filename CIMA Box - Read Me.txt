@@ -1,8 +1,12 @@
-CIMA Box 3.1.6
+CIMA Box 3.1.7
 ==============
 
 CIMA Box changes your voice in real time using ElevenLabs, and can translate what other people
 say (for example in VRChat) into your language.
+
+Join our Discord: https://discord.gg/QMM6tASKwc
+Questions, tips and news about updates, with other people who use CIMA Box. The same link is in
+the app: "Join our Discord" at the bottom of the left side, and in Settings > About.
 
 The pages are on the left side of the window. Each one says under its name what's on it, and a
 dot next to it means that part is on right now:
@@ -489,6 +493,16 @@ Listen to
 
 Translation
   They speak ............... The other people's language, or "Detect automatically".
+  Only this language ....... Shows once a language is picked under "They speak". Only speech in
+                             that language gets a caption; anything else is left out (in a room
+                             where two groups talk, you only read the one you want). Without it,
+                             "They speak" only tells the speech service which language to write
+                             the words down in, so other languages still got captions, as
+                             nonsense. A very short reply ("yes", "what?") can't always be told
+                             apart: with "Same voice, same color" on, it goes by who said it (a
+                             voice that has spoken the language keeps its short replies, a voice
+                             that has only spoken another one doesn't); from a voice nobody knows
+                             yet, it is shown.
   Translate into ........... Your language. Type to search.
   Translation service ...... Same as on My voice. Use DeepL here: the free service runs out
                              after a few minutes of steady captions.
@@ -499,6 +513,23 @@ Translation
                              the speech service heard them as one.
   Show the original words .. Shows what was said under the translation.
   Skip speech in my language  Hides people who already speak your language.
+  Skip sounds that aren't a voice
+                             On by default. Listen cuts the sound into phrases by loudness, so a
+                             door, footsteps, a fan or music is a phrase too. A small
+                             voice-detection model on your PC checks each one first, and a phrase
+                             with no voice in it is not sent to the speech service: not paid for,
+                             and not in the queue ahead of people talking. A small download
+                             (about 10 MB) that Listen gets by itself the first time; until it is
+                             there, or if it can't be loaded, everything is sent as before. Off
+                             while "Sound labels" is on (those want the sounds). Music is only
+                             stopped sometimes.
+  Clean noisy phrases (trial)
+                             Off by default. A hiss, a fan or a hum is taken out from under a
+                             voice before the words are written down, only for phrases that are
+                             noisy. A trial: turn it on in a noisy room and see whether the words
+                             get better or worse. Not used for the words shown while someone is
+                             still talking, and never for telling voices apart (cleaned voices
+                             sound more alike, so they were mixed up more often).
   Translation service ...... Same choices as on My voice. Claude, Gemini or OpenAI understand
                              slang much better. Here they always translate faithfully.
   Send to VRChat chatbox ... Shows the newest caption above your avatar (people near you can read
@@ -652,7 +683,10 @@ Hearing and reading
                              under about a second is only named when it clearly continues
                              whoever just spoke, a line that could be either of two people
                              stays unnamed, and two people talking over each other are not
-                             learned as one voice. Delete it from the same place; without
+                             learned as one voice. Someone new who sounds a little like a
+                             voice it already knows is remembered once they've been heard
+                             twice, and one person who ended up with two numbers gets them
+                             joined into one. Delete it from the same place; without
                              it everything works as before.
   Caption window over the game
                              A small see-through window of captions on top of your game. Games
@@ -902,6 +936,30 @@ limit" ................................. The AI service's plan allows only so ma
                                          so a higher limit rarely adds any wait). A language
                                          that keeps missing the limit gets more time by
                                          itself after a line or two.
+"(Claude's line didn't look right: ...)"  The AI's line had something in it that shows without
+                                         knowing the language: a word in capitals nobody said,
+                                         no Japanese (Russian, Arabic...) writing in a line for
+                                         that language, or a long line answered with a few
+                                         letters. DeepL or Microsoft did that line instead.
+                                         This look is free and adds no wait; it cannot tell
+                                         whether a line means what you said.
+A model on this PC is slow in a game ... The game is using most of the graphics card's memory, so
+                                         only part of the model fits on the card and the rest
+                                         runs on the processor (the app says so under the model,
+                                         and the log says how many layers fitted). A lighter
+                                         model fits whole. It is fitted when the model loads:
+                                         after closing the game, pick another model and back,
+                                         or start CIMA Box again, to get all of it on the card.
+A model on this PC stops answering ..... Usually the graphics card dropped it ("device lost": the
+                                         driver reset, or the card's memory ran out under a
+                                         game). CIMA Box sees that within a couple of seconds
+                                         and starts the model again; twice in ten minutes and it
+                                         runs on the processor (slower) until CIMA Box is
+                                         started again. The log says what happened and how much
+                                         graphics memory Windows counted in use, and the
+                                         engine's own log of that run is kept as
+                                         engine-last.log in the local-models folder. A lighter
+                                         model, or a game using less graphics memory, helps.
 VR page says "Waiting for SteamVR" ..... Start SteamVR. It connects by itself.
 No CIMA Box tab in the SteamVR menu .... Turn on "CIMA Box tab in the SteamVR menu" on the VR
                                          page, and switch VR on at the top right.

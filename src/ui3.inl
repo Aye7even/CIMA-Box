@@ -219,6 +219,7 @@ void sidebar(UiModel& m, UiActions& act) {
 
     // The bottom: what needs attention, the mini window, what's left to spend, Settings.
     float bottomH = ImGui::GetFrameHeightWithSpacing() * 1.2f + em() * 2.6f;  // mini window + Settings
+    bottomH += ImGui::GetFrameHeight() * 1.15f + em() * 0.35f + ImGui::GetStyle().ItemSpacing.y;  // Join our Discord
     if (!m.usage.empty()) bottomH += em() * (1.4f + 1.25f * float(m.usage.size()));
     // The version you went back from isn't offered here again (Settings still shows it); a newer one is.
     const bool update = (m.update.stage == kUpdateAvailable && m.update.latest != m.cfg.skipUpdate) ||
@@ -246,6 +247,21 @@ void sidebar(UiModel& m, UiActions& act) {
         dl->AddText(ImVec2(a.x + em() * 1.2f, a.y + (h - em()) * 0.5f), col(kText), label);
         dl->PopClipRect();
         gap(0.25f);
+    }
+    // The Discord server: one click from any page.
+    {
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x, h = ImGui::GetFrameHeight() * 1.15f;
+        if (ImGui::InvisibleButton("##discord", ImVec2(w, h))) act.openUrl = kDiscordUrl;
+        const bool hot = ImGui::IsItemHovered();
+        if (hot) ImGui::SetTooltip("%s", T("Questions, tips and news about updates, with other people who use CIMA Box. Opens in your browser."));
+        dl->AddRectFilled(a, ImVec2(a.x + w, a.y + h), col(ImVec4(kSignal.x, kSignal.y, kSignal.z, hot ? 0.22f : 0.12f)), ImGui::GetStyle().FrameRounding);
+        dl->AddRect(a, ImVec2(a.x + w, a.y + h), col(ImVec4(kSignal.x, kSignal.y, kSignal.z, hot ? 0.9f : 0.5f)), ImGui::GetStyle().FrameRounding, 0, 1.3f);
+        drawIcon(dl, kIcChat, ImVec2(a.x + em() * 1.1f, a.y + h * 0.5f), em() * 1.0f, col(kSignal));
+        dl->PushClipRect(a, ImVec2(a.x + w - em() * 0.4f, a.y + h), true);
+        dl->AddText(ImVec2(a.x + em() * 2.1f, a.y + (h - em()) * 0.5f), col(kText), T("Join our Discord"));
+        dl->PopClipRect();
+        gap(0.35f);
     }
     // The mini window: My voice at a glance while you play.
     {
@@ -325,24 +341,34 @@ void pageHeader(UiModel& m, UiActions& act) {
         const bool listen = m.cfg.page == kPageListen || m.cfg.page == kPageText, vrPage = m.cfg.page == kPageVR;
         bool& on = vrPage ? m.cfg.vr.on : listen ? m.cfg.listen.on : m.cfg.enabled;
         const PageState st = vrPage ? vrState(m) : listen ? listenState(m) : voiceState(m);
-        const float sh = std::floor(em() * 1.5f), sw = sh * 1.8f;
-        const ImVec2 sp(right - sw, p.y + (h - sh) * 0.5f);
-        ImGui::SetCursorScreenPos(sp);
-        if (ImGui::InvisibleButton("##master", ImVec2(sw, sh))) on = !on;
-        drawSwitch(sp, sh, on, ImGui::IsItemHovered(), ImGui::GetID(vrPage ? "##vranim" : listen ? "##listenanim" : "##masteranim"));
-        if (ImGui::IsItemHovered())
+        // One button holds the state and the switch, and all of it can be clicked: a small switch on
+        // its own in the corner was easy to miss, and a page left off looked like a page that was on.
+        const float ph = std::floor(em() * 2.3f), sh = std::floor(em() * 1.6f), sw = sh * 1.8f, q = (ph - sh) * 0.5f;
+        const char* state = T(st.text);
+        ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.05f);
+        const ImVec2 ts = ImGui::CalcTextSize(state);
+        const float lead = em() * 0.85f, dotW = em() * 0.95f, between = em() * 0.8f;
+        const float full = lead + dotW + ts.x + between + sw + q;
+        const bool wide = right - full > leftEnd + em() * 8.f;  // too narrow for the word: the switch alone
+        const float pw = wide ? full : sw + q * 2.f;
+        const ImVec2 a(right - pw, p.y + (h - ph) * 0.5f), b(a.x + pw, a.y + ph);
+        ImGui::SetCursorScreenPos(a);
+        if (ImGui::InvisibleButton("##master", ImVec2(pw, ph))) on = !on;
+        const bool hot = ImGui::IsItemHovered();
+        const ImVec4 edge = on ? kSignal : kMuted;
+        dl->AddRectFilled(a, b, col(on ? ImVec4(kSignal.x, kSignal.y, kSignal.z, hot ? 0.24f : 0.15f) : hot ? kFieldHover : kPanel), ph * 0.5f);
+        dl->AddRect(a, b, col(ImVec4(edge.x, edge.y, edge.z, on ? (hot ? 0.9f : 0.6f) : (hot ? 0.8f : 0.45f))), ph * 0.5f, 0, 1.5f);
+        if (wide) {
+            dl->AddCircleFilled(ImVec2(a.x + lead + em() * 0.28f, a.y + ph * 0.5f), em() * 0.28f, col(st.color), 16);
+            dl->AddText(ImVec2(a.x + lead + dotW, a.y + (ph - ts.y) * 0.5f), col(on ? st.color : kText), state);
+        }
+        ImGui::PopFont();
+        drawSwitch(ImVec2(b.x - q - sw, a.y + q), sh, on, hot, ImGui::GetID(vrPage ? "##vranim" : listen ? "##listenanim" : "##masteranim"));
+        if (hot)
             ImGui::SetTooltip("%s", T(vrPage ? (on ? "Stop showing captions in VR" : "Show captions in VR")
                                       : listen ? (on ? "Stop captioning" : "Start captioning")
                                                : (on ? "Turn the voice changer off" : "Turn the voice changer on")));
-        const char* state = T(st.text);
-        const ImVec2 ts = ImGui::CalcTextSize(state);
-        right = sp.x - em() * 0.7f;
-        if (right - ts.x - em() * 1.2f > leftEnd + em() * 10.f) {
-            dl->AddText(ImVec2(right - ts.x, p.y + (h - ts.y) * 0.5f), col(st.color), state);
-            right -= ts.x + em() * 0.5f;
-        }
-        dl->AddCircleFilled(ImVec2(right - em() * 0.3f, p.y + h * 0.5f), em() * 0.26f, col(st.color), 16);
-        right -= em() * 1.4f;
+        right = a.x - em() * 0.8f;
     }
 
     // A service you use reports problems on its status page: say so, so it isn't mistaken for the app.

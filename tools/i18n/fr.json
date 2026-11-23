@@ -1202,5 +1202,16 @@
  "Laughs and coughs aren't picked up while live transcription is on: the recogniser couldn't be downloaded or loaded on this PC. CIMA Box tries again the next time it starts.": "Les rires et la toux ne sont pas captés tant que la transcription en direct est activée : le détecteur n'a pas pu être téléchargé ou chargé sur ce PC. CIMA Box réessaie à son prochain démarrage.",
  "The model is picked under More voice settings, just below.": "Le modèle se choisit dans « More voice settings », juste en dessous.",
  "Faster translations": "Traductions plus rapides",
- "Turn on Live transcription": "Activer la transcription en direct"
+ "Turn on Live transcription": "Activer la transcription en direct",
+ "Only this language": "Uniquement cette langue",
+ "Speech in any other language gets no caption. Very short replies can't always be told apart, so one may slip through now and then, or be missed.": "Ce qui est dit dans une autre langue n'est pas sous-titré. Les réponses très courtes ne se distinguent pas toujours : il peut arriver qu'une passe quand même, ou qu'une soit manquée.",
+ "Skip sounds that aren't a voice": "Ignorer les sons qui ne sont pas une voix",
+ "Getting voice detection (about 10 MB, once). Until it's here, every sound loud enough is sent to the speech service, as before.": "Téléchargement de la détection de voix (environ 10 Mo, une seule fois). En attendant, tout son assez fort est envoyé au service vocal, comme avant.",
+ "Voice detection couldn't be downloaded or loaded on this PC, so every sound loud enough is sent to the speech service, as before. CIMA Box tries again the next time it starts.": "La détection de voix n'a pas pu être téléchargée ou chargée sur ce PC : tout son assez fort est donc envoyé au service vocal, comme avant. CIMA Box réessaiera au prochain démarrage.",
+ "Clean noisy phrases (trial)": "Nettoyer les phrases bruitées (essai)",
+ "A hiss, a fan or a hum is taken out from under a voice before the words are written down. Only for noisy phrases, and not for the words shown while someone is still talking. If the words get worse, turn it off.": "Un souffle, un ventilateur ou un bourdonnement est retiré de sous une voix avant que les mots soient transcrits. Seulement pour les phrases bruitées, et pas pour les mots affichés pendant que quelqu'un parle encore. Si les mots sont moins bons, désactivez-le.",
+ "Only an AI translator (Claude, Gemini, OpenAI or a model on this PC) follows these two. The translation service you picked words a line the same way for everyone.": "Seul un traducteur IA (Claude, Gemini, OpenAI ou un modèle sur ce PC) suit ces deux réglages. Le service de traduction que vous avez choisi formule une phrase de la même façon pour tout le monde.",
+ "The graphics card kept dropping the model, so it runs on the processor for now (slower). Start CIMA Box again to try the card.": "La carte graphique lâchait sans cesse le modèle : il tourne donc sur le processeur pour l'instant (plus lent). Relancez CIMA Box pour réessayer la carte.",
+ "Join our Discord": "Rejoignez notre Discord",
+ "Questions, tips and news about updates, with other people who use CIMA Box. Opens in your browser.": "Questions, astuces et nouvelles des mises à jour, avec d'autres personnes qui utilisent CIMA Box. S'ouvre dans votre navigateur."
 }
