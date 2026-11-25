@@ -5,12 +5,20 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 struct Quota {
     bool known = false;      // read successfully at least once
     long long used = 0, limit = 0;
     int64_t resetsAt = 0;    // unix time, 0 = not given
     std::string problem;     // e.g. the key may not read usage
+};
+
+// One day of ElevenLabs credits, from the account (its days are UTC days), by what they went on.
+struct ElevenDay {
+    int64_t start = 0;  // unix time the day starts
+    double written = 0, live = 0, voice = 0, changer = 0, other = 0;
+    double total() const { return written + live + voice + changer + other; }
 };
 
 struct AiSpend {
@@ -31,6 +39,8 @@ public:
     void refreshSoon();                                                  // after use (at most every 30 s)
     Quota eleven() const;
     Quota deepl() const;
+    // The last 7 days of ElevenLabs credits, oldest first (empty until read, or if the key can't).
+    std::vector<ElevenDay> elevenDays() const;
 
 private:
     struct Impl;
@@ -42,5 +52,6 @@ private:
 AiSpend aiSpend(int service, const std::string& model);
 
 bool parseElevenSubscription(const std::string& json, Quota& q);
+bool parseElevenDays(const std::string& json, std::vector<ElevenDay>& days);
 bool parseDeeplUsage(const std::string& json, Quota& q);
 bool priceOf(const std::string& model, double& inPerMillion, double& outPerMillion);

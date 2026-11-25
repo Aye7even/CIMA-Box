@@ -184,6 +184,7 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.spokenLang = j.value("language", s.spokenLang);
         s.targetLang = j.value("target_language", s.targetLang);
         s.translateService = j.value("translate_service", s.translateService);
+        s.listenService = j.value("listen_service", s.listenService);
         s.deeplKey = j.value("deepl_key", s.deeplKey);
         s.claudeKey = j.value("claude_key", s.claudeKey);
         s.geminiKey = j.value("gemini_key", s.geminiKey);
@@ -363,7 +364,7 @@ static void tidySettings(Settings& s) {
     if (s.engine < kVoiceChanger || s.engine > kTranslate) s.engine = kVoiceChanger;
     if (const Language* l = findLanguage(s.spokenLang)) s.spokenLang = l->code; else s.spokenLang.clear();
     if (!findLanguage(s.targetLang)) s.targetLang = "ja";
-    if (s.page < kPageVoice || s.page > kPageHome) s.page = kPageHome;
+    if (s.page < kPageVoice || s.page > kPageUsage) s.page = kPageHome;
     {
         VrSettings& r = s.vr;
         if (r.placement < kVrHead || r.placement > kVrFixed) r.placement = kVrHead;
@@ -379,6 +380,7 @@ static void tidySettings(Settings& s) {
         r.style.panelOpacity = std::max(0.f, std::min(1.f, r.style.panelOpacity));
     }
     if (s.translateService < kMyMemory || s.translateService > kMicrosoft) s.translateService = kMyMemory;
+    if (s.listenService < -1 || s.listenService > kMicrosoft) s.listenService = -1;
     if (s.speechLevel < kLevelPolite || s.speechLevel > kLevelCustom) s.speechLevel = kLevelCasual;
     s.aiTimeoutMs = std::max(800, std::min(6000, s.aiTimeoutMs));
     if (s.myGender < kGenderUnknown || s.myGender > kGenderNonbinary) s.myGender = kGenderUnknown;
@@ -571,7 +573,7 @@ static std::string settingsJson(const Settings& s) {
         {"tts_model", s.ttsModel}, {"stability", s.vs.stability}, {"similarity", s.vs.similarity},
         {"style", s.vs.style}, {"speed", s.vs.speed}, {"speaker_boost", s.vs.speakerBoost},
         {"remove_noise", s.removeNoise}, {"language", s.spokenLang}, {"target_language", s.targetLang},
-        {"translate_service", s.translateService}, {"deepl_key", s.deeplKey},
+        {"translate_service", s.translateService}, {"listen_service", s.listenService}, {"deepl_key", s.deeplKey},
         {"claude_key", s.claudeKey}, {"gemini_key", s.geminiKey}, {"claude_model", s.claudeModel},
         {"gemini_model", s.geminiModel}, {"openai_key", s.openaiKey}, {"openai_model", s.openaiModel},
         {"microsoft_key", s.msKey}, {"microsoft_region", s.msRegion}, {"ai_backup", s.aiBackup},
@@ -955,12 +957,14 @@ static LocalNow gLocalNow;
 
 static TranslateSetup translateSetup(const Settings& s, bool speaking = true) {
     TranslateSetup t;
+    t.purpose = speaking ? kForMyVoice : kForCaption;  // only for the log's count of AI requests
     if (speaking) {
         applyVariety(s, s.targetLang, t);
         t.speaker = s.myGender;
         t.listener = g.listener.load();
     }
-    t.service = s.translateService;
+    // Captions (and screen translation) can have a service of their own (Listen page).
+    t.service = speaking ? s.translateService : s.captionService();
     t.deeplKey = s.deeplKey;
     t.claudeKey = s.claudeKey;
     t.geminiKey = s.geminiKey;
@@ -1969,6 +1973,7 @@ static void workerLoop() {
     Eleven api;             // both keep their connection open between phrases
     Translator translator;
     Eleven captionApi;      // Changer mode + chatbox: transcribes alongside the voice conversion
+    api.useFeature = captionApi.useFeature = kUseMyVoice;  // for the Usage page (voice changing counts as Changer)
     api.http.cancel = &g.cancel;
     translator.http.cancel = &g.cancel;
     captionApi.http.cancel = &g.cancel;
@@ -2786,6 +2791,7 @@ static void earLoop() {
     VoiceOut voiceOut(kDeviceRate);
     Eleven api;
     api.http.cancel = &g.cancel;
+    api.useFeature = kUseEar;  // for the Usage page
     while (g.running) {
         std::pair<std::string, std::string> job;
         Settings s;
@@ -2854,6 +2860,7 @@ static bool readAndTranslate(Translator& tr, const Settings& s, const Picture& p
     if (!to) { err = "Pick a language to translate into."; return false; }
     TranslateSetup t = translateSetup(s, false);
     t.faithful = true;
+    t.purpose = kForOther;  // screen translation
     auto isNew = [&](const std::string& line) {
         if (!seen) return true;
         for (const std::string& x : *seen)
@@ -2958,7 +2965,7 @@ static void screenLoop() {
                 gScreen.newPicture = !direct;
                 gScreen.app = s.screen.app;
                 gScreen.lines.clear();
-                gScreen.tokens = s.screen.reader == kReadAi ? pictureTokens(s.translateService, std::min(pic.width, 1280), std::min(pic.height, 1280)) : 0;
+                gScreen.tokens = s.screen.reader == kReadAi ? pictureTokens(s.captionService(), std::min(pic.width, 1280), std::min(pic.height, 1280)) : 0;
                 gScreen.status.clear();
                 gScreen.busy = direct;
             }
@@ -3308,6 +3315,8 @@ static std::string usingLine(const Settings& c) {
     if (c.engine == kTranslate) line += ", " + (c.spokenLang.empty() ? std::string("auto") : c.spokenLang) + " to " + c.targetLang;
     line += std::string(", translation ") + services[std::max(0, std::min(6, c.translateService))];
     if (c.translateService == kLocal) line += " (" + (c.localModel.empty() ? std::string("no model") : c.localModel) + (c.localGpu ? ")" : ", processor only)");
+    if (c.listenService >= 0 && c.listenService != c.translateService)
+        line += std::string(", captions translated with ") + services[std::max(0, std::min(6, c.listenService))];
     line += ", quality " + std::to_string(c.quality) + (c.matchMic ? ", match my mic" : "") + (c.passthrough ? ", passthrough" : "") +
             (c.activation == kPushToTalk && c.pttRealVoice ? ", real voice between presses" : "");
     line += std::string(". Listen ") + (c.listen.on ? "on" : "off") + " (" + sources[std::max(0, std::min(2, c.listen.source))] +
@@ -3345,6 +3354,42 @@ static std::string usingLine(const Settings& c) {
     return line;
 }
 
+// A line in the log with the requests each AI service was sent in this session and what they were
+// for, so its bill can be checked against what CIMA Box asked. Every ten minutes while the count
+// changes, and once more when CIMA Box closes.
+static void logAiRequests(const Settings& s, bool closing) {
+    static long long logged[3] = {0, 0, 0};
+    static Clock::time_point last = Clock::now();
+    if (!closing && Clock::now() - last < std::chrono::minutes(10)) return;
+    last = Clock::now();
+    const int services[3] = {kClaude, kGemini, kOpenAI};
+    const char* const names[3] = {"Claude", "Gemini", "OpenAI"};
+    const std::string models[3] = {s.claudeModel, s.geminiModel, s.openaiModel};
+    for (int i = 0; i < 3; ++i) {
+        const AiCounts c = aiCounts(services[i]);
+        if (c.asked == logged[i]) continue;
+        logged[i] = c.asked;
+        std::string line = std::string(names[i]) + " this session: " + withCommas(c.asked) + (c.asked == 1 ? " request" : " requests") +
+                           " (My voice " + withCommas(c.byPurpose[kForMyVoice]) + ", Listen captions " + withCommas(c.byPurpose[kForCaption]) +
+                           ", Listen sentences while they talk " + withCommas(c.byPurpose[kForLiveSentence]) + ", other " +
+                           withCommas(c.byPurpose[kForOther]) + "), " + withCommas(c.answered) + " answered. Tokens: " + withCommas(c.tokensIn) + " in";
+        if (services[i] == kClaude)
+            line += " (" + withCommas(c.cacheRead) + " read from the cache, " + withCommas(c.cacheWritten) + " newly cached)";
+        else  // Gemini and OpenAI cache the repeated start of the instructions by themselves
+            line += " (" + withCommas(c.cacheRead) + " reused from its cache)";
+        line += ", " + withCommas(c.tokensOut) + " out";
+        const AiSpend sp = aiSpend(services[i], models[i]);
+        if (sp.dollars >= 0) {
+            char b[64];
+            std::snprintf(b, sizeof(b), ", about $%.3f.", sp.dollars);
+            line += b;
+        } else {
+            line += ".";
+        }
+        logLine(line);
+    }
+}
+
 static UsageItem aiItem(int service, const std::string& model) {
     const AiSpend sp = aiSpend(service, model);
     UsageItem it;
@@ -3371,6 +3416,7 @@ int main() {
     UiModel ui;  // the UI thread's copy of everything; ui.cfg is published to g.cfg every frame
     loadSettings(ui.cfg);
     ui.cfg.page = kPageHome;  // it opens on Home: everything at a glance
+    if (const char* p = std::getenv("CIMA_TEST_START_PAGE")) ui.cfg.page = std::atoi(p);  // (for tests: pictures of a page)
     setUiLanguage(ui.cfg.uiLanguage);
     startLog();
     logLine(std::string("CIMA Box ") + CIMA_FULL_VERSION + " started on " + windowsVersion() + ". Settings: " +
@@ -3457,6 +3503,7 @@ int main() {
     gListen.start();
     gStatus.start();
     gUsage.start();
+    useLoad(settingsDir() / "usage-history.json");  // the Usage page's days
     gVr.setThumbnail(kLogos[0].rgba, kLogos[0].size);  // the SteamVR menu tab's icon
     // SteamVR Input: CIMA Box's controls, so a controller button can be push to talk. You pick the
     // button in SteamVR's controller bindings (VRChat still gets that button too).
@@ -4151,8 +4198,8 @@ int main() {
                     if (ms.stage == kModelInstalled) { ui.cfg.localModel = ms.id; break; }
             // Loaded only while Local is the translation service: otherwise its memory is the game's.
             // ...or while it stands by for lines an online AI declines (the person's choice).
-            const bool standBy = ui.cfg.localOnDecline && isOnlineAi(ui.cfg.translateService);
-            const bool wanted = (ui.cfg.translateService == kLocal || standBy) && has(ui.cfg.localModel);
+            const bool standBy = ui.cfg.localOnDecline && (isOnlineAi(ui.cfg.translateService) || isOnlineAi(ui.cfg.captionService()));
+            const bool wanted = (ui.cfg.translateService == kLocal || ui.cfg.captionService() == kLocal || standBy) && has(ui.cfg.localModel);
             localAi.want(wanted ? ui.cfg.localModel : std::string(), ui.cfg.localGpu, ui.cfg.localNvidia);
             LocalNow now;
             if (ui.local.engine == kEngineReady) {
@@ -4360,6 +4407,7 @@ int main() {
                     if (lv == kLevelCustom && c.customStyle.find_first_not_of(' ') == std::string::npos) continue;
                     jobs[size_t(lv)] = std::async(std::launch::async, [&c, &line, lv, from, to] {
                         TranslateSetup t = translateSetup(c);
+                        t.purpose = kForOther;  // "Try a line"
                         t.level = lv;
                         t.timeoutMs = std::max(t.timeoutMs, 8000);
                         Translator tr;
@@ -4389,7 +4437,9 @@ int main() {
                         lang = c.me ? (tl ? tl->name : "") : c.language;
                     }
             }
-            const TranslateSetup t = translateSetup(ui.cfg, false);
+            TranslateSetup t = translateSetup(ui.cfg, false);
+            t.purpose = kForOther;  // learning mode
+            t.service = ui.cfg.translateService;  // the Text page's service, not Listen's
             const uint64_t id = act.romanize;
             romanized[id] = "...";
             chatConvo = ~0ull;
@@ -4520,11 +4570,26 @@ int main() {
                     ui.usage.back().detail += std::string(" ") + b;
                 }
             }
-            const int sv = ui.cfg.translateService;
-            if (sv == kDeepL && !ui.cfg.deeplKey.empty()) ui.usage.push_back(quotaItem("DeepL", gUsage.deepl(), "%s characters left", "characters"));
-            if (sv == kClaude && !ui.cfg.claudeKey.empty()) ui.usage.push_back(aiItem(kClaude, ui.cfg.claudeModel));
-            if (sv == kGemini && !ui.cfg.geminiKey.empty()) ui.usage.push_back(aiItem(kGemini, ui.cfg.geminiModel));
-            if (sv == kOpenAI && !ui.cfg.openaiKey.empty()) ui.usage.push_back(aiItem(kOpenAI, ui.cfg.openaiModel));
+            // The service My voice uses, and Listen's when it has a different one of its own.
+            const int sv = ui.cfg.translateService, cs = ui.cfg.captionService();
+            auto uses = [&](int svc) { return sv == svc || cs == svc; };
+            if (uses(kDeepL) && !ui.cfg.deeplKey.empty()) ui.usage.push_back(quotaItem("DeepL", gUsage.deepl(), "%s characters left", "characters"));
+            if (uses(kClaude) && !ui.cfg.claudeKey.empty()) ui.usage.push_back(aiItem(kClaude, ui.cfg.claudeModel));
+            if (uses(kGemini) && !ui.cfg.geminiKey.empty()) ui.usage.push_back(aiItem(kGemini, ui.cfg.geminiModel));
+            if (uses(kOpenAI) && !ui.cfg.openaiKey.empty()) ui.usage.push_back(aiItem(kOpenAI, ui.cfg.openaiModel));
+        }
+        logAiRequests(ui.cfg, false);
+        if (ui.cfg.page == kPageUsage) {  // what the Usage page reads from the accounts
+            ui.elevenQuota = gUsage.eleven();
+            ui.deeplQuota = gUsage.deepl();
+            ui.elevenDays = gUsage.elevenDays();
+        }
+        {   // the Usage page's days: saved once a minute when something was counted
+            static Clock::time_point savedAt = Clock::now();
+            if (Clock::now() - savedAt > std::chrono::minutes(1)) {
+                savedAt = Clock::now();
+                useSave(settingsDir() / "usage-history.json");
+            }
         }
         // ---- spending limit: per session, counted from when CIMA Box started
         {
@@ -4659,6 +4724,8 @@ int main() {
     gListen.stop();
     gStatus.stop();
     gUsage.stop();
+    useSave(settingsDir() / "usage-history.json");
+    logAiRequests(ui.cfg, true);
     logLine("Closed.");
     if (g.capOn) ma_device_uninit(&g.capDev);
     openSink(g.out, "", false);

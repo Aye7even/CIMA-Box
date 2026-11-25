@@ -255,10 +255,38 @@ std::string deeplHost(const std::string& key) {
 }
 
 namespace {
-std::atomic<long long> gTokens[3][2];  // [claude, gemini, openai][in, out] used in this run
+std::atomic<long long> gTokens[3][2];  // [claude, gemini, openai][in, out] used in this run, at what they cost
+// For the log (aiCounts): requests sent and answered, what each was for, and the raw token counts.
+std::atomic<long long> gAsked[3][kAiPurposes], gAnswered[3], gRawIn[3], gRawOut[3], gCacheRead[3], gCacheWritten[3];
 void countTokens(int which, long long in, long long out) {
     if (in > 0) gTokens[which][0] += in;
     if (out > 0) gTokens[which][1] += out;
+}
+void noteAsked(int which, int purpose) {
+    gAsked[which][purpose >= 0 && purpose < kAiPurposes ? purpose : kForOther] += 1;
+}
+void noteAnswered(int which, int purpose, const std::string& model, long long in, long long out, long long cacheRead = 0,
+                  long long cacheWritten = 0) {
+    gAnswered[which] += 1;
+    gRawIn[which] += in + cacheRead + cacheWritten;
+    gRawOut[which] += out;
+    gCacheRead[which] += cacheRead;
+    gCacheWritten[which] += cacheWritten;
+    // ...and for the Usage page, by feature and day.
+    const int service = which == 0 ? kUseClaude : which == 1 ? kUseGemini : kUseOpenAI;
+    UseAmount a;
+    a.requests = 1;
+    a.tokensIn = in;
+    a.cacheRead = cacheRead;
+    a.cacheWritten = cacheWritten;
+    a.tokensOut = out;
+    a.dollars = aiDollars(service, model, in, cacheRead, cacheWritten, out);
+    countUse(service, purpose, a);
+}
+std::string modelOf(const TranslateSetup& st, int which) {
+    if (which == 0) return st.claudeModel.empty() ? std::string("claude-haiku-5-5") : st.claudeModel;
+    if (which == 1) return st.geminiModel.empty() ? std::string("gemini-3.5-flash-lite") : st.geminiModel;
+    return st.openaiModel.empty() ? std::string("gpt-6-luna") : st.openaiModel;
 }
 long long tokenField(const json& j, const char* key) {
     return j.is_object() && j.contains(key) && j[key].is_number() ? j[key].get<long long>() : 0;
@@ -269,6 +297,21 @@ void aiTokens(int service, long long& in, long long& out) {
     const int w = service == kClaude ? 0 : service == kGemini ? 1 : 2;
     in = gTokens[w][0];
     out = gTokens[w][1];
+}
+
+AiCounts aiCounts(int service) {
+    const int w = service == kClaude ? 0 : service == kGemini ? 1 : 2;
+    AiCounts c;
+    for (int p = 0; p < kAiPurposes; ++p) {
+        c.byPurpose[p] = gAsked[w][p];
+        c.asked += c.byPurpose[p];
+    }
+    c.answered = gAnswered[w];
+    c.tokensIn = gRawIn[w];
+    c.tokensOut = gRawOut[w];
+    c.cacheRead = gCacheRead[w];
+    c.cacheWritten = gCacheWritten[w];
+    return c;
 }
 
 namespace {
@@ -341,6 +384,12 @@ bool deeplOnce(Http& http, const std::string& key, const std::string& text, cons
         return false;
     }
     out = j["translations"][0]["text"].get<std::string>();
+    {   // for the Usage page: DeepL counts every character sent
+        UseAmount a;
+        a.requests = 1;
+        a.letters = (long long)utf8Count(text);
+        countUse(kUseDeepL, currentUseFeature(), a);
+    }
     return true;
 }
 
@@ -403,6 +452,12 @@ bool microsoft(Http& http, const std::string& key, const std::string& region, co
         return false;
     }
     out = j[0]["translations"][0]["text"].get<std::string>();
+    if (!out.empty()) {  // for the Usage page: Microsoft counts every character sent
+        UseAmount a;
+        a.requests = 1;
+        a.letters = (long long)utf8Count(text);
+        countUse(kUseMicrosoft, currentUseFeature(), a);
+    }
     return !out.empty();
 }
 
@@ -541,7 +596,7 @@ std::string errorMessage(const json& j) {
 // length when there is no such part.
 size_t changingPartStart(const std::string& instructions) {
     size_t cut = instructions.size();
-    for (const char* head : {"\nRecent conversation, for context only", "\nThis line goes on from what they said just before",
+    for (const char* head : {"\nFor this line:", "\nRecent conversation, for context only", "\nThis line goes on from what they said just before",
                              "\n\nEarlier lines of the conversation, for context only",
                              "\n\nThis line goes on from what the speaker said just before"})
         cut = std::min(cut, instructions.find(head));
@@ -697,6 +752,7 @@ bool claude(Http& http, const TranslateSetup& st, const std::string& instruction
         r.url = "https://api.anthropic.com/v1/messages";
         r.headers = {"x-api-key: " + st.claudeKey, "anthropic-version: 2023-06-01", "content-type: application/json"};
         r.body = &payload;
+        noteAsked(0, st.purpose);
         const int time = attempt == 0 ? timeoutMs : std::max(300, timeoutMs - msFrom(began));  // what's left of it
         r.timeoutMs = time;
         long status = 0;
@@ -779,6 +835,8 @@ bool claude(Http& http, const TranslateSetup& st, const std::string& instruction
             countTokens(0, tokenField(u, "input_tokens") + tokenField(u, "cache_creation_input_tokens") * 5 / 4 +
                                tokenField(u, "cache_read_input_tokens") / 10,
                         tokenField(u, "output_tokens"));
+            noteAnswered(0, st.purpose, modelOf(st, 0), tokenField(u, "input_tokens"), tokenField(u, "output_tokens"), tokenField(u, "cache_read_input_tokens"),
+                         tokenField(u, "cache_creation_input_tokens"));
         }
         std::string text2;
         if (j.is_object() && j.contains("content") && j["content"].is_array())
@@ -828,6 +886,7 @@ bool gemini(Http& http, const TranslateSetup& st, const std::string& instruction
                 (liveNow ? ":streamGenerateContent?alt=sse" : ":generateContent");
         r.headers = {"x-goog-api-key: " + st.geminiKey, "Content-Type: application/json"};
         r.body = &payload;
+        noteAsked(1, st.purpose);
         const int time = attempt == 0 ? timeoutMs : std::max(300, timeoutMs - msFrom(began));  // what's left of it
         r.timeoutMs = time;
         long status = 0;
@@ -914,6 +973,10 @@ bool gemini(Http& http, const TranslateSetup& st, const std::string& instruction
         if (j.is_object() && j.contains("usageMetadata")) {  // thinking is billed as output too
             const json& u = j["usageMetadata"];
             countTokens(1, tokenField(u, "promptTokenCount"), tokenField(u, "candidatesTokenCount") + tokenField(u, "thoughtsTokenCount"));
+            // Gemini reuses the start of the instructions by itself when it repeats ("implicit caching");
+            // what it reused is part of promptTokenCount.
+            const long long cached = std::min(tokenField(u, "cachedContentTokenCount"), tokenField(u, "promptTokenCount"));
+            noteAnswered(1, st.purpose, modelOf(st, 1), tokenField(u, "promptTokenCount") - cached, tokenField(u, "candidatesTokenCount") + tokenField(u, "thoughtsTokenCount"), cached);
         }
         std::string text2;
         if (j.is_object() && j.contains("candidates") && j["candidates"].is_array() && !j["candidates"].empty()) {
@@ -960,6 +1023,7 @@ bool openai(Http& http, const TranslateSetup& st, const std::string& instruction
         r.url = "https://api.openai.com/v1/responses";
         r.headers = {"Authorization: Bearer " + st.openaiKey, "Content-Type: application/json"};
         r.body = &payload;
+        noteAsked(2, st.purpose);
         const int time = attempt == 0 ? timeoutMs : std::max(300, timeoutMs - msFrom(began));  // what's left of it
         r.timeoutMs = time;
         long status = 0;
@@ -1047,8 +1111,16 @@ bool openai(Http& http, const TranslateSetup& st, const std::string& instruction
             }
             return false;
         }
-        if (j.is_object() && j.contains("usage"))  // output_tokens includes any reasoning
-            countTokens(2, tokenField(j["usage"], "input_tokens"), tokenField(j["usage"], "output_tokens"));
+        if (j.is_object() && j.contains("usage")) {  // output_tokens includes any reasoning
+            const json& u = j["usage"];
+            countTokens(2, tokenField(u, "input_tokens"), tokenField(u, "output_tokens"));
+            // OpenAI reuses the start of the instructions by itself when it repeats; what it reused is
+            // part of input_tokens.
+            const long long cached = u.contains("input_tokens_details")
+                                         ? std::min(tokenField(u["input_tokens_details"], "cached_tokens"), tokenField(u, "input_tokens"))
+                                         : 0;
+            noteAnswered(2, st.purpose, modelOf(st, 2), tokenField(u, "input_tokens") - cached, tokenField(u, "output_tokens"), cached);
+        }
         std::string text2;
         bool refused = false;
         if (j.is_object() && j.contains("output") && j["output"].is_array())
@@ -1533,10 +1605,11 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                       : "- Keep the meaning and the attitude (jokes, sarcasm, excitement, swearing). Don't add, explain, soften "
                         "or censor anything, and keep it about as long as the original.\n";
     // Two rules depend on the line itself: with Carry my emotion, a line comes with stage directions and
-    // stressed words; without, no word is to be in capitals. The online AIs get whichever applies in
-    // place, among the other rules. A model on this PC gets it at the very end (see `changing` below):
-    // in the middle it would change the instructions from one line to the next, and everything after
-    // it would have to be read again.
+    // stressed words; without, no word is to be in capitals. Both kinds of AI get whichever applies
+    // after the rules that never change ("For this line:"): in the middle it would change the
+    // instructions from one line to the next, and everything after it would have to be read again. For
+    // Claude that meant paying full price again for the cached part each time a line with stage
+    // directions followed one without (or the other way round).
     const std::string perLine =
         st.marked.empty()
             ? std::string("- No word written ALL in capital letters (LIKE THIS), except a name or an abbreviation they said "
@@ -1569,7 +1642,6 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
         ", then everything else.\n" + st.wordNote +
         "- A text-to-speech voice will speak it: write only spoken words. No emoji, hashtags, texting abbreviations or "
         "laughter written as letters (no ㅋㅋ, lol, www, jaja, хаха), no quotation marks, no notes.\n" +
-        (onThisPc || !st.marked.empty() ? std::string() : perLine) +
         (mixed ? "- Mix in English the way people who speak " + spoken.substr(0, spoken.find(',')) + " really do: the everyday "
                  "English words and short phrases they switch to without thinking, with the rest in " + target + ". Names "
                  "stay exactly as they are: people, places, games, apps, brands and products (like VRChat, Discord, "
@@ -1578,7 +1650,6 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                  "because they were there: someone who only speaks " + target +
                  " has to understand all of it. Names stay exactly as they are: people, places, games, apps, brands and "
                  "products (like VRChat, Discord, ElevenLabs, Claude), and any words you were told to keep.\n") +
-        (onThisPc || st.marked.empty() ? std::string() : perLine) +
         "- If it is already in " + spoken + ", just make it sound natural in that style.\n"
         "- If what they said is garbled or unclear, say your best guess of what they meant. Never explain or comment.\n"
         "- If there is a word you won't say, just leave that word out and translate the rest as it is. Never replace "
@@ -1608,7 +1679,7 @@ std::string Translator::aiInstructions(const TranslateSetup& st, const Language*
                     "words for the same things and the same style:\n";
         for (const auto& b : st.before) changing += "- They said: " + b.first + "\n  You said: " + b.second + "\n";
     }
-    if (st.service != kLocal) s += changing;
+    if (st.service != kLocal) s += "\nFor this line:\n" + perLine + changing;
     if (!check.empty()) s += "\n" + check;
     // A model on this PC is small: it reads the long description above and still slides back to the
     // standard language and a neutral, polite tone. For it only, the two things that go wrong are said
@@ -1912,7 +1983,15 @@ bool aiCall(Http& h, const TranslateSetup& st, const std::string& instructions, 
     } else if (st.service == kGemini) {
         ok = gemini(h, st, instructions, source, text, ms, out, err, why, level);
     } else if (st.service == kLocal) {
+        const auto began = std::chrono::steady_clock::now();
         ok = localModel(h, st, instructions, source, text, ms, out, err, why);
+        if (ok) {  // for the Usage page: lines and the time they took (free)
+            UseAmount a;
+            a.requests = 1;
+            a.letters = (long long)text.size();
+            a.workMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count();
+            countUse(kUseLocal, st.purpose, a);
+        }
     } else {
         ok = openai(h, st, instructions, source, text, ms, out, err, why, level);
     }
@@ -2053,8 +2132,17 @@ bool Translator::readPicture(const TranslateSetup& st, const std::string& png64,
     r.timeoutSec = 40;
     long status = 0;
     std::string body;
+    const int which = st.service == kClaude ? 0 : st.service == kGemini ? 1 : 2;
+    noteAsked(which, st.purpose);
     if (!http.perform(r, status, body, err)) return false;
     const json j = json::parse(body, nullptr, false);
+    if (status == 200 && j.is_object()) {  // for the log's request count (the cost is counted below)
+        if (j.contains("usageMetadata"))
+            noteAnswered(which, st.purpose, modelOf(st, which), tokenField(j["usageMetadata"], "promptTokenCount"),
+                         tokenField(j["usageMetadata"], "candidatesTokenCount") + tokenField(j["usageMetadata"], "thoughtsTokenCount"));
+        else if (j.contains("usage"))
+            noteAnswered(which, st.purpose, modelOf(st, which), tokenField(j["usage"], "input_tokens"), tokenField(j["usage"], "output_tokens"));
+    }
     const char* name = st.service == kClaude ? "Claude" : st.service == kGemini ? "Gemini" : "OpenAI";
     if (status != 200) { err = httpProblem(name, status, errorMessage(j)); return false; }
     std::string text;
@@ -2177,6 +2265,7 @@ void Translator::warm(const TranslateSetup& st, const Language* from, const Lang
 
 bool Translator::translate(const TranslateSetup& st, const std::string& text, const Language* from, const Language& to,
                            std::string& out, std::string& err) {
+    const ScopedUseFeature feature(st.purpose);  // what DeepL and Microsoft count it under, if they do it
     via.clear();
     // DeepL's own context: the sentence just before, so it reads this one the same way (not translated,
     // not billed). Only for this call.
@@ -2772,6 +2861,7 @@ bool Translator::translate(const TranslateSetup& st, const std::string& text, co
 
 bool Translator::checkBack(const TranslateSetup& st, const std::string& text, const Language& from, const Language& to,
                            std::string& out, std::string& err) {
+    const ScopedUseFeature feature(kUseCheck);
     via.clear();
     std::string problem;
     const bool spareFree = st.service == kMyMemory && (!st.msKey.empty() || !st.deeplKey.empty());

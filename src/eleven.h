@@ -53,6 +53,7 @@ public:
 
     std::string apiKey;
     Http http;  // set http.cancel to abort a running request
+    int useFeature = 6;  // UseFeature (usagecount.h) this connection's requests count under; 6 = other
 
     // Opens the HTTPS connection ahead of time so the next request skips the handshake.
     void warm();

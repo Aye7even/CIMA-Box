@@ -4,6 +4,7 @@
 #include "core.h"
 
 #include "applog.h"
+#include "usagecount.h"
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -164,7 +165,12 @@ bool Eleven::speechToSpeech(const std::string& voiceId, const std::string& model
     r.parts = &parts;
     r.sink = &sink;
     std::string body;
-    return call(*this, r, body, err);
+    if (!call(*this, r, body, err)) return false;
+    UseAmount a;  // for the Usage page
+    a.requests = 1;
+    a.audioMs = (long long)pcm.size() / 16;
+    countUse(kUseEleven, kUseChanger, a);
+    return true;
 }
 
 bool Eleven::transcribe(const std::vector<int16_t>& pcm, const std::string& languageCode, std::string& text,
@@ -223,6 +229,12 @@ bool Eleven::transcribe(const std::vector<int16_t>& pcm, const std::string& lang
         if (attempt < 3 && sttStepDown(statuses[0], bodies[0], usedV3, rawPcmUpload_)) continue;
         err = statuses[0] != 0 && statuses[0] != 200 ? apiError(statuses[0], bodies[0]) : errs[0];
         return false;
+    }
+    {   // for the Usage page (billed by the length of the sound, the padding included)
+        UseAmount a;
+        a.requests = 1;
+        a.audioMs = (long long)padded.size() / 16;
+        countUse(kUseEleven, useFeature, a);
     }
     json j = json::parse(body, nullptr, false);
     if (!j.is_object() || !j.contains("text") || !j["text"].is_string()) { err = "Unexpected speech-to-text response"; return false; }
@@ -284,6 +296,12 @@ bool Eleven::transcribeTurns(const std::vector<int16_t>& pcm, const std::string&
         if (call(*this, r, body, err, &status)) break;
         if (attempt < 3 && sttStepDown(status, body, usedV3, rawPcmUpload_)) continue;
         return false;
+    }
+    {   // for the Usage page
+        UseAmount a;
+        a.requests = 1;
+        a.audioMs = (long long)padded.size() / 16;
+        countUse(kUseEleven, useFeature, a);
     }
 
     json j = json::parse(body, nullptr, false);
@@ -385,5 +403,10 @@ bool Eleven::textToSpeech(const std::string& voiceId, const std::string& modelId
     r.body = &payload;
     r.sink = &sink;
     std::string body;
-    return call(*this, r, body, err);
+    if (!call(*this, r, body, err)) return false;
+    UseAmount a;  // for the Usage page: billed by the characters spoken
+    a.requests = 1;
+    a.letters = (long long)utf8Count(text);
+    countUse(kUseEleven, useFeature, a);
+    return true;
 }

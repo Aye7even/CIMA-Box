@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "http.h"
+#include "usagecount.h"
 
 enum TranslateService { kMyMemory = 0, kDeepL = 1, kClaude = 2, kGemini = 3, kOpenAI = 4, kLocal = 5, kMicrosoft = 6 };
 // kLocal: a model on this PC (localai.h). kMicrosoft: Microsoft Translator (Azure), with your own key.
@@ -33,9 +34,17 @@ struct Variety {
 std::vector<const Variety*> varietiesOf(const std::string& langCode);
 const Variety* findVariety(const std::string& id);
 
+// What a translation was for, so the log and the Usage page can say where the tokens went (the same
+// numbers as UseFeature).
+enum AiPurpose {
+    kForMyVoice = kUseMyVoice, kForCaption = kUseCaptions, kForLiveSentence = kUseLive, kForCheck = kUseCheck,
+    kForOther = kUseOther, kAiPurposes = kUseFeatures
+};
+
 // Everything a translation needs besides the text itself.
 struct TranslateSetup {
     int service = kMyMemory;
+    int purpose = kForOther;  // AiPurpose: only counted (aiCounts), it changes nothing in the request
     std::string deeplKey, claudeKey, geminiKey, openaiKey;
     std::string msKey, msRegion;  // Microsoft Translator (optional backup); region only for regional resources
     // A model on this PC (kLocal): where it answers and the key it wants, while it's loaded
@@ -112,6 +121,16 @@ bool checkServiceKey(int service, const std::string& key, std::string& msg);
 std::string deeplHost(const std::string& key);
 // Tokens an AI service (kClaude, kGemini, kOpenAI) used so far in this run of the program.
 void aiTokens(int service, long long& in, long long& out);
+// Requests an AI service (kClaude, kGemini, kOpenAI) was sent in this run, and what came of them.
+struct AiCounts {
+    long long asked = 0;                 // requests sent (each one may be billed, answered or not)
+    long long answered = 0;              // ...that came back with a token count
+    long long byPurpose[kAiPurposes] = {};
+    long long tokensIn = 0;              // input tokens as the service counted them, all kinds together
+    long long cacheRead = 0, cacheWritten = 0;  // of those: reused from the service's cache / newly cached (Claude)
+    long long tokensOut = 0;
+};
+AiCounts aiCounts(int service);
 
 class Translator {
 public:

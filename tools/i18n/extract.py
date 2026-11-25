@@ -77,7 +77,7 @@ for _line in _v.splitlines():
     if 'st.button =' in _line: found += literals(_line)
 found += ['Connecting to SteamVR']
 # the 3.0 frame: sidebar, page titles, Home, quick toggles
-scan_file('ui3.inl', calls + ['navRow', 'sectionCard', 'sentenceWithChips', 'languageName'])
+scan_file('ui3.inl', calls + ['navRow', 'sectionCard', 'sentenceWithChips', 'languageName', 'usageBigNumbers', 'usageKey'])
 _u3=open(src+'ui3.inl').read()
 for _m in re.finditer(r'return \{"([^"]+)"|return "([^"]+)";|\{kPage\w+, "([^"]+)", "([^"]+)"', _u3):
     found += [g for g in _m.groups() if g]
@@ -111,6 +111,7 @@ drop={'Google Gemini','meaning','mic','out','check','share','stop','sound','CABL
 # the translation service dropdown: what each service is (the names are brands, apart from these)
 _i=_ui.index('static const Choice kChoices[] = {'); _blk=_ui[_i:_ui.index('};', _i)]
 for _row in re.findall(r'\{k\w+, "[^"]*", "[^"]*"\}', _blk): found.append(literals(_row)[1])
+for _row in re.findall(r'\{-1, "[^"]*", "[^"]*"\}', _blk): found += literals(_row)  # Listen: "Same as My voice and Text"
 found += ["Voice fingerprints couldn't be loaded on this PC. Voices are matched the built-in way.","Couldn't save the download.","This version of CIMA Box has no voice fingerprint pack yet.","The download failed. Check your connection and try again.","The download couldn't be unpacked.","The download was incomplete."]
 found += ['Free','Local','Gemini','Good fit','Tight','Push to talk key','Voice style','Voice speed','Volume others hear','Volume in my headphones','Match my microphone: amount','VR captions: distance','VR captions: height','VR captions: sideways','VR captions: size','VR captions: lines','VR captions: panel','Hear them in my ear: volume','Slow here','Not for this PC']
 # models on this PC: the catalog's words and LocalAi's messages (shown through T())

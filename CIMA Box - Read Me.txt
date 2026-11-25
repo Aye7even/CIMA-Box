@@ -504,8 +504,11 @@ Translation
                              that has only spoken another one doesn't); from a voice nobody knows
                              yet, it is shown.
   Translate into ........... Your language. Type to search.
-  Translation service ...... Same as on My voice. Use DeepL here: the free service runs out
-                             after a few minutes of steady captions.
+  Translation service ...... "Same as My voice and Text" (the default), or a service of its own
+                             for captions (and screen translation): for example Gemini, Microsoft
+                             or the free model on your PC for what others say, and Claude for your
+                             own voice. Avoid Free here: it runs out after a few minutes of
+                             steady captions.
   Tell speakers apart ...... Splits a caption into "Voice 1", "Voice 2" lines when several people
                              talk. The numbers only apply inside that one caption. In VRChat
                              (and other games that place voices around you), two people talking
@@ -530,8 +533,8 @@ Translation
                              get better or worse. Not used for the words shown while someone is
                              still talking, and never for telling voices apart (cleaned voices
                              sound more alike, so they were mixed up more often).
-  Translation service ...... Same choices as on My voice. Claude, Gemini or OpenAI understand
-                             slang much better. Here they always translate faithfully.
+  (About the translation service: Claude, Gemini or OpenAI understand slang much better. Here
+                             they always translate faithfully.)
   Send to VRChat chatbox ... Shows the newest caption above your avatar (people near you can read
                              it too). Needs OSC on in VRChat.
   Caption size ............. Text size of the captions.
@@ -876,7 +879,38 @@ A small card at the bottom left, above Settings, shows what's left for the servi
   DeepL ........ characters left this month.
   Claude, Gemini, OpenAI  They can't report what's left on a key, so this shows what CIMA Box spent
                  in this session (counted from their answers, at list price).
-It turns amber when less than a tenth is left and red when it's used up. Hover for details.
+It turns amber when less than a tenth is left and red when it's used up. Hover for details, or
+click it to open the Usage page.
+
+
+USAGE PAGE
+----------
+
+In the left side, under Extra features (or click the card at the bottom left). Where your credits
+and tokens went, service by service. Nothing on this page is sent anywhere.
+
+  This session / Today / 7 days / 30 days
+                             The time to show. The days are kept on this PC (usage-history.json,
+                             next to the settings) for two months.
+  The services along the top ElevenLabs, Claude, Gemini, OpenAI, DeepL, Microsoft Azure and the
+                             model on your PC, each with what it came to. Click one to see it.
+  ElevenLabs ............... Credits this session, credits left and when they renew (from your
+                             account), the minutes of sound and letters each part used (My voice,
+                             Listen's captions, Listen while they talk, Changer, Hear them in my
+                             ear), and your last 7 days of credits from your ElevenLabs account
+                             (its days start at midnight UTC).
+  Claude, Gemini, OpenAI ... Requests, tokens, how much came from the service's cache (cheaper),
+                             and what that comes to at list price, by feature; also what that
+                             service does in your setup, and the last requests of this session
+                             (only counts and times are kept, never what anyone said). The bill on
+                             the service's own site is the exact figure.
+  DeepL .................... This month's letters, from your account, and what used them.
+  Microsoft Azure .......... Microsoft doesn't tell apps how much a key has used, so CIMA Box counts
+                             the letters itself; your Azure portal shows the exact figure.
+  On this PC ............... Lines translated and the usual time per line. Free.
+A note appears when something stands out, like "Captions while they talk" with "Tell speakers
+apart" sending what others say twice. Every ten minutes the log also gets a line with each AI
+service's requests, tokens and cost for the session.
 
 
 PROBLEMS

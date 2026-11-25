@@ -585,13 +585,18 @@ void meter(float levelDb, float& shownDb, float thresholdDb, bool open, bool sho
 // and the actions are known).
 void localModels(Settings& c);
 
-// Shared by both pages: which service turns text into the other language.
+// Which service turns text into the other language. My voice and Text share one; Listen (captions,
+// and screen translation) uses the same one unless a different one is picked there, so what others
+// say can go to a cheaper service than your own voice (or the other way round).
 extern UiModel* gUi;  // the frame's model (set in uiDraw)
 void translationService(Settings& c, bool forCaptions) {
     fieldLabel("Translation service");
+    // On Listen, -1 is "the same as My voice and Text".
+    int& pick = forCaptions ? c.listenService : c.translateService;
     {   // A dropdown: each service with one line on what it is and what it needs.
         struct Choice { int service; const char* name; const char* what; };
         static const Choice kChoices[] = {
+            {-1, "Same as My voice and Text", "One service for everything."},
             {kMyMemory, "Free", "No sign-up. Rough wording, small daily limit."},
             {kDeepL, "DeepL", "Accurate, textbook wording. Free key."},
             {kMicrosoft, "Microsoft", "Accurate, 100+ languages. Free Azure key."},
@@ -600,57 +605,68 @@ void translationService(Settings& c, bool forCaptions) {
             {kOpenAI, "OpenAI", "AI: natural wording and slang. Paid key."},
             {kLocal, "Local", "AI on this PC: free, private, no key."},
         };
-        const Choice* cur = &kChoices[0];
-        for (const Choice& ch : kChoices)
-            if (ch.service == c.translateService) cur = &ch;
+        const Choice* first = forCaptions ? &kChoices[0] : &kChoices[1];
+        const Choice* end = kChoices + sizeof(kChoices) / sizeof(*kChoices);
+        const Choice* cur = first;
+        for (const Choice* ch = first; ch != end; ++ch)
+            if (ch->service == pick) cur = ch;
+        std::string shown = T(cur->name);
+        if (cur->service < 0) {  // "Same as My voice and Text (Claude)"
+            for (const Choice* ch = kChoices + 1; ch != end; ++ch)
+                if (ch->service == c.translateService) shown += std::string(" (") + T(ch->name) + ")";
+        }
         ImGui::SetNextItemWidth(-FLT_MIN);
-        if (ImGui::BeginCombo("##service", T(cur->name), ImGuiComboFlags_HeightLarge)) {
+        if (ImGui::BeginCombo("##service", shown.c_str(), ImGuiComboFlags_HeightLarge)) {
             const float rowH = ImGui::GetTextLineHeight() * 2.f + em() * 0.45f;
-            for (const Choice& ch : kChoices) {
-                ImGui::PushID(ch.service);
+            for (const Choice* ch = first; ch != end; ++ch) {
+                ImGui::PushID(ch->service + 1);
                 const ImVec2 at = ImGui::GetCursorScreenPos();
-                if (ImGui::Selectable("##pick", ch.service == c.translateService, 0, ImVec2(0, rowH))) c.translateService = ch.service;
+                if (ImGui::Selectable("##pick", ch->service == pick, 0, ImVec2(0, rowH))) pick = ch->service;
                 ImDrawList* dl = ImGui::GetWindowDrawList();
-                dl->AddText(ImVec2(at.x + em() * 0.3f, at.y + em() * 0.1f), col(ch.service == c.translateService ? kSignal : kText), T(ch.name));
-                dl->AddText(ImVec2(at.x + em() * 0.3f, at.y + em() * 0.15f + ImGui::GetTextLineHeight()), col(kMuted), T(ch.what));
+                dl->AddText(ImVec2(at.x + em() * 0.3f, at.y + em() * 0.1f), col(ch->service == pick ? kSignal : kText), T(ch->name));
+                dl->AddText(ImVec2(at.x + em() * 0.3f, at.y + em() * 0.15f + ImGui::GetTextLineHeight()), col(kMuted), T(ch->what));
                 ImGui::PopID();
             }
             ImGui::EndCombo();
         }
+        if (forCaptions && pick < 0)
+            note("Captions can have a service of their own: a cheaper one for what others say, for example, and the best one for your voice.");
     }
-    const bool ai = isAiService(c.translateService);
+    // The service this page actually uses.
+    const int svc = forCaptions ? c.captionService() : c.translateService;
+    const bool ai = isAiService(svc);
     // The key can be pasted right here the first time; after that it lives in Settings.
-    std::string* key = c.translateService == kDeepL    ? &c.deeplKey
-                     : c.translateService == kMicrosoft ? &c.msKey
-                     : c.translateService == kClaude ? &c.claudeKey
-                     : c.translateService == kGemini ? &c.geminiKey
-                     : c.translateService == kOpenAI ? &c.openaiKey
+    std::string* key = svc == kDeepL    ? &c.deeplKey
+                     : svc == kMicrosoft ? &c.msKey
+                     : svc == kClaude ? &c.claudeKey
+                     : svc == kGemini ? &c.geminiKey
+                     : svc == kOpenAI ? &c.openaiKey
                                                      : nullptr;
     if (key && key->empty()) {
         // One field per service: with a shared ID, a key being typed when the service changed could
         // land in the wrong service's key.
-        ImGui::PushID(c.translateService);
+        ImGui::PushID(svc);
         ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::InputTextWithHint("##servicekey", c.translateService == kDeepL    ? T("Paste your DeepL API key")
-                                                 : c.translateService == kMicrosoft ? T("Paste your Microsoft Translator key (Azure)")
-                                                 : c.translateService == kClaude ? T("Paste your Claude API key (console.anthropic.com)")
-                                                 : c.translateService == kOpenAI ? T("Paste your OpenAI API key (platform.openai.com)")
+        ImGui::InputTextWithHint("##servicekey", svc == kDeepL    ? T("Paste your DeepL API key")
+                                                 : svc == kMicrosoft ? T("Paste your Microsoft Translator key (Azure)")
+                                                 : svc == kClaude ? T("Paste your Claude API key (console.anthropic.com)")
+                                                 : svc == kOpenAI ? T("Paste your OpenAI API key (platform.openai.com)")
                                                                                  : T("Paste your Gemini API key (aistudio.google.com)"),
                                  key, ImGuiInputTextFlags_Password);
         ImGui::PopID();
     }
-    if (c.translateService == kMyMemory)
+    if (svc == kMyMemory)
         note(forCaptions ? "MyMemory, no sign-up. Its 5,000 characters a day last only minutes of steady captions."
                          : "MyMemory, no sign-up. About 5,000 characters a day, and rougher wording.");
-    else if (c.translateService == kDeepL)
+    else if (svc == kDeepL)
         note("Accurate, textbook wording. A free DeepL API key covers 500,000 characters a month.");
-    else if (c.translateService == kMicrosoft) {
+    else if (svc == kMicrosoft) {
         note("Accurate, textbook wording in 100+ languages. A free Azure key covers 2 million characters a month.");
         if (!c.msKey.empty()) {
             ImGui::SetNextItemWidth(-FLT_MIN);
             ImGui::InputTextWithHint("##msregion2", T("Region, only if Azure shows one (like westus)"), &c.msRegion);
         }
-    } else if (c.translateService == kLocal) {
+    } else if (svc == kLocal) {
         note("An AI that runs on this PC: free, private, no key, and it works offline once downloaded.");
         localModels(c);
         // Small models are at their best in the big languages. For the others, said up front.
@@ -678,14 +694,14 @@ void translationService(Settings& c, bool forCaptions) {
     }
     if (!ai) return;
 
-    if (ai && c.deeplKey.empty() && c.translateService != kLocal)
+    if (ai && c.deeplKey.empty() && svc != kLocal)
         note("Tip: add a DeepL key in Settings too. It steps in when the AI is slow.");
     // A key for a second AI: it can cover the lines this one says no to or fails on.
     int otherAis = 0;
-    for (int svc : {kClaude, kGemini, kOpenAI})
-        if (svc != c.translateService && !(svc == kClaude ? c.claudeKey : svc == kGemini ? c.geminiKey : c.openaiKey).empty())
+    for (int other : {kClaude, kGemini, kOpenAI})
+        if (other != svc && !(other == kClaude ? c.claudeKey : other == kGemini ? c.geminiKey : c.openaiKey).empty())
             ++otherAis;
-    if (otherAis > 0 && c.translateService == kLocal) {
+    if (otherAis > 0 && svc == kLocal) {
         toggleRow("Use my AI key as a backup", &c.aiBackup);
         note("Only for lines the local model says no to or fails on, so the key is hardly used.");
     } else if (otherAis > 0) {
@@ -693,7 +709,7 @@ void translationService(Settings& c, bool forCaptions) {
         note("Only for lines this AI says no to or fails on, never just slow ones, so no line is paid for twice.");
     }
     // A model on this PC that's downloaded can take the lines an online AI says no to.
-    if (c.translateService != kLocal && gUi) {
+    if (svc != kLocal && gUi) {
         bool have = false;
         for (const LocalModelState& ms : gUi->local.models) have = have || ms.stage == kModelInstalled;
         if (have) {
@@ -1349,6 +1365,7 @@ const Findable kFindables[] = {
     {"Translate to", kPageVoice, "Voice and language", "target language translation output language", nullptr},
     {"I speak", kPageVoice, "Voice and language", "my language source", nullptr},
     {"Translation service", kPageVoice, "Voice and language", "claude gemini openai deepl free ai", nullptr},
+    {"Translation service", kPageListen, "Translation", "captions claude gemini openai deepl microsoft free ai local cheaper different own separate", nullptr},
     {"How you talk", kPageVoice, "Voice and language", "style polite casual very casual formal slang my own", nullptr},
     {"Match how they talk to me", kPageVoice, "Voice and language", "mirror match style", TOGGLE(mirror)},
     {"Say each sentence as soon as it's finished", kPageVoice, "Voice and language", "sentence by sentence faster speed latency delay waits", TOGGLE(speakSentences)},
@@ -4015,7 +4032,7 @@ void featuresHearing(UiModel& m, UiActions& act) {
             segmented("##reader", kReaders, 2, &sc.reader);
             note(sc.reader == kReadWindows ? "Reads on your PC, free. Knows fewer languages (see the notice)."
                                            : "Reads any language and translates in one step, but pictures use many more tokens.");
-            if (sc.reader == kReadAi && !isOnlineAi(c.translateService))
+            if (sc.reader == kReadAi && !isOnlineAi(c.captionService()))
                 note("AI reading needs Claude, Gemini or OpenAI as the translation service.", kDanger);
             if (sc.reader == kReadWindows) {
                 fieldLabel("Text in the picture");
@@ -4439,7 +4456,7 @@ void screenPreviewWindow(UiModel& m, UiActions& act) {
             const int pw = std::min(1280, int(float(s.width) * (s.crop[2] - s.crop[0])));
             const int ph = std::min(1280, int(float(s.height) * (s.crop[3] - s.crop[1])));
             char b[160];
-            std::snprintf(b, sizeof(b), TF("AI reading: about %d tokens for this picture."), pictureTokens(m.cfg.translateService, pw, ph));
+            std::snprintf(b, sizeof(b), TF("AI reading: about %d tokens for this picture."), pictureTokens(m.cfg.captionService(), pw, ph));
             note(b, kBusy);
         }
         ImGui::EndChild();

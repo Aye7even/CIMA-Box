@@ -87,7 +87,11 @@ nobody else can push an update to your friends, even with access to the download
 
         git commit -am "CIMA Box 2.7.0"
         git tag v2.7.0
-        git push origin main --tags
+        git push origin main v2.7.0
+
+   Push the one tag by its name, as above. `--tags` pushes every tag on this PC that GitHub
+   doesn't have yet, and each one starts a release of its own: an old tag left over from an
+   earlier version gets published again next to the new one.
 
 3. Watch it under the repository's **Actions** tab (5 to 10 minutes). When it's green, the release is
    on the Releases page, and apps pick it up the next time they start (or with Check for updates).
@@ -195,6 +199,10 @@ To change it later, replace `assets/icon.png` and `assets/cimabox.ico` and regen
     lang/             _template.json.txt, copied next to the program (add app languages)
     tools/i18n/       interface translations and the scripts that check and build them
     src/cleansound.*  Listen: is there a voice in a phrase, and noise removal (a pack, like voiceid and soundid)
+    src/usagecount.*  the Usage page's counts: every service's use by feature, per session and per day
+                      (usage-history.json); list prices. src/usage.* reads what the accounts say
+                      (credits left, ElevenLabs' last 7 days). The page itself is in src/ui3.inl.
+                      For pictures of the page: CIMA_TEST_START_PAGE=7 and CIMA_TEST_USAGE="service,range"
     tools/quality/    translation quality test: lines run through the app's own translation code
                       against a model on this PC (see its README.txt); run it after changing the
                       AI instructions in src/translate.cpp

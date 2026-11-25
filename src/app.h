@@ -19,10 +19,11 @@
 #include "voiceid.h"
 #include "pcspecs.h"
 #include "updater.h"
+#include "usage.h"
 
 enum Engine { kVoiceChanger = 0, kRespeak = 1, kTranslate = 2 };
 enum Activation { kVoiceActivity = 0, kPushToTalk = 1 };
-enum Page { kPageVoice = 0, kPageListen = 1, kPageVR = 2, kPageSettings = 3, kPageText = 4, kPageFeatures = 5, kPageHome = 6 };
+enum Page { kPageVoice = 0, kPageListen = 1, kPageVR = 2, kPageSettings = 3, kPageText = 4, kPageFeatures = 5, kPageHome = 6, kPageUsage = 7 };
 // Who you are talking to, as chosen. Auto = the last person who spoke (guessed from their voice).
 enum TalkingTo { kTalkAuto = 0, kTalkUnknown = 1, kTalkMan = 2, kTalkWoman = 3, kTalkGroup = 4, kTalkCount = 5 };
 // Where cimabox.json is kept (Settings > About).
@@ -74,7 +75,9 @@ struct Settings {
     float spendDollars = 1.0f;         // Claude, Gemini and OpenAI together, US$
     bool spendStop = false;            // also switch off talking and listening when reached             // Text page: say it with the voice (else only the chatbox and the feed)
     int chatboxShow = 0;               // ChatboxShow
-    int translateService = 0;          // TranslateService, shared by both pages
+    int translateService = 0;          // TranslateService: My voice and Text (and Listen, unless it has its own)
+    int listenService = -1;            // TranslateService for Listen's captions (and screen translation); -1 = the same
+    int captionService() const { return listenService >= 0 ? listenService : translateService; }
     std::string deeplKey;
     std::string claudeKey, geminiKey, openaiKey;  // AI translation (natural, slang-aware)
     std::string msKey, msRegion;  // Microsoft Translator: an optional free backup (2 million characters a month)
@@ -270,6 +273,8 @@ struct UiModel {
     std::vector<ChatLine> chat;              // Text page, oldest first
     std::vector<ServiceStatus> services;     // ElevenLabs, Claude, Gemini, DeepL status pages
     std::vector<UsageItem> usage;            // what's left, for the services in use
+    Quota elevenQuota, deeplQuota;           // the Usage page: read from those accounts
+    std::vector<ElevenDay> elevenDays;       // the Usage page: ElevenLabs credits for the last 7 days
     std::string logPath;                     // cimabox.log
     long long sessionCredits = -1;           // ElevenLabs credits used since start (-1 = can't tell)
     double sessionDollars = 0;               // Claude + Gemini + OpenAI since start

@@ -1,4 +1,5 @@
 #include "livestt.h"
+#include "usagecount.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -98,6 +99,9 @@ void LiveStt::begin(const Options& o) {
     it.first = true;
     queue_.push_back(std::move(it));
     cv_.notify_one();
+    UseAmount a;  // for the Usage page: one phrase streamed
+    a.requests = 1;
+    countUse(kUseEleven, useFeature, a);
 }
 
 void LiveStt::audio(const int16_t* pcm, size_t n) {
@@ -409,6 +413,9 @@ bool LiveStt::sendChunk(const std::vector<int16_t>& pcm, size_t from, size_t cou
     if (!sendText(m.dump())) return false;
     firstChunk_ = false;
     sessionSamples_ += (long long)count;
+    UseAmount a;  // for the Usage page: the sound streamed (a phrase counts as one request when it starts)
+    a.audioMs = (long long)count * 1000 / kRate;
+    countUse(kUseEleven, useFeature, a);
     return true;
 }
 

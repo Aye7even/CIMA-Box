@@ -43,7 +43,8 @@ pages. Handy when you can't or don't want to talk out loud.
 
 **Listen**: live captions of what other people say, translated into your language. It can listen to
 just one program (your game, Discord...), everything on your speakers, or a microphone, and tells
-apart who is speaking. Keep the captions in a small window on top of your game.
+apart who is speaking. Keep the captions in a small window on top of your game. Captions can use a
+different translation service from your own voice (a cheaper one for what others say, for example).
 
 ![The Listen page](docs/listen.png)
 
@@ -68,6 +69,11 @@ ever stops updating, it fixes itself (or press Reset VR captions).
   a searchable **history**, and **profiles** you can share with friends as a code (never with keys).
 
 ![The Extra features page: screen translation, extras for talking, and handy tools](docs/features.png)
+
+**Usage**: where your credits and tokens went, service by service (ElevenLabs, Claude, Gemini,
+OpenAI, DeepL, Microsoft Azure, the model on your PC), for this session, today, 7 or 30 days: what
+each feature used, what it cost, how much came from the AI's cache, and your last 7 days of
+ElevenLabs credits from your own account. Counted on your PC; nothing is sent anywhere.
 
 **Mini window**: shrink CIMA Box to a small window that stays on top of your game, with the last
 line, the mode, Stop and the switch. With Listen on, what other people say shows right under your
@@ -146,7 +152,7 @@ Every button and setting is explained in **[`CIMA Box - Read Me.txt`](CIMA%20Box
   Accounts), and remember that friends using your key count on your account. The author isn't
   responsible for charges or used-up credits: you use it at your own risk.
 - **What's left** of your ElevenLabs credits (and DeepL characters, or what Claude, Gemini or OpenAI cost
-  this session) shows quietly at the bottom of the window.
+  this session) shows quietly at the bottom of the window. Click it for the Usage page.
 - **Something stopped working?** Settings > Service status shows whether ElevenLabs, Claude,
   OpenAI or DeepL are having problems right now, and a small note appears at the top of the window when a
   service you use is. Then it's on their side: wait a bit and try again. Settings > About > Open

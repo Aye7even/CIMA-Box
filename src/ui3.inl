@@ -7,7 +7,7 @@
 enum IconKind {
     kIcHome, kIcMic, kIcText, kIcHeadphones, kIcVR, kIcGrid, kIcSliders, kIcMini, kIcWave, kIcFace, kIcChat,
     kIcSpeaker, kIcScreen, kIcCaptions, kIcBookmark, kIcSwap, kIcClock, kIcBook, kIcStar, kIcBeep, kIcCancel, kIcWords,
-    kIcCheck
+    kIcCheck, kIcBars
 };
 
 void drawIcon(ImDrawList* dl, int kind, ImVec2 c, float s, ImU32 color) {
@@ -115,6 +115,10 @@ void drawIcon(ImDrawList* dl, int kind, ImVec2 c, float s, ImU32 color) {
         R(0.1f, 0.24f, 0.9f, 0.76f, 0.12f);
         L(0.26f, 0.5f, 0.42f, 0.5f); L(0.5f, 0.5f, 0.74f, 0.5f);
         break;
+    case kIcBars:  // a small bar chart
+        L(0.22f, 0.86f, 0.22f, 0.5f); L(0.5f, 0.86f, 0.5f, 0.18f); L(0.78f, 0.86f, 0.78f, 0.62f);
+        L(0.1f, 0.86f, 0.9f, 0.86f);
+        break;
     }
 }
 
@@ -154,6 +158,7 @@ const NavItem kNav[] = {
     {kPageListen, "Listen", "Captions of others", kIcHeadphones},
     {kPageVR, "VR", "Captions in your headset", kIcVR},
     {kPageFeatures, "Extra features", "Optional add-ons", kIcGrid},
+    {kPageUsage, "Usage", "Credits and costs", kIcBars},
 };
 
 // One sidebar row: icon, name, a line saying what's there, and a dot when that part is on.
@@ -285,7 +290,7 @@ void sidebar(UiModel& m, UiActions& act) {
             const float ly = a.y + em() * 0.45f + em() * 1.25f * float(i);
             ImGui::SetCursorScreenPos(ImVec2(a.x, ly - em() * 0.1f));
             ImGui::PushID(int(i));
-            ImGui::InvisibleButton("##usage", ImVec2(w, em() * 1.2f));
+            if (ImGui::InvisibleButton("##usage", ImVec2(w, em() * 1.2f))) m.cfg.page = kPageUsage;  // the whole picture
             const bool hot = ImGui::IsItemHovered();
             ImGui::PopID();
             const ImVec4 vc = u.level == kUsageOut ? kDanger : u.level == kUsageLow ? kSignal : u.level == kUsageUnknown ? kMuted : kText;
@@ -319,6 +324,7 @@ const char* pageTitle(int page) {
     case kPageListen: return "Listen";
     case kPageVR: return "VR";
     case kPageFeatures: return "Extra features";
+    case kPageUsage: return "Usage";
     default: return "Settings";
     }
 }
@@ -1521,6 +1527,445 @@ void miniView(UiModel& m, UiActions& act) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", T(c.enabled ? "Turn the voice changer off" : "Turn the voice changer on"));
 }
 
+// ---------------------------------------------------------------- Usage
+
+// "1,234" for counts.
+std::string usageCount(long long n) {
+    std::string s = std::to_string(n < 0 ? -n : n), out;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (i > 0 && (s.size() - i) % 3 == 0) out += ',';
+        out += s[i];
+    }
+    return n < 0 ? "-" + out : out;
+}
+// "12.4k" for big counts.
+std::string usageShort(double n) {
+    char b[32];
+    if (n >= 1e6) std::snprintf(b, sizeof(b), "%.1fM", n / 1e6);
+    else if (n >= 10000) std::snprintf(b, sizeof(b), "%.0fk", n / 1e3);
+    else if (n >= 1000) std::snprintf(b, sizeof(b), "%.1fk", n / 1e3);
+    else std::snprintf(b, sizeof(b), "%.0f", n);
+    return b;
+}
+std::string usageMoney(double d) {
+    char b[32];
+    if (d <= 0) return "$0";
+    if (d < 0.001) std::snprintf(b, sizeof(b), "$%.5f", d);
+    else if (d < 1) std::snprintf(b, sizeof(b), "$%.3f", d);
+    else std::snprintf(b, sizeof(b), "$%.2f", d);
+    return b;
+}
+std::string usageMinutes(long long ms) {
+    char b[32];
+    if (ms < 60000) std::snprintf(b, sizeof(b), TF("%.0f s"), double(ms) / 1000.0);
+    else std::snprintf(b, sizeof(b), TF("%.0f min"), double(ms) / 60000.0);
+    return b;
+}
+
+// A few large numbers side by side, each with a small line under it.
+void usageBigNumbers(const std::vector<std::pair<std::string, const char*>>& items) {
+    const float w = ImGui::GetContentRegionAvail().x / float(std::max<size_t>(1, items.size()));
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    for (size_t i = 0; i < items.size(); ++i) {
+        const float x = p.x + w * float(i);
+        ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 1.55f);
+        dl->AddText(ImVec2(x, p.y), col(kText), items[i].first.c_str());
+        const float big = ImGui::GetFontSize();
+        ImGui::PopFont();
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
+        dl->PushClipRect(ImVec2(x, p.y), ImVec2(x + w - em() * 0.4f, p.y + big + em() * 2.f), true);
+        dl->AddText(ImVec2(x, p.y + big * 1.08f), col(kMuted), T(items[i].second));
+        dl->PopClipRect();
+        ImGui::PopFont();
+    }
+    ImGui::Dummy(ImVec2(0, ImGui::GetStyle().FontSizeBase * 1.55f + em() * 1.25f));
+}
+
+// A bar made of coloured parts (fractions of the whole width).
+void usageBar(const std::vector<std::pair<float, ImVec4>>& parts, float h = 0.f) {
+    const float w = ImGui::GetContentRegionAvail().x;
+    h = h > 0 ? h : std::floor(em() * 0.5f);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col(kField), h * 0.5f);
+    float x = p.x;
+    for (const auto& part : parts) {
+        const float pw = w * std::max(0.f, std::min(1.f, part.first));
+        if (pw <= 0) continue;
+        dl->AddRectFilled(ImVec2(x, p.y), ImVec2(std::min(p.x + w, x + pw), p.y + h), col(part.second), h * 0.5f);
+        x += pw;
+    }
+    ImGui::Dummy(ImVec2(w, h));
+}
+
+// A small coloured square and a label, on one line.
+void usageKey(const ImVec4& c, const char* label) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float s = std::floor(em() * 0.6f);
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(p.x, p.y + (ImGui::GetTextLineHeight() - s) * 0.5f),
+                                              ImVec2(p.x + s, p.y + (ImGui::GetTextLineHeight() + s) * 0.5f), col(c), s * 0.25f);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + s + em() * 0.4f, p.y));
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.88f);
+    ImGui::TextColored(kText, "%s", T(label));
+    ImGui::PopFont();
+}
+
+const char* const kUseFeatureNames[] = {"My voice and Text", "Listen: finished captions", "Listen: while they talk",
+                                        "What my translated line means", "Hear them in my ear", "Changer and Re-speak",
+                                        "Other (Try a line, screen, learning)"};
+const ImVec4 kUseFeatureColors[] = {rgb(0x8FB2F2), rgb(0xE59AD0), rgb(0xE8B05E), rgb(0x7FD6A4), rgb(0xB9A3FF), rgb(0xFF9E8A), rgb(0x6B7385)};
+
+// What a service does in this setup, in a few words.
+std::string usageRole(const Settings& c, int svc) {
+    const int mine = c.translateService, theirs = c.captionService();
+    if (mine == svc && theirs == svc) return T("Translates My voice, Text and Listen");
+    if (mine == svc) return T("Translates My voice and Text");
+    if (theirs == svc) return T("Translates Listen");
+    return std::string();
+}
+
+void usagePage(UiModel& m, UiActions& act) {
+    Settings& c = m.cfg;
+    // This session, today, 7 days, 30 days; and the service shown. (For tests: CIMA_TEST_USAGE="service,range".)
+    static int range = 0;
+    static int service = kUseEleven;
+    static const bool picked = [] {
+        if (const char* v = std::getenv("CIMA_TEST_USAGE")) std::sscanf(v, "%d,%d", &service, &range);
+        service = std::max(0, std::min(kUseServices - 1, service));
+        range = std::max(0, std::min(3, range));
+        return true;
+    }();
+    (void)picked;
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+
+    static const char* const kRanges[] = {"This session", "Today", "7 days", "30 days"};
+    segmented("##userange", kRanges, 4, &range, std::min(avail.x, em() * 26.f));
+    const UseTotals t = range == 0 ? useSession() : useDays(range == 1 ? 1 : range == 2 ? 7 : 30);
+    gap(0.4f);
+
+    // The services, side by side: each with what it came to in this range.
+    struct Svc { int use; const char* name; int translate; };
+    static const Svc kSvcs[] = {{kUseEleven, "ElevenLabs", -1}, {kUseClaude, "Claude", kClaude}, {kUseGemini, "Gemini", kGemini},
+                                {kUseOpenAI, "OpenAI", kOpenAI}, {kUseDeepL, "DeepL", kDeepL}, {kUseMicrosoft, "Microsoft Azure", kMicrosoft},
+                                {kUseLocal, "On this PC", kLocal}};
+    {
+        const int n = int(sizeof(kSvcs) / sizeof(*kSvcs));
+        const float gapW = em() * 0.5f, w = (ImGui::GetContentRegionAvail().x - gapW * float(n - 1)) / float(n);
+        const float h = em() * 2.9f;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (int i = 0; i < n; ++i) {
+            const Svc& s = kSvcs[i];
+            const UseAmount a = t.service(s.use);
+            std::string value;
+            if (s.use == kUseEleven) {
+                const long long ms = a.audioMs;
+                value = range == 0 && m.sessionCredits >= 0 ? usageCount(m.sessionCredits) + " " + T("credits")
+                        : ms > 0                            ? usageMinutes(ms)
+                                                            : usageShort(double(a.letters)) + " " + T("letters");
+            } else if (s.use == kUseDeepL || s.use == kUseMicrosoft) {
+                value = usageShort(double(a.letters)) + " " + T("letters");
+            } else if (s.use == kUseLocal) {
+                value = usageCount(a.requests) + " " + T("lines");
+            } else {
+                value = usageMoney(a.dollars);
+            }
+            const ImVec2 a0(p.x + (w + gapW) * float(i), p.y);
+            ImGui::SetCursorScreenPos(a0);
+            ImGui::PushID(i);
+            if (ImGui::InvisibleButton("##svc", ImVec2(w, h))) service = s.use;
+            const bool hot = ImGui::IsItemHovered();
+            ImGui::PopID();
+            const bool on = service == s.use;
+            dl->AddRectFilled(a0, ImVec2(a0.x + w, a0.y + h), col(hot && !on ? mix(kPanel, kField, 0.5f) : kPanel), em() * 0.5f);
+            if (on) dl->AddRect(a0, ImVec2(a0.x + w, a0.y + h), col(kSignal), em() * 0.5f, 0, 1.6f);
+            dl->PushClipRect(a0, ImVec2(a0.x + w - em() * 0.4f, a0.y + h), true);
+            ImGui::PushFont(gSemibold, ImGui::GetStyle().FontSizeBase * 0.95f);
+            dl->AddText(ImVec2(a0.x + em() * 0.7f, a0.y + em() * 0.45f), col(kText), T(s.name));
+            ImGui::PopFont();
+            ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.82f);
+            dl->AddText(ImVec2(a0.x + em() * 0.7f, a0.y + em() * 1.6f), col(on ? kSignal : kMuted), value.c_str());
+            ImGui::PopFont();
+            dl->PopClipRect();
+        }
+        ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
+        gap(0.5f);
+    }
+
+    const ImVec2 top = ImGui::GetCursorScreenPos();
+    const float gapW = em() * 1.0f;
+    const float bodyH = origin.y + avail.y - top.y;
+    const float leftW = std::floor((avail.x - gapW) * 0.56f), rightW = avail.x - leftW - gapW;
+    const UseAmount all = t.service(service);
+    const char* name = "ElevenLabs";
+    for (const Svc& s : kSvcs)
+        if (s.use == service) name = s.name;
+
+    // ---- the left column, top: the totals
+    const float topH = std::min(bodyH * 0.48f, em() * 13.f);
+    beginPanel("usetotals", ImVec2(leftW, topH), name);
+    if (service == kUseEleven) {
+        const Quota& q = m.elevenQuota;
+        const long long left = q.known ? std::max(0LL, q.limit - q.used) : -1;
+        int days = -1;
+        if (q.known && q.resetsAt > 0) days = std::max(0, int((q.resetsAt - (int64_t)std::time(nullptr) + 86399) / 86400));
+        usageBigNumbers({{m.sessionCredits >= 0 ? usageCount(m.sessionCredits) : std::string("-"), "credits this session"},
+                         {left >= 0 ? usageCount(left) : std::string("-"), "credits left"},
+                         {days >= 0 ? std::to_string(days) : std::string("-"), "days until they renew"}});
+        if (q.known && q.limit > 0) usageBar({{float(q.used) / float(q.limit), kSignal}});
+        if (!q.problem.empty()) note(T(q.problem), kBusy);
+        else if (!q.known) note(c.apiKey.empty() ? "Add your ElevenLabs key in Settings > Accounts." : "Reading your account...");
+        else {
+            char b[200];
+            std::snprintf(b, sizeof(b), TF("%s of %s credits used this month."), usageCount(q.used).c_str(), usageCount(q.limit).c_str());
+            note(b);
+        }
+    } else if (service == kUseClaude || service == kUseGemini || service == kUseOpenAI) {
+        const long long in = all.tokensIn + all.cacheRead + all.cacheWritten;
+        usageBigNumbers({{usageMoney(all.dollars), "about, at list price"},
+                         {usageCount(all.requests), "requests"},
+                         {usageShort(double(in)), "tokens in"},
+                         {usageShort(double(all.tokensOut)), "tokens out"}});
+        const float reused = in > 0 ? float(all.cacheRead) / float(in) : 0.f, fresh = in > 0 ? float(all.cacheWritten) / float(in) : 0.f;
+        char b[160];
+        std::snprintf(b, sizeof(b), TF("Reused from its cache: %.0f%%"), reused * 100.f);
+        ImGui::TextColored(kLabel, "%s", b);
+        usageBar({{reused, kVoices[2]}, {fresh, kBusy}});
+        gap(0.2f);
+        usageKey(kVoices[2], service == kUseClaude ? "Reused: a tenth of the price" : "Reused: cheaper");
+        if (service == kUseClaude) {
+            ImGui::SameLine(0, em() * 1.2f);
+            usageKey(kBusy, "Newly kept: a quarter more");
+        }
+        const std::string role = usageRole(c, service == kUseClaude ? kClaude : service == kUseGemini ? kGemini : kOpenAI);
+        note(!role.empty() ? role
+             : (service == kUseClaude ? c.claudeKey : service == kUseGemini ? c.geminiKey : c.openaiKey).empty()
+                 ? std::string(T("No key added (Settings > Accounts)."))
+                 : std::string(T("Used only as a backup: for lines the chosen AI says no to or fails on.")));
+    } else if (service == kUseDeepL) {
+        const Quota& q = m.deeplQuota;
+        usageBigNumbers({{usageCount(all.letters), range == 0 ? "letters this session" : range == 1 ? "letters today" : range == 2 ? "letters in 7 days" : "letters in 30 days"},
+                         {q.known ? usageCount(q.used) : std::string("-"), "used this month"},
+                         {q.known ? usageCount(q.limit) : std::string("-"), "a month on your plan"}});
+        if (q.known && q.limit > 0) usageBar({{float(q.used) / float(q.limit), kSignal}});
+        note(c.deeplKey.empty() ? std::string(T("No key added (Settings > Accounts)."))
+             : usageRole(c, kDeepL).empty() ? std::string(T("The backup when the AI is slow or busy."))
+                                            : usageRole(c, kDeepL));
+    } else if (service == kUseMicrosoft) {
+        const UseAmount month = useDays(30).service(kUseMicrosoft);
+        usageBigNumbers({{usageCount(all.letters), range == 0 ? "letters this session" : range == 1 ? "letters today" : range == 2 ? "letters in 7 days" : "letters in 30 days"},
+                         {usageCount(month.letters), "last 30 days"},
+                         {"2,000,000", "a month free (F0)"}});
+        usageBar({{float(month.letters) / 2000000.f, kSignal}});
+        note(c.msKey.empty() ? "No key added (Settings > Accounts)."
+                             : "Microsoft doesn't tell apps how much a key has used: this is counted by CIMA Box on this PC. Your Azure portal shows the exact figure.");
+    } else {  // a model on this PC
+        char ms[32] = "-";
+        if (all.requests > 0) std::snprintf(ms, sizeof(ms), TF("%.2f s"), double(all.workMs) / double(all.requests) / 1000.0);
+        usageBigNumbers({{usageCount(all.requests), "lines translated"}, {ms, "usual time per line"}, {"$0", "free, nothing sent"}});
+        if (!m.local.running.empty()) {
+            char b[300];
+            std::snprintf(b, sizeof(b), TF("Running: %s%s%s."), m.local.running.c_str(), m.local.device.empty() ? "" : ", ",
+                          m.local.device.c_str());
+            note(b);
+        } else {
+            note("Not loaded right now.");
+        }
+    }
+    ImGui::EndChild();
+
+    // ---- the left column, bottom: what it went on
+    ImGui::SetCursorScreenPos(ImVec2(top.x, top.y + topH + gapW));
+    beginPanel("usefeatures", ImVec2(leftW, bodyH - topH - gapW), "What it went on");
+    {
+        const bool ai = service == kUseClaude || service == kUseGemini || service == kUseOpenAI;
+        const bool eleven = service == kUseEleven;
+        const int cols = ai ? 4 : 3;
+        if (ImGui::BeginTable("##usetable", cols, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
+            ImGui::TableSetupColumn(T("Feature"), ImGuiTableColumnFlags_WidthStretch, eleven ? 2.6f : 3.f);
+            ImGui::TableSetupColumn(T("Requests"), ImGuiTableColumnFlags_WidthStretch, eleven ? 0.9f : 1.f);
+            ImGui::TableSetupColumn(eleven ? T("Amount") : ai ? T("Tokens in") : service == kUseLocal ? T("Usual time") : T("Letters"),
+                                    ImGuiTableColumnFlags_WidthStretch, eleven ? 1.9f : 1.1f);
+            if (ai) ImGui::TableSetupColumn(T("Cost"), ImGuiTableColumnFlags_WidthStretch, 1.f);
+            ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+            ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, kField);
+            ImGui::TableHeadersRow();
+            ImGui::PopStyleColor(2);
+            int rows = 0;
+            for (int f = 0; f < kUseFeatures; ++f) {
+                const UseAmount& a = t.by[service][f];
+                if (a.empty()) continue;
+                ++rows;
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                usageKey(kUseFeatureColors[f], kUseFeatureNames[f]);
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(usageCount(a.requests).c_str());
+                ImGui::TableNextColumn();
+                std::string amount;
+                if (eleven) {
+                    if (a.audioMs > 0) amount = usageMinutes(a.audioMs);
+                    if (a.letters > 0) amount += (amount.empty() ? "" : ", ") + usageShort(double(a.letters)) + " " + T("letters");
+                } else if (ai) {
+                    amount = usageShort(double(a.tokensIn + a.cacheRead + a.cacheWritten));
+                } else if (service == kUseLocal) {
+                    char b[32];
+                    std::snprintf(b, sizeof(b), TF("%.2f s"), a.requests > 0 ? double(a.workMs) / double(a.requests) / 1000.0 : 0.0);
+                    amount = b;
+                } else {
+                    amount = usageCount(a.letters);
+                }
+                ImGui::TextUnformatted(amount.c_str());
+                if (ai) {
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(usageMoney(a.dollars).c_str());
+                }
+            }
+            ImGui::EndTable();
+            if (rows == 0) note(range == 0 ? "Nothing yet in this session." : "Nothing in these days.");
+        }
+        gap(0.4f);
+        if (eleven)
+            note("Minutes of sound written down or changed, and letters spoken. ElevenLabs charges by these; it says credits per day, "
+                 "not per feature (the chart on the right).");
+        else if (ai)
+            note("Counted from each answer's token count, at list price. Your bill on the service's own site is the exact figure.");
+        if (eleven && c.fx.liveCaptions && c.listen.tellApart && !t.by[kUseEleven][kUseLive].empty())
+            note("\"Captions while they talk\" with \"Tell speakers apart\" sends what others say twice: live, and once more to tell who said what.",
+                 kBusy);
+        if (ai && !t.by[service][kUseLive].empty() && t.by[service][kUseLive].dollars > t.by[service][kUseCaptions].dollars)
+            note("Most of it was sentences translated while they talk (\"Translate each sentence right away\", under Captions while they talk). "
+                 "The finished caption is translated either way.", kBusy);
+    }
+    ImGui::EndChild();
+
+    // ---- the right column
+    ImGui::SetCursorScreenPos(ImVec2(top.x + leftW + gapW, top.y));
+    if (service == kUseEleven) {
+        beginPanel("useright", ImVec2(rightW, bodyH), "Last 7 days");
+        const std::vector<ElevenDay>& days = m.elevenDays;
+        if (days.empty()) {
+            note(c.apiKey.empty() ? "Add your ElevenLabs key in Settings > Accounts." : "Not read yet (or this key can't read the account's usage).");
+        } else {
+            double most = 1;
+            for (const ElevenDay& d : days) most = std::max(most, d.total());
+            const float chartH = std::min(em() * 9.f, ImGui::GetContentRegionAvail().y * 0.5f);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x, slot = w / float(days.size()), bw = std::min(slot * 0.55f, em() * 1.6f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float labelH = ImGui::GetTextLineHeight();
+            for (size_t i = 0; i < days.size(); ++i) {
+                const ElevenDay& d = days[i];
+                const float x = p.x + slot * float(i) + (slot - bw) * 0.5f;
+                float y = p.y + labelH + chartH;
+                const std::pair<double, ImVec4> parts[] = {{d.written, kUseFeatureColors[3]}, {d.live, rgb(0x8EC5FF)}, {d.voice, kSignal},
+                                                           {d.changer, kUseFeatureColors[1]}, {d.other, kUseFeatureColors[6]}};
+                for (const auto& part : parts) {
+                    const float ph = float(part.first / most) * chartH;
+                    if (ph <= 0) continue;
+                    dl->AddRectFilled(ImVec2(x, y - ph), ImVec2(x + bw, y), col(part.second));
+                    y -= ph;
+                }
+                ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.78f);
+                const std::string v = usageShort(d.total());
+                const ImVec2 vs = ImGui::CalcTextSize(v.c_str());
+                dl->AddText(ImVec2(x + (bw - vs.x) * 0.5f, y - vs.y - em() * 0.15f), col(kText), v.c_str());
+                char day[16] = "";
+                const std::time_t ts = std::time_t(d.start);
+                std::tm tm{};
+#ifdef _WIN32
+                gmtime_s(&tm, &ts);
+#else
+                gmtime_r(&ts, &tm);
+#endif
+                std::strftime(day, sizeof(day), "%d.%m", &tm);
+                const ImVec2 ds = ImGui::CalcTextSize(day);
+                dl->AddText(ImVec2(x + (bw - ds.x) * 0.5f, p.y + labelH + chartH + em() * 0.3f), col(i + 1 == days.size() ? kSignal : kMuted), day);
+                ImGui::PopFont();
+            }
+            ImGui::Dummy(ImVec2(w, labelH + chartH + em() * 1.6f));
+            usageKey(kUseFeatureColors[3], "Written down");
+            ImGui::SameLine(0, em() * 1.2f);
+            usageKey(rgb(0x8EC5FF), "Live words");
+            ImGui::SameLine(0, em() * 1.2f);
+            usageKey(kSignal, "Voice");
+            ImGui::SameLine(0, em() * 1.2f);
+            usageKey(kUseFeatureColors[1], "Changer");
+            gap(0.4f);
+            double sum = 0;
+            for (const ElevenDay& d : days) sum += d.total();
+            char b[200];
+            std::snprintf(b, sizeof(b), TF("%s credits in these 7 days, from your ElevenLabs account. Its days start at midnight UTC."),
+                          usageCount((long long)sum).c_str());
+            note(b);
+        }
+        ImGui::EndChild();
+    } else if (service == kUseClaude || service == kUseGemini || service == kUseOpenAI) {
+        beginPanel("useright", ImVec2(rightW, bodyH), "Last requests in this session");
+        const std::vector<UseRecent> recent = useRecent(service);
+        if (recent.empty()) {
+            note("None yet in this session.");
+        } else if (ImGui::BeginTable("##userecent", 5, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
+                                     ImVec2(0, ImGui::GetContentRegionAvail().y - em() * 3.f))) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn(T("Time"), ImGuiTableColumnFlags_WidthStretch, 1.1f);
+            ImGui::TableSetupColumn(T("For"), ImGuiTableColumnFlags_WidthStretch, 2.f);
+            ImGui::TableSetupColumn(T("In"), ImGuiTableColumnFlags_WidthStretch, 0.8f);
+            ImGui::TableSetupColumn(T("Cached"), ImGuiTableColumnFlags_WidthStretch, 0.9f);
+            ImGui::TableSetupColumn(T("Cost"), ImGuiTableColumnFlags_WidthStretch, 1.f);
+            ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+            ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, kField);
+            ImGui::TableHeadersRow();
+            ImGui::PopStyleColor(2);
+            static const char* const kShort[] = {"My voice", "Caption", "While they talk", "Means check", "In my ear", "Changer", "Other"};
+            for (const UseRecent& r : recent) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                char hm[16];
+                const std::time_t ts = std::time_t(r.at);
+                std::tm tm{};
+#ifdef _WIN32
+                localtime_s(&tm, &ts);
+#else
+                localtime_r(&ts, &tm);
+#endif
+                std::strftime(hm, sizeof(hm), "%H:%M:%S", &tm);
+                ImGui::TextColored(kMuted, "%s", hm);
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(T(kShort[std::max(0, std::min(kUseFeatures - 1, r.feature))]));
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(usageCount(r.amount.tokensIn + r.amount.cacheRead + r.amount.cacheWritten).c_str());
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(usageCount(r.amount.cacheRead).c_str());
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(usageMoney(r.amount.dollars).c_str());
+            }
+            ImGui::EndTable();
+        }
+        gap(0.3f);
+        note("Only counts and times are kept, never what anyone said.");
+        ImGui::EndChild();
+    } else {
+        beginPanel("useright", ImVec2(rightW, bodyH), "Worth knowing");
+        if (service == kUseDeepL)
+            note("DeepL is accurate, with textbook wording. With an AI as the translation service, it's the backup for lines the AI "
+                 "takes too long for, and it translates your \"Words for DeepL\". The free plan has 500,000 letters a month.");
+        else if (service == kUseMicrosoft)
+            note("Accurate, textbook wording in 100+ languages, 2 million letters a month free. It can translate Listen's captions on "
+                 "its own: pick it on the Listen page under \"Translation service\".");
+        else
+            note("Free and private: nothing leaves this PC. It uses your graphics card's memory, so a game that needs it can push part "
+                 "of the model to the processor, and lines take longer. The log says when that happens.");
+        gap(0.5f);
+        const std::string role = usageRole(c, service == kUseDeepL ? kDeepL : service == kUseMicrosoft ? kMicrosoft : kLocal);
+        if (!role.empty()) note(role);
+        ImGui::EndChild();
+    }
+    (void)act;
+}
+
 // The whole window when it isn't the setup, the caption window or the mini window: the sidebar
 // on the left, the page on the right.
 void appFrame(UiModel& m, UiActions& act, bool picture) {
@@ -1556,6 +2001,7 @@ void appFrame(UiModel& m, UiActions& act, bool picture) {
     case kPageVR: vrPage(m, act); break;
     case kPageFeatures: featuresPage(m, act); break;
     case kPageSettings: settingsPage(m, act); break;
+    case kPageUsage: usagePage(m, act); break;
     default: voicePage(m, act); break;
     }
     ImGui::EndChild();

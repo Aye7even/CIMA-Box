@@ -73,6 +73,36 @@ const Language* clearlyOther(const Language* only, const std::string& text) {
     return clear && guess && guess != only && !sameLetters(guess, only) ? guess : nullptr;
 }
 
+// Languages that are written in their own letters, not the Latin ones.
+bool ownLetters(const Language* l) {
+    if (!l) return false;
+    static const char* const kOwn[] = {"ar", "fa", "ur", "ps", "he", "yi", "ru", "uk", "bg", "be", "mk", "kk", "ky", "tg", "mn",
+                                       "el", "hi", "mr", "ne", "bn", "ta", "te", "kn", "ml", "gu", "pa", "si", "th", "lo", "km",
+                                       "my", "ka", "hy", "am", "zh", "yue", "ja", "ko"};
+    for (const char* c : kOwn)
+        if (std::strcmp(l->code, c) == 0) return true;
+    return false;
+}
+
+// Words written only in Latin letters (punctuation, digits and accents aside): at least one letter,
+// and nothing from another alphabet.
+bool latinOnly(const std::string& text) {
+    bool letter = false;
+    for (size_t i = 0; i < text.size();) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        unsigned cp = c;
+        int len = 1;
+        if (c >= 0xF0) { cp = c & 0x07; len = 4; }
+        else if (c >= 0xE0) { cp = c & 0x0F; len = 3; }
+        else if (c >= 0xC0) { cp = c & 0x1F; len = 2; }
+        for (int k = 1; k < len && i + size_t(k) < text.size(); ++k) cp = (cp << 6) | (static_cast<unsigned char>(text[i + size_t(k)]) & 0x3F);
+        i += size_t(len);
+        if ((cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') || (cp >= 0xC0 && cp <= 0x24F)) letter = true;
+        else if (cp >= 0x370 && !(cp >= 0x2000 && cp <= 0x206F)) return false;  // another alphabet (general punctuation aside)
+    }
+    return letter;
+}
+
 // The language to caption alone, or null when "Only this language" is off.
 const Language* onlyLanguage(const ListenSettings& s) {
     return s.onlyFromLang && !s.fromLang.empty() ? findLanguage(s.fromLang) : nullptr;
@@ -223,6 +253,11 @@ struct Listener::Impl {
     bool liveDone = false;                      // mtx: ...and the phrase has ended
     uint64_t liveFor = 0, liveSeq = 0;          // mtx: the caption they belong to; counts changes
     std::map<std::string, std::string> liveSaid;  // mtx: sentence -> its translation, for liveFor
+    // mtx: when each finished sentence was first seen with exactly these words, for liveFor. The live
+    // words are corrected as more is heard, and each corrected sentence would be a new request: one is
+    // asked only once its words have stayed the same for a moment (or the phrase has ended).
+    std::map<std::string, long long> liveSeen;
+    static constexpr long long kSettledMs = 500;
     struct LiveEnd { uint64_t id; std::shared_future<LiveText> text; };
     std::deque<LiveEnd> liveEnds;               // mtx: finished phrases whose own words are on their way
     std::condition_variable liveCv;
@@ -641,6 +676,7 @@ struct Listener::Impl {
             Eleven api;
             api.apiKey = c.apiKey;
             api.http.cancel = &cancel;
+            api.useFeature = kUseLive;
             std::string text, lang, err;
             const Language* only = onlyLanguage(c.s);
             if (api.transcribe(pcm, only ? std::string() : c.s.fromLang, text, lang, err) && !text.empty() && !clearlyOther(only, text)) {
@@ -703,6 +739,7 @@ struct Listener::Impl {
         if (liveFor != liveId) {
             liveFor = liveId;
             liveSaid.clear();
+            liveSeen.clear();
         }
         liveText = applyWordFixes(words, cfg.words);
         liveDone = false;
@@ -711,53 +748,81 @@ struct Listener::Impl {
         liveCv.notify_one();
     }
     // Translates the finished sentences that haven't been yet, in one request, and shows them.
-    void translateLive(uint64_t id, const std::string& text, bool done, const ListenConfig& c, Translator& tr) {
+    // True when a finished sentence is still waiting for its words to settle (look again shortly).
+    bool translateLive(uint64_t id, const std::string& text, bool done, const ListenConfig& c, Translator& tr) {
         const Language* to = findLanguage(c.s.toLang);
         // Only with an AI service: the others count every character, and this says each sentence twice.
-        if (!to || !c.liveTranslate || !isAiService(c.translate.service)) return;
+        if (!to || !c.liveTranslate || !isAiService(c.translate.service)) return false;
         bool open = false;
         const std::vector<std::string> parts = sentencesOf(text, open);
         std::vector<std::string> todo;
         std::vector<const Language*> froms;
+        bool settling = false;
+        // The whole phrase so far says more about its language than one short sentence of it ("No way."
+        // alone looks Spanish, "Hold on." French). A sentence whose own words can't settle it goes by
+        // the phrase when the phrase is clearly in the reader's language: it isn't sent to be translated
+        // into the language it's already in.
+        // (Also with "They speak" picked: what someone says in the reader's language isn't in that one.)
+        bool phraseSure = false;
+        const Language* phrase = findLanguage(guessLanguage(text, &phraseSure));
+        const bool phraseIsReaders = phrase == to && phraseSure;
         {
+            const long long nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
             std::lock_guard<std::mutex> lk(mtx);
-            if (liveFor != id) return;
+            if (liveFor != id) return false;
             for (size_t i = 0; i < parts.size(); ++i) {
                 const bool finished = done || i + 1 < parts.size() || !open;
                 if (!finished || liveSaid.count(parts[i])) continue;
+                // While they're still talking, a sentence is asked about only once its words have
+                // stayed exactly the same for a moment: the live words are still being corrected, and
+                // each corrected version would be another request. When the phrase ends, at once.
+                if (!done) {
+                    const auto seenAt = liveSeen.emplace(parts[i], nowMs).first;
+                    if (nowMs - seenAt->second < kSettledMs) {
+                        settling = true;
+                        continue;
+                    }
+                }
                 bool sure = false;
+                const Language* guessed = findLanguage(guessLanguage(parts[i], &sure));
                 const Language* only = onlyLanguage(c.s);
-                const Language* from = findLanguage(c.s.fromLang.empty() ? guessLanguage(parts[i], &sure) : c.s.fromLang);
+                const Language* from = c.s.fromLang.empty() ? guessed : findLanguage(c.s.fromLang);
                 if (clearlyOther(only, parts[i])) {
                     liveSaid[parts[i]] = parts[i];  // only this language: not translated (and not shown, see showLive)
                     continue;
                 }
-                if (from == to) {
+                const bool notPicked = !c.s.fromLang.empty() && ownLetters(from) && !ownLetters(to) && latinOnly(parts[i]);
+                if (from == to || (guessed == to && sure) || (!sure && phraseIsReaders) || (guessed == to && notPicked)) {
                     liveSaid[parts[i]] = parts[i];  // already in the reader's language
                     continue;
                 }
+                // (Too few words to tell the language: still asked, as before. Short lines in another
+                // language are often like that, and they'd go untranslated until the end.)
                 todo.push_back(parts[i]);
                 froms.push_back(from);
             }
         }
-        if (todo.empty()) return;
+        if (todo.empty()) return settling;
         TranslateSetup setup = c.translate;
         setup.faithful = true;
+        setup.purpose = kForLiveSentence;
         std::vector<std::string> outs;
         std::vector<int> genders;
         std::string why;
         const std::vector<int> voices(todo.size(), 0);
         const bool ok = tr.translateLines(setup, todo, froms, voices, *to, outs, genders, why);
         std::lock_guard<std::mutex> lk(mtx);
-        if (liveFor != id) return;
+        if (liveFor != id) return false;
         for (size_t k = 0; k < todo.size(); ++k)
             liveSaid[todo[k]] = ok && k < outs.size() ? outs[k] : std::string();  // empty: shown as said, not asked again
         showLive();
+        return settling;
     }
     void liveTranslateLoop() {
         Translator tr;
         tr.http.cancel = &cancel;
         uint64_t seen = 0;
+        bool settling = false;  // a finished sentence is waiting for its words to settle: look again soon
         for (;;) {
             uint64_t id = 0;
             std::string text;
@@ -766,7 +831,9 @@ struct Listener::Impl {
             std::shared_future<LiveText> ending;
             {
                 std::unique_lock<std::mutex> lk(mtx);
-                liveCv.wait(lk, [&] { return !running || liveSeq != seen || !liveEnds.empty(); });
+                const auto ready = [&] { return !running || liveSeq != seen || !liveEnds.empty(); };
+                if (settling) liveCv.wait_for(lk, std::chrono::milliseconds(150), ready);
+                else liveCv.wait(lk, ready);
                 if (!running) return;
                 c = cfg;
                 if (!liveEnds.empty()) {  // a phrase ended: its own words first
@@ -788,14 +855,18 @@ struct Listener::Impl {
                 if (liveFor != id) {
                     liveFor = id;
                     liveSaid.clear();
+                    liveSeen.clear();
                 }
                 liveText = text = applyWordFixes(t.text, c.words);
                 liveDone = done = true;
                 seen = ++liveSeq;
                 showLive();
             }
-            if (cancel) continue;
-            translateLive(id, text, done, c, tr);
+            if (cancel) {
+                settling = false;
+                continue;
+            }
+            settling = translateLive(id, text, done, c, tr);
         }
     }
 
@@ -979,6 +1050,27 @@ struct Listener::Impl {
                 if (!c.around.empty() && std::find(c.around.begin(), c.around.end(), std::string(l->code)) == c.around.end()) continue;
                 lineFrom[i] = l;
             }
+        // "They speak" picked (without "Only this language"): every line was taken to be in that
+        // language, so a line in the reader's own language was "translated" into the language it was
+        // already in (and "Skip speech in my language" never left it out). A line whose words clearly
+        // are the reader's language goes by that.
+        // A line too short to tell on its own ("Sorry.") goes by the whole caption when that clearly is.
+        if (!c.s.fromLang.empty() && !only && to) {
+            std::string all;
+            for (const SpeakerTurn& tr : t.turns) all += tr.text + " ";
+            bool allClear = false;
+            const bool allReaders = findLanguage(guessLanguage(all, &allClear)) == to && allClear;
+            // "They speak" is a language with its own letters (Arabic, Russian, Chinese...): a line
+            // written only in Latin letters isn't in it, so a guess of the reader's language will do.
+            const bool picksOwn = ownLetters(findLanguage(c.s.fromLang)) && !ownLetters(to);
+            for (size_t i = 0; i < t.turns.size(); ++i) {
+                bool clear = false;
+                const Language* g = findLanguage(guessLanguage(t.turns[i].text, &clear));
+                if (lineFrom[i] != to &&
+                    ((g == to && clear) || (!clear && allReaders) || (g == to && picksOwn && latinOnly(t.turns[i].text))))
+                    lineFrom[i] = to;
+            }
+        }
         // "Only this language": each line is that language (kept), clearly another one (left out), or
         // too short to tell (kept for now; who said it may settle it once the voices are named).
         std::vector<char> lineOut(t.turns.size(), 0), lineUnsure(t.turns.size(), 0);
@@ -1299,6 +1391,7 @@ struct Listener::Impl {
 
     void workerLoop() {
         Eleven api;  // each worker keeps its own connections open between phrases
+        api.useFeature = kUseCaptions;
         Translator translator;
         api.http.cancel = &cancel;
         translator.http.cancel = &cancel;
@@ -1346,6 +1439,7 @@ void Listener::start() {
     p_->ctxOk = ma_context_init(nullptr, 0, nullptr, &p_->ctx) == MA_SUCCESS;
     p_->liveStt = p_->liveHost.empty() ? std::make_unique<LiveStt>() : std::make_unique<LiveStt>(p_->liveHost);
     p_->liveStt->onPartial = [this](const std::string& words) { p_->onLiveWords(words); };
+    p_->liveStt->useFeature = kUseLive;
     p_->liveStt->onLog = [](const std::string& line) { logLine("Listen, live words: " + line); };
     p_->liveTrThread = std::thread([this] { p_->liveTranslateLoop(); });
     p_->capThread = std::thread([this] { p_->captureLoop(); });

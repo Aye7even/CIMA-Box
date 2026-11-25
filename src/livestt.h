@@ -70,6 +70,9 @@ public:
     // CIMA Box closes it itself a little before. Changeable for tests.
     int idleCloseMs = 13000;
 
+    // The UseFeature (usagecount.h) what's streamed counts under on the Usage page (0 = My voice).
+    std::atomic<int> useFeature{0};
+
 private:
     struct Item {
         enum Kind { kAudio, kCommit, kDiscard } kind = kAudio;
