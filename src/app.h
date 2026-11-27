@@ -81,6 +81,7 @@ struct Settings {
     std::string deeplKey;
     std::string claudeKey, geminiKey, openaiKey;  // AI translation (natural, slang-aware)
     std::string msKey, msRegion;  // Microsoft Translator: an optional free backup (2 million characters a month)
+    std::string betaKey;  // beta access (updater.h): a key for the private beta releases, "" = none
     bool aiBackup = true;         // with keys for two AIs, the other one covers lines the chosen one misses
     std::string claudeModel = "claude-haiku-5-5";
     std::string geminiModel = "gemini-3.5-flash-lite";
@@ -255,6 +256,7 @@ struct UiModel {
     bool firstRun = false;                   // no ElevenLabs key yet: show the getting-started steps
     UpdateState update;                      // GitHub updates
     bool updatesConfigured = false;          // this build knows where updates come from
+    std::string betaNote;                    // what the last look at the beta releases found
     bool olderOpen = false;                  // Settings: the list of earlier versions is showing
     PcSpecs pc;                              // this PC's graphics card and memory, to rate the local models
     SoundIdState soundPack;                  // the laugh and cough recogniser: downloaded? downloading?

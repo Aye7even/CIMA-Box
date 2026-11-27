@@ -9,6 +9,20 @@
 #include <string>
 #include <vector>
 
+#include "http.h"
+
+// ---- Beta access.
+// Test versions are published to a private repository beside the public one ("<owner>/<repo>-beta"). With a
+// key (a GitHub token that may read that repository and nothing else), updates and the optional downloads
+// come from its newest release; without one, nothing here does anything and the app only knows the public
+// releases. The key is only ever sent to api.github.com.
+void setBetaKey(const std::string& key);  // "" = no beta access
+bool betaOn();
+std::string betaNote();                   // for Settings: what the last look at the beta repository found ("" = not looked yet)
+// A request for a file of the public release (".../releases/latest/download/<name>") is pointed at the beta
+// repository's copy of that file while beta access is on. Otherwise it is left as it is.
+void betaRedirect(HttpRequest& r);
+
 enum UpdateStage {
     kUpdateIdle = 0,     // not checked yet
     kUpdateChecking,

@@ -2658,6 +2658,13 @@ void settingsPage(UiModel& m, UiActions& act) {
     }
     note("Used by Claude, Gemini and OpenAI when translating, for languages whose words change with gender.");
     subheading("Updates");
+    if (m.updatesConfigured) {  // beta access: a key from CIMA Box's maker, for test versions before everyone gets them
+        fieldLabel("Beta access key");
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        ImGui::InputTextWithHint("##betakey", T("Only if you were given one"), &c.betaKey, ImGuiInputTextFlags_Password);
+        if (!c.betaKey.empty()) note(m.betaNote.empty() ? "Checking the key..." : m.betaNote, m.betaNote.rfind("Beta access is on", 0) == 0 ? kText : kBusy);
+        else note("With a key, updates come from the test versions. Without one, nothing changes.");
+    }
     if (!m.updatesConfigured) {
         note("This copy can't update itself. Download CIMA Box from its GitHub page to get automatic updates.");
     } else {

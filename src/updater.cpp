@@ -1,5 +1,6 @@
 #include "updater.h"
 
+#include <map>
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -105,6 +106,46 @@ int compareVersions(const std::string& a, const std::string& b) {
     return 0;
 }
 
+// ---- Beta access (see updater.h)
+std::mutex gBetaMx;
+std::string gBetaKey, gBetaNote;
+std::map<std::string, std::string> gBetaFiles;  // the newest beta release's files: name -> where the API serves it
+std::chrono::steady_clock::time_point gBetaRead{};
+bool gBetaLooked = false;
+
+std::string betaRepo() { return gRepo.empty() ? std::string() : gRepo + "-beta"; }
+std::string betaKeyNow() {
+    std::lock_guard<std::mutex> lk(gBetaMx);
+    return gBetaKey;
+}
+
+// The newest beta release's files, read at most every five minutes. gBetaMx held.
+void betaLook() {
+    if (gBetaLooked && std::chrono::steady_clock::now() - gBetaRead < std::chrono::minutes(5)) return;
+    gBetaLooked = true;
+    gBetaRead = std::chrono::steady_clock::now();
+    gBetaFiles.clear();
+    Http http;
+    HttpRequest r;
+    r.url = gApiBase + "/repos/" + betaRepo() + "/releases/latest";
+    r.headers = {"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28", "Authorization: Bearer " + gBetaKey};
+    r.timeoutSec = 20;
+    long status = 0;
+    std::string body, err;
+    if (!http.perform(r, status, body, err)) { gBetaNote = "Couldn't reach GitHub to check the beta key."; return; }
+    if (status == 401 || status == 403) { gBetaNote = "GitHub didn't accept this beta key."; return; }
+    if (status == 404) { gBetaNote = "This key can't see the beta, or there is no beta version yet."; return; }
+    if (status != 200) { gBetaNote = "GitHub answered " + std::to_string(status) + " for the beta."; return; }
+    const json j = json::parse(body, nullptr, false);
+    if (!j.is_object()) { gBetaNote = "GitHub's answer about the beta couldn't be read."; return; }
+    if (j.contains("assets") && j["assets"].is_array())
+        for (const json& a : j["assets"]) gBetaFiles[str(a, "name")] = str(a, "url");
+    std::string tag = str(j, "tag_name");
+    while (!tag.empty() && !std::isdigit(static_cast<unsigned char>(tag[0]))) tag.erase(tag.begin());
+    gBetaNote = "Beta access is on. The newest beta is " + tag + ".";
+}
+
+
 bool parseRelease(const std::string& body, ReleaseInfo& out, std::string& err) {
     const json j = json::parse(body, nullptr, false);
     if (!j.is_object() || str(j, "tag_name").empty()) { err = "Unexpected answer from GitHub"; return false; }
@@ -117,8 +158,10 @@ bool parseRelease(const std::string& body, ReleaseInfo& out, std::string& err) {
     out.date = str(j, "published_at").substr(0, 10);
     if (j.contains("assets") && j["assets"].is_array())
         for (const json& a : j["assets"]) {
-            if (str(a, "name") == kExeAsset) out.exeUrl = str(a, "browser_download_url");
-            if (str(a, "name") == kSigAsset) out.sigUrl = str(a, "browser_download_url");
+            // (A private repository's files are only served through the API, to the key.)
+            const char* where = betaOn() ? "url" : "browser_download_url";
+            if (str(a, "name") == kExeAsset) out.exeUrl = str(a, where);
+            if (str(a, "name") == kSigAsset) out.sigUrl = str(a, where);
         }
     return true;
 }
@@ -234,8 +277,9 @@ struct Updater::Impl {
         Http http;
         http.cancel = &cancel;
         HttpRequest r;
-        r.url = gApiBase + "/repos/" + gRepo + "/releases/latest";
+        r.url = gApiBase + "/repos/" + (betaOn() ? betaRepo() : gRepo) + "/releases/latest";
         r.headers = {"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"};
+        if (betaOn()) r.headers.push_back("Authorization: Bearer " + betaKeyNow());
         r.timeoutSec = 20;
         long status = 0;
         std::string body, err;
@@ -262,8 +306,9 @@ struct Updater::Impl {
         Http http;
         http.cancel = &cancel;
         HttpRequest r;
-        r.url = gApiBase + "/repos/" + gRepo + "/releases?per_page=40";
+        r.url = gApiBase + "/repos/" + (betaOn() ? betaRepo() : gRepo) + "/releases?per_page=40";
         r.headers = {"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"};
+        if (betaOn()) r.headers.push_back("Authorization: Bearer " + betaKeyNow());
         r.timeoutSec = 20;
         long status = 0;
         std::string body, err;
@@ -283,6 +328,7 @@ struct Updater::Impl {
         HttpRequest r;
         r.url = url;
         r.headers = {"Accept: application/octet-stream"};
+        if (betaOn()) r.headers.push_back("Authorization: Bearer " + betaKeyNow());  // (not passed on when GitHub redirects to its file server)
         r.followRedirects = true;
         r.timeoutSec = 600;
         long status = 0;
@@ -431,4 +477,34 @@ void Updater::overrideForTests(const std::string& apiBase, const std::string& re
     gApiBase = apiBase;
     gRepo = repo;
     gKey = keyHex;
+}
+
+void setBetaKey(const std::string& key) {
+    std::lock_guard<std::mutex> lk(gBetaMx);
+    if (key == gBetaKey) return;
+    gBetaKey = key;
+    gBetaFiles.clear();
+    gBetaNote.clear();
+    gBetaLooked = false;
+}
+bool betaOn() {
+    std::lock_guard<std::mutex> lk(gBetaMx);
+    return !gBetaKey.empty() && !gRepo.empty();
+}
+std::string betaNote() {
+    std::lock_guard<std::mutex> lk(gBetaMx);
+    return gBetaNote;
+}
+void betaRedirect(HttpRequest& r) {
+    std::lock_guard<std::mutex> lk(gBetaMx);
+    if (gBetaKey.empty() || gRepo.empty()) return;
+    betaLook();
+    const std::string name = r.url.substr(r.url.rfind('/') + 1);
+    const auto it = gBetaFiles.find(name);
+    // A file the beta release doesn't have is asked for at an address that answers "not found", like the public one would.
+    r.url = it != gBetaFiles.end() ? it->second : gApiBase + "/repos/" + betaRepo() + "/releases/assets/0";
+    r.headers.push_back("Accept: application/octet-stream");
+    r.headers.push_back("X-GitHub-Api-Version: 2022-11-28");
+    r.headers.push_back("Authorization: Bearer " + gBetaKey);  // (not passed on when GitHub redirects to its file server)
+    r.followRedirects = true;
 }

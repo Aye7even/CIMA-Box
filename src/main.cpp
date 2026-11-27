@@ -240,6 +240,7 @@ static void settingsFromJson(const json& j, Settings& s) {
         s.holdMs = j.value("hold_ms", s.holdMs);
         s.sentenceWaitMs = std::max(0, std::min(3000, j.value("sentence_wait_ms", s.sentenceWaitMs)));
         s.liveStt = j.value("live_transcription", s.liveStt);
+        s.betaKey = j.value("beta_key", s.betaKey);
         s.maxSeconds = j.value("max_seconds", s.maxSeconds);
         s.pttKey = j.value("ptt_key", s.pttKey);
         s.page = j.value("page", s.page);
@@ -583,7 +584,7 @@ static std::string settingsJson(const Settings& s) {
         {"ai_timeout_ms", s.aiTimeoutMs}, {"mirror", s.mirror}, {"input_device", s.inDevice},
         {"output_device", s.outDevice}, {"monitor_device", s.monDevice}, {"monitor", s.monitor},
         {"enabled", s.enabled}, {"activation", s.activation}, {"threshold_db", s.thresholdDb},
-        {"hold_ms", s.holdMs}, {"sentence_wait_ms", s.sentenceWaitMs}, {"live_transcription", s.liveStt}, {"max_seconds", s.maxSeconds}, {"ptt_key", s.pttKey},
+        {"hold_ms", s.holdMs}, {"sentence_wait_ms", s.sentenceWaitMs}, {"live_transcription", s.liveStt}, {"beta_key", s.betaKey}, {"max_seconds", s.maxSeconds}, {"ptt_key", s.pttKey},
         {"page", s.page}, {"home_tiles", s.homeTiles}, {"recent_targets", s.recentTargets},
         {"emotion", s.emotion}, {"emotion_strength", s.emotionStrength},
         {"audio_quality", s.quality}, {"match_mic", s.matchMic}, {"match_amount", s.matchAmount}, {"passthrough", s.passthrough}, {"ptt_real_voice", s.pttRealVoice}, {"ptt_tap", s.pttTap},
@@ -632,7 +633,7 @@ static std::string settingsJson(const Settings& s) {
 // A profile: everything but the keys and what belongs to this PC's install.
 static std::string profileJson(const Settings& s, bool shared = false) {
     json j = json::parse(settingsJson(s), nullptr, false);
-    for (const char* k : {"api_key", "deepl_key", "claude_key", "gemini_key", "openai_key", "microsoft_key", "microsoft_region", "page", "setup_done", "setup_at",
+    for (const char* k : {"beta_key", "api_key", "deepl_key", "claude_key", "gemini_key", "openai_key", "microsoft_key", "microsoft_region", "page", "setup_done", "setup_at",
                           "setup_use", "setup_route", "setup_ai", "last_seen_version", "usual_voice", "usage_notice"})
         j.erase(k);
     if (j.contains("features")) {
@@ -3459,6 +3460,7 @@ int main() {
                 ", " + std::to_string(ui.pc.ramBytes >> 20) + " MB of memory, " + std::to_string(ui.pc.threads) + " threads.");
     Updater::removeOldVersion();  // what the last update replaced
     ui.updatesConfigured = Updater::configured();
+    setBetaKey(ui.cfg.betaKey);
     bool updateChecked = false;
     g.cfg = ui.cfg;
     g.baseline = ui.cfg.baseline;
@@ -4122,6 +4124,15 @@ int main() {
         }
         // ---- updates: one quiet check a few seconds after starting, then only when asked
         if (ui.updatesConfigured) {
+            {   // Beta access: a new key is used from the next check on, and looked at right away.
+                static std::string keyUsed = ui.cfg.betaKey;
+                setBetaKey(ui.cfg.betaKey);
+                if (keyUsed != ui.cfg.betaKey && (ui.cfg.betaKey.empty() || ui.cfg.betaKey.size() >= 20)) {
+                    keyUsed = ui.cfg.betaKey;
+                    updater.check();
+                }
+                ui.betaNote = betaNote();
+            }
             if (!updateChecked && ui.cfg.checkUpdates && nowSeconds() > 4.0) {
                 updateChecked = true;
                 updater.check();
